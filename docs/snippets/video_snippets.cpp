@@ -1,4 +1,4 @@
-// Copyright 2026 Quaternar
+// Copyright 2026 QuaternAR
 // SPDX-License-Identifier: MIT
 //
 // Snippets of API.md for video in panels: the decoders, the mailbox, the video panel and the region sources. The

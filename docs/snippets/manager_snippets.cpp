@@ -1,4 +1,4 @@
-// Copyright 2026 Quaternar
+// Copyright 2026 QuaternAR
 // SPDX-License-Identifier: MIT
 //
 // Snippets of API.md for the manager: its configuration, the calls of a host, the input sink and the diagnostics.

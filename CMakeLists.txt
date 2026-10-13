@@ -1,4 +1,4 @@
-# Copyright 2026 Quaternar
+# Copyright 2026 QuaternAR
 # SPDX-License-Identifier: MIT
 #
 # qar_qt_streaming: Qt widgets as QarOS AR GUI panels - the library qar_qt_streaming and the example

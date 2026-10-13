@@ -1,4 +1,4 @@
-// Copyright 2026 Quaternar
+// Copyright 2026 QuaternAR
 // SPDX-License-Identifier: MIT
 //
 // QAR_PANEL_CLOSE_MODE: the pure parser behind "destroy (default) or notice".

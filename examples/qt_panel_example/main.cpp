@@ -1,4 +1,4 @@
-// Copyright 2026 Quaternar
+// Copyright 2026 QuaternAR
 // SPDX-License-Identifier: MIT
 //
 // Streams two Qt widgets to a QarOS Visualizer as AR GUI panels: a window with a button and a counter, and a

@@ -1,4 +1,4 @@
-// Copyright 2026 Quaternar
+// Copyright 2026 QuaternAR
 // SPDX-License-Identifier: MIT
 //
 // A widget shown OFF-SCREEN (Qt::WA_DontShowOnScreen, offscreen_panel.hpp) has to
