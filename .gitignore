@@ -1,0 +1,11 @@
+build/
+install/
+log/
+Testing/
+.venv/
+__pycache__/
+*.pyc
+.vs/
+.vscode/
+CMakeUserPresets.json
+*.log
