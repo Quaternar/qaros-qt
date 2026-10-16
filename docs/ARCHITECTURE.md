@@ -333,7 +333,7 @@ The close mode rests on one fact about the QarOS runtime, which the header of th
 
 ### The C API cannot withdraw a logical video stream
 
-`qar_video_sender_handle_destroy` returns nothing, and `qar_gui_panels_close_panel` closes the panel and not the stream behind it, so a receiver that was attached is left reconnecting and nothing on the producer side can stop it. The maintainers observed a retry about every ten seconds that failed with the status 507 until the producer peer went away. The log line of a retired stream therefore carries its stream id and the number of frames that it served, so that the loop can be found with one search for the id; a stream that served no frame at all is a warning.
+`qar_video_sender_handle_destroy` returns nothing, and `qar_gui_panels_close_panel` closes the panel and not the stream behind it, so a receiver that was attached is left reconnecting and nothing on the producer side can stop it. The authors of qar_qt_streaming observed a retry about every ten seconds that failed with the status 507 until the producer peer went away. The log line of a retired stream therefore carries its stream id and the number of frames that it served, so that the loop can be found with one search for the id; a stream that served no frame at all is a warning.
 
 ### Dialogs get a panel of their own
 

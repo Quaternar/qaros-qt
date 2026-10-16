@@ -6,7 +6,7 @@ This section gives the result of each level. The results of Level 0 and Level 1 
 
 - Level 0, automated checks: passed. Every test of the repository that ran passed and none failed; a test that the run reports as skipped is not a failure ([Run all tests](#run-all-tests) shows the totals). The layering guard and its self-test reported OK ([The layering guard](#the-layering-guard)), and the consumer program of the install smoke test built and ran ([Install and the install smoke test](#install-and-the-install-smoke-test)).
 - Level 1, headless checks: passed with an SDK that has the header of the verified drop of 2026-09-28 ([SDK compatibility](SDK_COMPATIBILITY.md)): the Qt example opened a QarOS session without a window and printed the line that says that it is connected ([A QarOS session without a window](#a-qaros-session-without-a-window)).
-- Level 2, desktop checks: the maintainers did not run the Qt example of this repository in a session with a Visualizer ([Desktop Visualizer checks (Level 2)](#desktop-visualizer-checks-level-2)); the library ran in their desktop sessions of qar_rviz_plugin, which streams windows of RViz into AR as panels through it, with builds that were made before the last changes of the code ([What the live sessions showed](#what-the-live-sessions-showed)).
+- Level 2, desktop checks: the authors of qar_qt_streaming did not run the Qt example of this repository in a session with a Visualizer ([Desktop Visualizer checks (Level 2)](#desktop-visualizer-checks-level-2)); the library ran in their desktop sessions of qar_rviz_plugin, which streams windows of RViz into AR as panels through it, with builds that were made before the last changes of the code ([What the live sessions showed](#what-the-live-sessions-showed)).
 - Level 3, device checks: not run for this release; [Device checks (Level 3)](#device-checks-level-3) says why.
 
 ## Verification levels
@@ -187,13 +187,13 @@ Dragging a slider or a scrollbar in AR and the use of two hands are covered by u
 
 ### What the live sessions showed
 
-The maintainers did not run the Qt example of this repository in a session with a Visualizer, so the checks above have not been run. The library ran in two live sessions of qar_rviz_plugin, which streams windows of RViz into AR as panels through it, with builds of the three repositories that were made before the last changes of the code, so no live session has run the code of this release.
+The authors of qar_qt_streaming did not run the Qt example of this repository in a session with a Visualizer, so the checks above have not been run. The library ran in two live sessions of qar_rviz_plugin, which streams windows of RViz into AR as panels through it, with builds of the three repositories that were made before the last changes of the code, so no live session has run the code of this release.
 
-The logs of those sessions show the panels that the manager of this library added, created and closed: the hidden Displays panel, docks and the panel of a dialog, each with the line of the adapter that reports its creation and the lines that report its close. The maintainers confirmed in live sessions that a click and a hover reach the real widget, with the lists of drop-down boxes and the dialogs. In those sessions they gave no verdict step by step. The drag of a slider and the use of two hands are covered by unit tests, the tap count and the long press by neither a unit test nor a live session, and no live session has exercised any of the four.
+The logs of those sessions show the panels that the manager of this library added, created and closed: the hidden Displays panel, docks and the panel of a dialog, each with the line of the adapter that reports its creation and the lines that report its close. The authors of qar_qt_streaming confirmed in earlier live sessions, held with older builds before the SDK drop of 2026-09-28, that a click and a hover reach the real widget, with the lists of drop-down boxes and the dialogs. In the two sessions of qar_rviz_plugin they gave no verdict step by step. The drag of a slider and the use of two hands are covered by unit tests, the tap count and the long press by neither a unit test nor a live session, and no live session has exercised any of the four.
 
 ## Device checks (Level 3)
 
-Not run for this release: no device was available. The maintainers state that an earlier build of this stack worked on a HoloLens 2 with the SDK drop of 2026-09-28; that is their statement, and no record of that run exists.
+Not run for this release: no device was available. The authors of qar_qt_streaming state that an earlier build of this stack worked on a HoloLens 2 with the SDK drop of 2026-09-28; that is their statement, and no record of that run exists.
 
 None of the checks of this repository needs a device. Devices are invited and admitted by qar_ogre_adapter, and qar_rviz_plugin checks the invitation in its dry-run form.
 
