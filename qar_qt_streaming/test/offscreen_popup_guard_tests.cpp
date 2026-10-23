@@ -55,6 +55,7 @@
 #include <cstddef>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 using qar_ar_core::PanelPointerSample;
@@ -70,6 +71,7 @@ using qar_qt_streaming::popup_owner_widget;
 using qar_qt_streaming::QtPanelStreamingConfig;
 using qar_qt_streaming::QtPanelStreamManager;
 using qar_qt_streaming::QtWidgetCapture;
+using qar_qt_streaming::remove_offscreen_popup_guard;
 using qar_qt_streaming::show_offscreen;
 using qar_qt_streaming::test_support::ManualClock;
 using qar_qt_streaming::test_support::MockQarPanelSenderFactory;
@@ -440,6 +442,37 @@ TEST(OffscreenPopupGuard, ShowOffscreenInstallsTheGuardExactlyOnce)
   ASSERT_NE(QApplication::activePopupWidget(), nullptr);
   const auto after = offscreen_popup_guard_stats();
   EXPECT_EQ(after.kept_popups - before.kept_popups, 1u) << "one list is kept off once";
+}
+
+TEST(OffscreenPopupGuard, RemovingTheGuardDeletesItAndShowOffscreenInstallsItAgain)
+{
+  // What an unload of the module that holds the guard's code does: the guard leaves the
+  // application, so no later event of the application reaches that code.
+  ASSERT_TRUE(install_offscreen_popup_guard());
+  const int objects = QCoreApplication::instance()->children().size();
+
+  bool removed_off_thread = true;
+  std::thread worker(
+    [&removed_off_thread] {removed_off_thread = remove_offscreen_popup_guard();});
+  worker.join();
+  EXPECT_FALSE(removed_off_thread) << "only the guard's own thread may delete it";
+  EXPECT_TRUE(offscreen_popup_guard_installed());
+
+  EXPECT_TRUE(remove_offscreen_popup_guard());
+  EXPECT_FALSE(offscreen_popup_guard_installed());
+  EXPECT_EQ(QCoreApplication::instance()->children().size(), objects - 1)
+    << "the guard object is deleted, not only taken off the filter list";
+  EXPECT_FALSE(remove_offscreen_popup_guard()) << "nothing is left to remove";
+  pump();  // events still flow through the application without the guard
+
+  ComboPanel panel;  // show_offscreen installs a new guard
+  EXPECT_TRUE(offscreen_popup_guard_installed());
+  const auto before = offscreen_popup_guard_stats();
+  panel.combo()->showPopup();
+  pump();
+  ASSERT_NE(QApplication::activePopupWidget(), nullptr);
+  EXPECT_FALSE(native_window_visible(QApplication::activePopupWidget()));
+  EXPECT_EQ(offscreen_popup_guard_stats().kept_popups - before.kept_popups, 1u);
 }
 
 TEST(OffscreenPopupGuard, AnArTapOpensAComboListThatNeverBecomesADesktopWindow)

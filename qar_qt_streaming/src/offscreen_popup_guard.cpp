@@ -131,11 +131,42 @@ protected:
   }
 };
 
+/// Takes the guard off its QApplication and deletes it, on the guard's thread only.
+bool
+remove_guard(QPointer<OffscreenPopupGuard> & guard)
+{
+  if (guard.isNull() || QThread::currentThread() != guard->thread()) {
+    return false;
+  }
+  if (QObject * app = guard->parent()) {
+    app->removeEventFilter(guard.data());
+  }
+  delete guard.data();  // the QPointer clears itself
+  return true;
+}
+
+/// The guard is a child of the QApplication, but its vtable - through which Qt calls
+/// eventFilter() for every event of the application and, at last, its destructor - lives in
+/// the module this file is linked into. A host can unload that module while its
+/// QApplication lives on (RViz frees a plugin library before it destroys its QApplication,
+/// and every later event passes the application's event filters), so the slot's
+/// destructor, which runs when the module is unloaded or its process exits, removes the
+/// guard while its code is still mapped.
+struct GuardSlot
+{
+  GuardSlot() = default;
+  GuardSlot(const GuardSlot &) = delete;
+  GuardSlot & operator=(const GuardSlot &) = delete;
+  ~GuardSlot() { remove_guard(guard); }
+
+  QPointer<OffscreenPopupGuard> guard;
+};
+
 QPointer<OffscreenPopupGuard> &
 guard_instance()
 {
-  static QPointer<OffscreenPopupGuard> guard;
-  return guard;
+  static GuardSlot slot;
+  return slot.guard;
 }
 
 }  // namespace
@@ -160,6 +191,12 @@ offscreen_popup_guard_installed()
 {
   const QPointer<OffscreenPopupGuard> & guard = guard_instance();
   return !guard.isNull() && guard->parent() == QCoreApplication::instance();
+}
+
+bool
+remove_offscreen_popup_guard()
+{
+  return remove_guard(guard_instance());
 }
 
 OffscreenPopupGuardStats

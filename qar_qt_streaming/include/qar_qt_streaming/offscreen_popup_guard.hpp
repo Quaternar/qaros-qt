@@ -55,6 +55,12 @@ bool install_offscreen_popup_guard();
 /// @brief Is the guard installed on the current QApplication?
 bool offscreen_popup_guard_installed();
 
+/// @brief Take the guard off the QApplication and delete it; the next show_offscreen()
+/// installs it again. It also runs by itself when the module this library is linked into
+/// is unloaded or its process exits, so the guard's code never outlives that module.
+/// @return false when no guard is installed, or off the guard's thread.
+bool remove_offscreen_popup_guard();
+
 /// Cumulative counts since the process started (diagnostics and tests compare deltas).
 struct OffscreenPopupGuardStats
 {
