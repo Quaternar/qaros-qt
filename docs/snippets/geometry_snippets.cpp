@@ -45,7 +45,7 @@ void snippet_geometry()
   qqs::PanelGeometry geometry;
   std::string error;
   if (qqs::compute_panel_geometry(input, geometry, error)) {
-    // The ratio is 1.5 * 2.0 = 3.0: a buffer of 1260 x 600 pixels, a panel of 0.504 x 0.240 m and a content scale of 1.0.
+    // The ratio is 1.5 * 2.0 = 3.0: a buffer of 1260 x 600 pixels, a panel of 0.504 x 0.309 m and a content scale of 1.0.
     std::printf("buffer %u x %u px, panel %.3f x %.3f m, content scale %.1f\n",
       static_cast<unsigned>(geometry.buffer_width), static_cast<unsigned>(geometry.buffer_height),
       static_cast<double>(geometry.width_meters), static_cast<double>(geometry.height_meters),

@@ -42,19 +42,21 @@ Every public header of the library. The sections below describe the types.
 
 | Header | What it declares |
 |---|---|
-| `qt_panel_stream_manager.hpp` | `QtPanelStreamManager`, `QtPanelStreamingConfig`, `IQarPanelInputSink`, `PanelPointerEvent` |
-| `qt_panel_stream.hpp` | `QtPanelStream`, `PanelStreamOptions`, `apply_readability` |
+| `qt_panel_stream_manager.hpp` | `QtPanelStreamManager`, `QtPanelStreamingConfig`, `IQarPanelInputSink`, `PanelPointerEvent`, `DialogFitStep`, `DialogSizeAdjuster`, `DialogPoseAdjuster`, `make_census_dialog_adjuster` |
+| `qt_panel_stream.hpp` | `QtPanelStream`, `PanelStreamOptions`, `apply_readability`, `ar_panel_height_m`, `ReplacedPanelFate`, `SizeRebuildReport` |
 | `qt_widget_capture.hpp` | `QtWidgetCapture`, `hash_pixels`, `PanelOverlayAttribution`, `PanelOverlayOptions`, the scans `collect_panel_popups`, `collect_panel_overlays` and `panel_owned_modal_window`, and the ownership tests |
 | `capture_gate.hpp` | `decide_capture`, `CaptureGateInput`, `CaptureGateVerdict`, `TickIntervalEstimator` |
 | `qt_panel_input_injector.hpp` | `QtPanelInputInjector`, `PanelInputOptions`, `InputDeliveryMode`, `InputInjectionStats` |
 | `panel_pointer_state.hpp` | `PanelPointerStateMachine`, `PointerAction`, `PointerActionKind`, `ResolvedPointerSample`, `PointerTarget`, `PointerStateConfig`, `PointerStateDiagnostics` |
 | `panel_hit_test.hpp` | `PanelHit`, `hit_test_panel_point`, `intersect_panel_ray`, the conversions between a hit and a widget position, `PanelHitCandidate`, `PanelPick`, `pick_panel_for_point`, `pick_panel_for_ray` |
-| `panel_geometry.hpp` | `PanelGeometryInput`, `PanelGeometry`, `compute_panel_geometry`, `align_up`, `kDefaultMetersPerLogicalPx` |
+| `panel_geometry.hpp` | `PanelGeometryInput`, `PanelGeometry`, `PanelFrame`, `FrameNarrowing`, `compute_panel_geometry`, `align_up`, `kDefaultMetersPerLogicalPx`, `kDefaultArFrameTopM`, `kDefaultArFrameBottomM`, `kDefaultArFrameLeftM`, `kDefaultArFrameRightM`, `kDefaultArFitMarginM`, `kMinNarrowedWidthShare` |
 | `ar_readability.hpp` | `ReadabilityProfile`, `ReadabilityPreset`, `ReadabilityRecommendation`, `readability_preset`, `recommend_readability`, `subtended_arcmin`, `ceil_to_half` |
 | `offscreen_panel.hpp` | `show_offscreen`, `is_offscreen_panel`, `parse_offscreen_size`, `OffscreenSizeChoice`, `clamp_offscreen_side` |
-| `offscreen_popup_guard.hpp` | `install_offscreen_popup_guard`, `offscreen_popup_guard_installed`, `offscreen_popup_guard_stats`, `popup_owner_widget`, `is_owned_by_offscreen_panel`, `is_offscreen_popup`, `close_offscreen_popups` |
+| `offscreen_popup_guard.hpp` | `install_offscreen_popup_guard`, `offscreen_popup_guard_installed`, `offscreen_popup_guard_stats`, `popup_owner_widget`, `is_owned_by_offscreen_panel`, `is_offscreen_popup`, `close_offscreen_popups`, `remove_offscreen_popup_guard` |
 | `panel_close_mode.hpp` | `PanelCloseMode`, `PanelCloseModeChoice`, `parse_panel_close_mode`, `kPanelCloseModeEnv` |
 | `panel_tombstone.hpp` | `PanelTombstoneText`, `PanelTombstoneStyle`, `make_panel_tombstone_widget`, `tombstone_body_font_px`, `tombstone_is_clipped` |
+| `scroll_census.hpp` | `ScrollCensus`, `ScrollAreaCensus`, `take_scroll_census`, `describe_scroll_census`, `kScrollsByDesignProperty` |
+| `frame_luminance.hpp` | `FrameBrightness`, `mean_luminance`, `frame_brightness`, `kBrightnessNotMeasured`, `kBrightnessTopFraction`, `kLuminanceSampleStep` |
 | `video_frame.hpp` | `RawImageView`, `decode_raw_image`, `decode_compressed_image`, `aspect_fit_rect` |
 | `latest_video_frame.hpp` | `LatestVideoFrame`, `VideoFrameTrace` |
 | `video_panel_widget.hpp` | `VideoPanelWidget` |
@@ -85,22 +87,27 @@ config.pointer_state.double_click_distance_px = 5.0;
 
 | Call | What it does |
 |---|---|
-| `add_panel(key, widget, options)` | starts streaming a widget under a key; the QarOS panel is created on the first `tick()` that finds the widget laid out, so the call never waits for QarOS; the key of a retired panel is revived onto the new widget |
+| `add_panel(key, widget, options)` | starts streaming a widget under a key; the QarOS panel is created on the first `tick()` that finds the widget laid out, so the call never waits for QarOS; the key of a retired or parked panel is revived onto the new widget |
 | `close_panel(key, reason, notice_reason)` | the one door of every close that the Qt side starts; follows the close mode; safe to call from the click handler of the panel itself |
 | `remove_panel(key)` | `close_panel` with no reason |
 | `tombstone_panel(key, reason)` | the notice operation, whatever the close mode is |
 | `note_ar_panel_closed(key)` | the operator closed the panel in AR: stop capturing; the manager calls it itself for every report of the input source |
 | `clear()` | the end of the session: closes every panel that is still held, once |
-| `tick()` | drains the input unless the host pumps it, drains the closes of the operator, sweeps the dialogs and runs one capture and submit cycle for every panel; returns the number of panels that submitted a frame |
+| `tick()` | drains the input unless the host pumps it, drains the closes of the operator, sweeps the dialogs, advances the fit of the dialogs and runs one capture and submit cycle for every panel; returns the number of panels that submitted a frame |
 | `pump_input()` | drains the input source and processes every sample; re-entrant; returns the number of samples |
 | `handle_sample(sample)`, `route_room_point(point, kind)`, `route_room_ray(origin, direction, kind)` | the host's own entry points for a pointer sample, a point or a ray; each returns whether a panel was hit |
 | `set_panel_pose(key, pose)` | moves one panel |
+| `set_panel_ar_visible(key, visible)` | hides a panel in AR, or shows it again, without closing it; the next `tick()` carries the request out |
+| `set_close_mode(mode)` | changes what the Qt-side closes that follow do |
+| `ar_panel_height_m(widget, options)` | the height in metres that the panel of a widget gets, for a host that places the panel before it exists |
+| `set_dialog_size_adjuster(adjuster)`, `set_dialog_pose_adjuster(adjuster)` | the fit of a dialog before it gets a panel, and the change of the pose of its panel |
+| `request_scroll_census(key, reason)` | one more census of the scroll areas of the widget of a panel, at the next frame it sends |
 | `set_panel_region_source(key, region, source)`, `clear_panel_region_sources(key)` | video over a region of the widget of a panel |
 | `dismiss_owned_dialogs(key)` | closes every dialog that the widget tree of the panel owns, innermost first; returns how many |
-| `has_panel`, `panel_keys`, `dialog_panel_keys`, `tombstoned_panel_keys`, `is_tombstoned`, `close_mode` | queries |
+| `has_panel`, `panel_keys`, `dialog_panel_keys`, `tombstoned_panel_keys`, `is_tombstoned`, `is_parked`, `parked_panel_keys`, `is_ar_hidden`, `replaced_panel_count`, `close_mode` | queries |
 | `diagnostics()`, `reset_submit_gap_windows()`, `pointer_state()` | a copy of the counters, a new window for the statistics of the gaps between frames, and the pointer state machine |
 
-The calls return a `qar_ar_core::Result`. `add_panel` answers `InvalidArgument` for an empty key and for a null widget, `AlreadyExists` for a key that streams, and `InvalidState` when the cap of retired panels is reached for a new stream or a retired slot cannot be revived; `close_panel`, `set_panel_pose`, `set_panel_region_source` and `clear_panel_region_sources` answer `NotFound` for a key that does not stream. In the code, `manager` is the manager of the host and `widget` the widget to stream.
+The calls return a `qar_ar_core::Result`. `add_panel` answers `InvalidArgument` for an empty key and for a null widget, `AlreadyExists` for a key that streams, and `InvalidState` when the cap of retired panels is reached for a new stream or a retired slot cannot be revived; `close_panel`, `set_panel_pose`, `set_panel_region_source` and `clear_panel_region_sources` answer `NotFound` for a key that does not stream, and so does `set_panel_ar_visible`, which answers `InvalidState` for a panel that shows the notice. In the code, `manager` is the manager of the host and `widget` the widget to stream.
 
 ```cpp
 qqs::PanelStreamOptions options;
@@ -144,7 +151,7 @@ public:
 };
 ```
 
-`diagnostics()` returns a copy of the counters, so a host reads it on the GUI thread without a lock. The snapshot holds the totals of the manager, namely the panels and the live ones, the retired and the closed ones, the number of closes that were deferred or failed, and the pointer samples that arrived, that landed on no panel and that made no sense; and one record for each panel with the frames that it captured, submitted and skipped for each reason, the size of its buffer and panel, its stream id, the senders that were built for it, its input counters and its last error. `reset_submit_gap_windows()` starts a new window for the gaps between the frames of a panel, which a host that logs them calls after it has read them.
+`diagnostics()` returns a copy of the counters, so a host reads it on the GUI thread without a lock. The snapshot holds the totals of the manager, namely the panels and the live ones, the retired, the hidden, the parked and the closed ones, the number of closes that were deferred or failed, and the pointer samples that arrived, that landed on no panel and that made no sense; and one record for each panel with the frames that it captured, submitted and skipped for each reason, the size of its buffer and panel, its stream id, the senders that were built for it, its input counters, whether it is hidden in AR or parked and the counters of its hide and show requests, the brightness of the last frame that was measured, and its last error. `reset_submit_gap_windows()` starts a new window for the gaps between the frames of a panel, which a host that logs them calls after it has read them.
 
 ```cpp
 const qar_ar_core::PanelDiagnosticsSnapshot snapshot = manager->diagnostics();   // a copy, on the GUI thread
@@ -160,9 +167,15 @@ for (const qar_ar_core::PanelStreamDiagnostics & panel : snapshot.panels) {
 manager->reset_submit_gap_windows();   // start a new window for the submit_gap statistics
 ```
 
+### Hiding, parking and fitting
+
+`set_panel_ar_visible(key, visible)` hides a panel in AR, or shows it again, without closing it. It records the request on the stream and makes no call to QarOS itself: the next `tick()` carries it out through the sender of the panel, which calls `qar_gui_panels_set_state` in qar_ogre_adapter. While a panel is hidden it is not captured, it takes no input and every hit test skips it. `is_ar_hidden(key)` is the state that QarOS accepted, so a request made since the last tick is not in it yet. `is_parked(key)` is true from the Qt-side close that parked a stream, in the close mode `Park`, until a window is shown on it again, and `parked_panel_keys()` lists such streams in key order. `set_close_mode(mode)` changes what the Qt-side closes that follow do, and streams that are parked or retired already stay as they are. `replaced_panel_count()` is the number of QarOS panels that earlier size changes replaced and kept in the mode `Park`, which count against `max_replaced_panels`. A host that places a panel before it exists asks `ar_panel_height_m(widget, options)`, the height in metres that the panel of the widget gets from the manager, which is 0 for a widget that has no size yet.
+
+A dialog that a streamed panel opens is fitted before it gets its panel. `set_dialog_size_adjuster(adjuster)` installs a `DialogSizeAdjuster`, a function that the manager calls with the dialog, the available geometry of its screen and the round, counted from 0, and that answers a `DialogFitStep`: the size of the dialog after the step, whether the dialog is done, and a note for the log. `make_census_dialog_adjuster(slack_px, max_rounds)` builds the adjuster of the library, which makes the dialog taller by the overflow of its scroll areas, and without an adjuster the fixed `dialog_height_factor` of the configuration applies. `set_dialog_pose_adjuster(adjuster)` installs a `DialogPoseAdjuster` that may change the pose of the panel of a dialog, given its top-centre pose and its height in metres. [Architecture](ARCHITECTURE.md#popups-and-dialogs) says how the rounds run.
+
 ## Capture and stream options
 
-`PanelStreamOptions` is the policy of one panel, chosen when the widget is added. The pose in the placement is the only part of the placement that is yours, because the size of the panel is derived from the widget at every tick; a panel hangs below its pose, which is the middle of its top edge. [Configuration](CONFIGURATION.md#runtime-option-structs) lists the defaults, and [Architecture](ARCHITECTURE.md#resize-and-rebuilds) explains the three limits of a resize.
+`PanelStreamOptions` is the policy of one panel, chosen when the widget is added. The pose in the placement is the only part of the placement that is yours, because the size of the panel is derived from the widget at every tick; a panel hangs below its pose, which is the middle of its top edge. Two fields concern the size: `ar_frame` is the frame that QarOS draws around the video, which the manager replaces with the `ar_frame` of its own configuration for every panel it makes, and `dialog_panel` marks the panel of a dialog, which keeps the height of its video and fits its width to the frame, and which the manager sets. The free function `ar_panel_height_m(widget, options)` gives the height that the panel of a widget would get. [Configuration](CONFIGURATION.md#runtime-option-structs) lists the defaults, and [Architecture](ARCHITECTURE.md#resize-and-rebuilds) explains the three limits of a resize.
 
 ```cpp
 qqs::PanelStreamOptions options;
@@ -216,6 +229,12 @@ if (capture.capture(420, 200, 1.0)) {
 `hash_pixels(data, width, height, stride_bytes)` is the FNV-1a hash behind the dirty check, over the rows without their padding. `decide_capture(input)` of `capture_gate.hpp` is the pure decision whether a panel may capture on a tick, with the verdicts `kCapture`, `kSkipPaced` and `kSkipNoNewFrame`, and `TickIntervalEstimator` smooths the gap between ticks; both run without a widget.
 
 **Overlay scans.** A popup, a tooltip and a dialog are top-level windows that belong to a panel by the parent walk, or by attribution for a dialog. `collect_panel_popups(root, include_tooltips)` returns the popups of the tree of `root`, parents first; `collect_panel_overlays(root, options)` generalises it with a `PanelOverlayOptions` whose fields `popups`, `tooltips`, `dialogs`, `attribute_by_input` and `decide_attribution` are all true by default; `panel_owned_modal_window(root)` returns the modal window of the tree that blocks input, or null. `PanelOverlayAttribution::instance()` holds the attribution, whose `window_ms()` is 1500 and can be set; `register_panel`, `note_panel_input` and `owner_of` are what the injector and the manager call, and `reset()` forgets every decision for a test. `is_dialog_window(widget)` tells a dialog-class window.
+
+### The census and the brightness
+
+`scroll_census.hpp` measures the scroll areas of a widget. `take_scroll_census(root)` returns a `ScrollCensus` with one `ScrollAreaCensus` for each area that the operator can see: its range, its viewport, whether a vertical and a horizontal bar are shown, whether it scrolls per item or per pixel, how far it overflows in pixels, and whether it scrolls by design. The property `kScrollsByDesignProperty` marks a widget, and everything under it, as one that scrolls by design, a log or a browser, and `describe_scroll_census(census)` writes the areas as one line. The call reads ranges, policies and sizes and changes nothing. A stream takes a census at its first frame and again 1.5 s later, and `request_scroll_census(key, reason)` of the manager asks for one more at the next frame, say after a tab was selected; it answers false for a panel that is not on show.
+
+`frame_luminance.hpp` is the measure of a frame and needs no Qt. `mean_luminance(pixels, step)` is the mean of 0.299 R + 0.587 G + 0.114 B over every `step`-th pixel in x and in y of an RGBA8888 frame, and `frame_brightness(pixels, top_fraction, step)` returns a `FrameBrightness` with that mean for all sampled pixels, for those in the top rows and for the others, and the mean alpha, each from 0 to 255; a quantity that could not be measured is `kBrightnessNotMeasured`. The default sample is every `kLuminanceSampleStep`-th pixel, 8, and the top rows are the first `kBrightnessTopFraction` of the rows, 0.15.
 
 ## Input injection
 
@@ -305,7 +324,7 @@ if (qqs::recommend_readability(profile, recommendation, error)) {
 }
 ```
 
-`compute_panel_geometry(input, out, error)` turns the logical size of a widget, its pixel ratio and the physical size of a pixel into the size of the buffer and of the panel. It returns false for a zero logical size, which is a widget that is not laid out yet, for a pixel ratio, a metres value or a render scale that is not finite and positive, and when the maximum buffer size is smaller than the alignment; a `max_buffer_dimension` of 0 means the default of 4096. `PanelGeometry` carries `buffer_width` and `buffer_height`, `content_width` and `content_height`, `width_meters` and `height_meters`, `content_scale`, which is always 1.0, and `effective_pixel_ratio`. `align_up(value, alignment)` rounds up and saturates instead of wrapping.
+`compute_panel_geometry(input, out, error)` turns the logical size of a widget, its pixel ratio and the physical size of a pixel into the size of the buffer and of the panel. It returns false for a zero logical size, which is a widget that is not laid out yet, for a pixel ratio, a metres value or a render scale that is not finite and positive, and when the maximum buffer size is smaller than the alignment; a `max_buffer_dimension` of 0 means the default of 4096. `PanelGeometry` carries `buffer_width` and `buffer_height`, `content_width` and `content_height`, `width_meters` and `height_meters`, which are what is sent to QarOS, `nominal_width_meters`, `video_width_meters` and `video_height_meters`, `frame`, `narrowing`, `content_scale`, which is always 1.0, and `effective_pixel_ratio`. `align_up(value, alignment)` rounds up and saturates instead of wrapping.
 
 ```cpp
 qqs::PanelGeometryInput input;
@@ -317,7 +336,7 @@ input.render_scale = 2.0;            // the supersample of the readability recom
 qqs::PanelGeometry geometry;
 std::string error;
 if (qqs::compute_panel_geometry(input, geometry, error)) {
-  // The ratio is 1.5 * 2.0 = 3.0: a buffer of 1260 x 600 pixels, a panel of 0.504 x 0.240 m and a content scale of 1.0.
+  // The ratio is 1.5 * 2.0 = 3.0: a buffer of 1260 x 600 pixels, a panel of 0.504 x 0.309 m and a content scale of 1.0.
   std::printf("buffer %u x %u px, panel %.3f x %.3f m, content scale %.1f\n",
     static_cast<unsigned>(geometry.buffer_width), static_cast<unsigned>(geometry.buffer_height),
     static_cast<double>(geometry.width_meters), static_cast<double>(geometry.height_meters),
@@ -326,6 +345,9 @@ if (qqs::compute_panel_geometry(input, geometry, error)) {
   std::printf("no geometry: %s\n", error.c_str());   // for example a widget that is not laid out yet
 }
 ```
+
+`PanelFrame` is the frame that QarOS draws around the video of a stream panel: `top_m`, `bottom_m`, `left_m`, `right_m` and `fit_margin_m`, in metres, all finite and not negative, and `vertical_m()` and `horizontal_m()` give the sums of the insets. The defaults, `kDefaultArFrameTopM` 0.066 and 0.003 for the other three insets and for the margin, are the frame of the QarOS desktop Visualizer; all zeros is no frame. `PanelGeometryInput::frame` is the frame that the geometry uses, and `narrow_for_frame` makes the panel of a dialog keep its height and fit its width instead. In the result, `nominal_width_meters` is the width the widget asks for, `video_width_meters` and `video_height_meters` are the size at which QarOS draws the video, `frame` is the frame that the sizes were made with, which is all zeros when it could not be applied, and `narrowing` is `FrameNarrowing::None`, `Reduced`, `Limited` or `Skipped`. A dialog panel is never narrower than `kMinNarrowedWidthShare`, half, of its nominal width. [Architecture](ARCHITECTURE.md#dpi-buffers-and-ar-readability) has the formulas and says why the panel is made a fit margin taller than its video.
+
 
 `panel_hit_test.hpp` maps the room to the pixels of a panel. `hit_test_panel_point(placement, point)` projects a point of the room onto the plane of the panel, and `intersect_panel_ray(placement, origin, direction)` intersects a ray with it, answering `valid` false for a ray that is parallel to the plane or whose plane lies behind its origin; `distance_m` is the signed distance along +Z of the panel for a point, and for a ray how far along the ray the plane was met. `panel_uv_to_widget_px(hit, width, height, x, y)` gives the widget pixel, clamped to the last pixel, and false outside the panel; `panel_hit_to_widget_point` gives the position as real numbers, unclamped, for a hit that needs only to be valid; `panel_uv_to_room_point` is the inverse of the point hit. `pick_panel_for_point` chooses the nearest panel of a vector of `PanelHitCandidate`s, and `pick_panel_for_ray` the first one along the ray.
 
@@ -364,11 +386,11 @@ if (qqs::show_offscreen(hidden, choice.width, choice.height)) {
 std::printf("off-screen: %d\n", qqs::is_offscreen_panel(hidden) ? 1 : 0);
 ```
 
-The guard is installed by `show_offscreen`, and a host rarely calls it: `install_offscreen_popup_guard()` installs it once for each `QApplication` and returns false without an application or off its thread, `offscreen_popup_guard_installed()` asks, and `offscreen_popup_guard_stats()` counts the popups and the animation windows that were kept off the desktop since the process started. `popup_owner_widget(popup)` is the parent of a popup or, for a parentless one, its focus proxy; `is_owned_by_offscreen_panel(window)` and `is_offscreen_popup(widget)` answer the two questions of the guard; `close_offscreen_popups(panel_root)` closes the kept-off popups of a tree, innermost first, and returns how many.
+The guard is installed by `show_offscreen`, and a host rarely calls it: `install_offscreen_popup_guard()` installs it once for each `QApplication` and returns false without an application or off its thread, `offscreen_popup_guard_installed()` asks, and `offscreen_popup_guard_stats()` counts the popups and the animation windows that were kept off the desktop since the process started. `popup_owner_widget(popup)` is the parent of a popup or, for a parentless one, its focus proxy; `is_owned_by_offscreen_panel(window)` and `is_offscreen_popup(widget)` answer the two questions of the guard; `close_offscreen_popups(panel_root)` closes the kept-off popups of a tree, innermost first, and returns how many. `remove_offscreen_popup_guard()` takes the guard off the `QApplication` and deletes it, and `show_offscreen` installs it again the next time; it returns false when no guard is installed and off the thread of the guard. The guard also removes itself when the module that holds this library is unloaded or the process exits, so that its code never outlives that module.
 
 ## Close modes
 
-`PanelCloseMode` has two values. `Destroy` is the default: the AR panel is closed, its video sender destroyed and the stream forgotten. `Notice` keeps the stream and its sender and shows a notice until the session ends. `to_string(mode)` gives `destroy` or `notice`. `parse_panel_close_mode(value)` is the pure parser of the word that chooses between them: it ignores case and the blanks around the word, a null pointer, an empty text and a text of blanks give the default with no warning, and any other text gives the default and a warning that names the text and the two words. `kPanelCloseModeEnv` is the name `QAR_PANEL_CLOSE_MODE`, which a host may use for its setting: the library itself does not read it.
+`PanelCloseMode` has three values. `Destroy` is the default: the AR panel is closed, its video sender destroyed and the stream forgotten. `Notice` keeps the stream and its sender and shows a notice until the session ends. `Park` closes nothing while the session runs: the AR panel is hidden and parked, and its QarOS panel, its sender and its subscriptions are kept until the session ends. `to_string(mode)` gives `destroy`, `notice` or `park`. `parse_panel_close_mode(value)` is the pure parser of the word that chooses between them: it ignores case and the blanks around the word, a null pointer, an empty text and a text of blanks give the default with no warning, and any other text gives the default and a warning that names the text and the three words. `kPanelCloseModeEnv` is the name `QAR_PANEL_CLOSE_MODE`, which a host may use for its setting: the library itself does not read it.
 
 ```cpp
 // mode_text is the text of a setting of your own, or null when nothing is set. The library reads no environment
@@ -472,7 +494,7 @@ manager->clear_panel_region_sources("dock");           // stop painting video ov
 | every method of `QtPanelStreamManager` and `QtPanelStream` | the Qt GUI thread | `tick()` captures every panel that passes its gate, and the tick that creates a panel and `close_panel` call the C API synchronously; `add_panel` never calls it | a `qar_ar_core::Result`, a `bool`, or a line to the diagnostics sink |
 | `QtPanelInputInjector::deliver`, `reset` | the Qt GUI thread; another thread is refused | none | `false`, with the reason in `stats()` |
 | `QtWidgetCapture::capture` | the Qt GUI thread | a full repaint of the widget | `false`, with the reason in `last_error()` |
-| `show_offscreen`, `install_offscreen_popup_guard`, `VideoPanelWidget::sync_to_frame` | the Qt GUI thread | none | `false` |
+| `show_offscreen`, `install_offscreen_popup_guard`, `remove_offscreen_popup_guard`, `VideoPanelWidget::sync_to_frame` | the Qt GUI thread | none | `false` |
 | `PanelDiagnosticsSink::on_message`, `IQarPanelInputSink::on_panel_pointer` | called on the Qt GUI thread | must not block | none |
 | `LatestVideoFrame` | any thread | one short mutex | none |
 | `decode_raw_image`, `decode_compressed_image` | any thread; meant for a worker | the CPU time of the decode | `false`, with the reason in `error` |

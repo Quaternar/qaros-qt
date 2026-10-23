@@ -141,7 +141,7 @@ bool stream(qqs::QtPanelStreamManager & manager, const std::string & key, QWidge
 }
 ```
 
-The counter window is an ordinary widget with a label and a button. It is 420 by 200 logical pixels, and the library gives a logical pixel 1.2 mm in the room by default, so the panel is 0.504 m wide and 0.240 m high; a display with a higher pixel density makes the picture sharper and not larger.
+The counter window is an ordinary widget with a label and a button. It is 420 by 200 logical pixels, and the library gives a logical pixel 1.2 mm in the room by default, so the panel is 0.504 m wide, and with the frame that QarOS draws around the picture it is 0.309 m high; a display with a higher pixel density makes the picture sharper and not larger.
 
 ```cpp
 QWidget window;
@@ -310,7 +310,7 @@ Select-String -Path (Join-Path $env:TEMP 'qar_qt_panel_example.log') -Pattern "'
 
 If you close a panel in the Visualizer instead, the library stops capturing it and leaves its video sender alone: the sender is destroyed when the Qt window closes or when the session ends, and `qar_gui_panels_close_panel` is not called a second time for that panel.
 
-The environment variable `QAR_PANEL_CLOSE_MODE` chooses what a close does. The value is read as one of two words, `destroy` or `notice`, in any case and without regard to the spaces around it; any other value gives the default and one warning that names the value. With `notice` the video sender is not destroyed: the stream goes on and the AR panel shows a notice that the window has closed, until you close the AR panel or the session ends. The mode is meant for a runtime on which destroying a sender while other streams run is not safe. Run the example again with the variable set, and close the counter window.
+The environment variable `QAR_PANEL_CLOSE_MODE` chooses what a close does. The value is read as one of three words, `destroy`, `notice` or `park`, in any case and without regard to the spaces around it; any other value gives the default and one warning that names the value. With `notice` the video sender is not destroyed: the stream goes on and the AR panel shows a notice that the window has closed, until you close the AR panel or the session ends. The mode is meant for a runtime on which destroying a sender while other streams run is not safe. With `park` nothing is closed while the session runs: the AR panel is hidden and kept, with its video sender, until the session ends, and a window that is shown under the same key shows it again; that mode is meant for a runtime on which even closing a QarOS panel is not safe. Run the example again with the variable set, and close the counter window.
 
 ```powershell
 $env:PATH = "$env:QAR_QT_ROOT\bin;$env:PATH"

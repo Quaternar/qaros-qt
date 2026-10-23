@@ -2,11 +2,11 @@
 
 ## Status
 
-This section gives the result of each level. The results of Level 0 and Level 1 are those of this release, and each comes from a recorded run of the commands that the level names. The result of Level 2 comes from live sessions with earlier builds, as its line says.
+This section gives the result of each level. The results of Level 0 and Level 1 are those of this release, and each comes from a recorded run of the commands that the level names. The result of Level 2 comes from live sessions and live checks, and its line says which build each ran.
 
 - Level 0, automated checks: passed. Every test of the repository that ran passed and none failed; a test that the run reports as skipped is not a failure ([Run all tests](#run-all-tests) shows the totals). The layering guard and its self-test reported OK ([The layering guard](#the-layering-guard)), and the consumer program of the install smoke test built and ran ([Install and the install smoke test](#install-and-the-install-smoke-test)).
 - Level 1, headless checks: passed with an SDK that has the header of the verified drop of 2026-09-28 ([SDK compatibility](SDK_COMPATIBILITY.md)): the Qt example opened a QarOS session without a window and printed the line that says that it is connected ([A QarOS session without a window](#a-qaros-session-without-a-window)).
-- Level 2, desktop checks: the authors of qar_qt_streaming did not run the Qt example of this repository in a session with a Visualizer ([Desktop Visualizer checks (Level 2)](#desktop-visualizer-checks-level-2)); the library ran in their desktop sessions of qar_rviz_plugin, which streams windows of RViz into AR as panels through it, with builds that were made before the last changes of the code ([What the live sessions showed](#what-the-live-sessions-showed)).
+- Level 2, desktop checks: the authors of qar_qt_streaming did not run the Qt example of this repository in a session with a Visualizer ([Desktop Visualizer checks (Level 2)](#desktop-visualizer-checks-level-2)); the library ran in the live checks of qar_rviz_plugin on the desktop Visualizer, which streams windows of RViz into AR as panels through it, with a build that differs from this release only in comments and the text of one tool tip, and no session with a headset has run this release ([What the live sessions showed](#what-the-live-sessions-showed)).
 - Level 3, device checks: not run for this release; [Device checks (Level 3)](#device-checks-level-3) says why.
 
 ## Verification levels
@@ -93,7 +93,7 @@ Test project C:/qar/src/qar_qt_streaming/build/vs2019-x64
 Total Test time (real) =  30.54 sec
 ```
 
-[Testing](TESTING.md#what-the-automated-tests-do-not-cover) lists what these tests leave out: every call into QarOS and the live desktop. Of the checks of the next levels, only `--connect-only` of Level 1 was run for this release, and it covers the bootstrap of a QarOS session without a panel. The calls that create and drive panels were exercised only in live sessions with builds that were made before the last changes of the code, and the checks of Level 2 have not been run.
+[Testing](TESTING.md#what-the-automated-tests-do-not-cover) lists what these tests leave out: every call into QarOS and the live desktop. Of the checks of the next levels, only `--connect-only` of Level 1 was run for this release, and it covers the bootstrap of a QarOS session without a panel. The calls that create and drive panels were exercised only in the live checks of qar_rviz_plugin on the desktop Visualizer, with a build that differs from this release only in comments and the text of one tool tip, and the checks of Level 2 have not been run.
 
 ### The layering guard
 
@@ -187,9 +187,9 @@ Dragging a slider or a scrollbar in AR and the use of two hands are covered by u
 
 ### What the live sessions showed
 
-The authors of qar_qt_streaming did not run the Qt example of this repository in a session with a Visualizer, so the checks above have not been run. The library ran in two live sessions of qar_rviz_plugin, which streams windows of RViz into AR as panels through it, with builds of the three repositories that were made before the last changes of the code, so no live session has run the code of this release.
+The authors of qar_qt_streaming did not run the Qt example of this repository in a session with a Visualizer, so the checks above have not been run. The library ran in two live sessions of qar_rviz_plugin, which streams windows of RViz into AR as panels through it, with builds of the three repositories that were made before the last changes of the code. The live checks of qar_rviz_plugin on the desktop Visualizer ran a build that differs from this release only in comments and the text of one tool tip; no session with a headset has run this release.
 
-The logs of those sessions show the panels that the manager of this library added, created and closed: the hidden Displays panel, docks and the panel of a dialog, each with the line of the adapter that reports its creation and the lines that report its close. The authors of qar_qt_streaming confirmed in earlier live sessions, held with older builds before the SDK drop of 2026-09-28, that a click and a hover reach the real widget, with the lists of drop-down boxes and the dialogs. In the two sessions of qar_rviz_plugin they gave no verdict step by step. The drag of a slider and the use of two hands are covered by unit tests, the tap count and the long press by neither a unit test nor a live session, and no live session has exercised any of the four.
+The logs of the two sessions show the panels that the manager of this library added, created and closed: the hidden Displays panel, docks and the panel of a dialog, each with the line of the adapter that reports its creation and the lines that report its close. The authors of qar_qt_streaming confirmed in earlier live sessions, held with older builds before the SDK drop of 2026-09-28, that a click and a hover reach the real widget, with the lists of drop-down boxes and the dialogs. In the two sessions of qar_rviz_plugin they gave no verdict step by step. The drag of a slider and the use of two hands are covered by unit tests, the tap count and the long press by neither a unit test nor a live session, and no live session has exercised any of the four.
 
 ## Device checks (Level 3)
 
@@ -199,7 +199,7 @@ None of the checks of this repository needs a device. Devices are invited and ad
 
 ## Feature coverage
 
-The table lists what this repository provides, the automated suites that exercise it, and the levels whose checks in this document cover it. A suite is the name of a group of tests, the part before the first dot of a test name, and [List and select tests](TESTING.md#list-and-select-tests) shows how to list every test. The table gives names and no counts; the test counts are in the output of [Run all tests](#run-all-tests). Level 0 is the suites of the middle column, and a feature without a suite has only the checks of the higher levels. Level 2 has not been run for this release: an entry for Level 2 names a check of this document that nobody has run, and the library ran in live sessions of qar_rviz_plugin with builds that were made before the last changes of the code ([What the live sessions showed](#what-the-live-sessions-showed)). The check of Level 1 opens a session and creates no panel, so no entry names it.
+The table lists what this repository provides, the automated suites that exercise it, and the levels whose checks in this document cover it. A suite is the name of a group of tests, the part before the first dot of a test name, and [List and select tests](TESTING.md#list-and-select-tests) shows how to list every test. The table gives names and no counts; the test counts are in the output of [Run all tests](#run-all-tests). Level 0 is the suites of the middle column, and a feature without a suite has only the checks of the higher levels. Level 2 has not been run for this release: an entry for Level 2 names a check of this document that nobody has run, and the library ran in the live checks of qar_rviz_plugin on the desktop Visualizer, with a build that differs from this release only in comments and the text of one tool tip ([What the live sessions showed](#what-the-live-sessions-showed)). The check of Level 1 opens a session and creates no panel, so no entry names it.
 
 | Feature | Automated suites (Level 0) | Covered by the checks of levels |
 |---|---|---|

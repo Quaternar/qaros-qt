@@ -12,10 +12,13 @@ The first version of the repository. It adds the features that the [README](READ
 
 - capture of any `QWidget` into a QarOS GUI panel with `QWidget::render()`: RGBA8888 pictures, a hash that finds unchanged pictures, a keepalive and a limit of 15 captures a second;
 - sizing of panels for reading in AR: 1.2 mm for each logical pixel by default, and readability presets for 0.40 m, 0.65 m and 2.0 m with a render scale;
+- sizing of panels for the frame that QarOS draws around the video: a panel is a fit margin taller than its video, the panel of a dialog fits its width to the frame, and the frame is `PanelFrame`;
 - AR input as Qt events: touch with a mouse fallback, an implicit grab for each pointer, double clicks, drags, the hover lifecycle and two hands as two pointers;
-- popups drawn into the picture of their panel, and dialogs as GUI panels of their own;
+- popups drawn into the picture of their panel, and dialogs as GUI panels of their own, with an optional fit of a dialog to its scroll areas;
 - adoption of a new widget size only when it is large and has settled;
-- closing of the AR panel of a closed window, which destroys the video sender by default, with the close mode `notice` as the escape hatch;
+- closing of the AR panel of a closed window, which destroys the video sender by default, with the close mode `notice` as the escape hatch and the close mode `park`, which closes nothing until the session ends;
+- hiding and showing of panels in AR without closing them;
+- the brightness of the frames that a panel sends and the census of the scroll areas of its widget, for the log;
 - hidden off-screen panels, with a guard that keeps their popups off the desktop;
 - video in panels: decoders for raw and compressed camera images, a one-slot mailbox for frames, a panel widget for video and region sources;
 - the example `qar_qt_panel_example`, and unit tests that run under the offscreen platform plugin of Qt.
@@ -42,5 +45,5 @@ The first version of the repository. It adds the features that the [README](READ
 - A cancelled gesture subscription may leave its runtime subscription until the session is destroyed.
 - `QWidget::render()` cannot paint a native window that is embedded with `QWidget::createWindowContainer()`; that rectangle comes out solid. The library offers region sources, which paint a video frame over such a rectangle.
 - The popup guard keeps the popups of an off-screen panel off the desktop, but not dialogs, windows of the type `Qt::Tool` or tooltips on Windows.
-- The Qt example has not been run in a session with a Visualizer; the library ran in the live sessions of qar_rviz_plugin, and no live session has run the code of this release.
+- The Qt example has not been run in a session with a Visualizer; the library ran in the live checks of qar_rviz_plugin on the desktop Visualizer, with a build that differs from this release only in comments and the text of one tool tip, and no session with a headset has run this release.
 - The AR drag of a slider and the use of two hands on Qt panels have been checked by unit tests and not in a live session; the tap count and the long press have been checked by neither a unit test nor a live session.

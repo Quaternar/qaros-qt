@@ -20,6 +20,7 @@ This page lists the problems that you may meet with this library, by what you se
 | The panel streams and nothing reacts to AR input | [The panel streams but takes no AR input](#the-panel-streams-but-takes-no-ar-input) |
 | A pointer does nothing, and the injector says why | [An AR action is dropped](#an-ar-action-is-dropped) |
 | A list, a menu or a dialog is missing in AR, appears twice, or is cut off | [A list, a menu or a dialog is missing in AR, or cut off](#a-list-a-menu-or-a-dialog-is-missing-in-ar-or-cut-off) |
+| A scroll track shows at the right edge of the AR panel, or bands are left above and below the picture | [A scroll track shows in the AR panel](#a-scroll-track-shows-in-the-ar-panel) |
 | A panel stays in AR after its window closed | [A panel stays in AR after its window closed](#a-panel-stays-in-ar-after-its-window-closed) |
 | The log says that QarOS has a panel that is not being served | [The log says that a panel is not being served](#the-log-says-that-a-panel-is-not-being-served) |
 | The text is blurry, or the panel is too small or too large | [The text is blurry, or the panel is too small or too large](#the-text-is-blurry-or-the-panel-is-too-small-or-too-large) |
@@ -136,19 +137,29 @@ The library writes no log of its own, to no file and to no console. The manager 
 | Text of the line | Severity | What it means |
 |---|---|---|
 | `added panel stream` | Info | `add_panel` registered the widget; the QarOS panel follows on the first tick that finds the widget laid out |
-| the geometry of the panel, which starts with the key | Info | a sender was just built, at the creation of the panel or after a resize that was adopted; it gives the logical size, the pixel ratio, the buffer, `content_scale sent` and the size in metres |
+| the geometry of the panel, which starts with the key | Info | a sender was just built, at the creation of the panel or after a resize that was adopted; it gives the logical size, the pixel ratio, the buffer, `content_scale sent` and the size in metres, which ends with the video and the four insets and the fit margin of the frame that QarOS draws around it, and, for the panel of a dialog, how the width was fitted |
 | `popup open over this panel` and `popup closed` | Info | the first popup of a panel opened, and the last one closed; the first line says whether the popup is kept off the desktop |
 | `dialog opened from` the owner, `is streaming as a panel of its own` | Info | a dialog was promoted to a panel |
 | `could not give the dialog a panel of its own` | Warning | the promotion failed; the reason follows |
 | `QarOS has a panel from us it is not being served` | Warning | a panel holds a sender and has submitted no frame for `unserved_warn_seconds`; [below](#the-log-says-that-a-panel-is-not-being-served) |
-| `closed`, the key and the stream | Info | a close in the default mode finished; the line names the frames that the panel served and what each of the three steps did |
+| `closed`, the key and the stream | Info | a close in the mode `Destroy` finished; the line names the frames that the panel served and what each of the three steps did |
 | `having served it NO frames` | Warning | a panel was closed or removed though QarOS was told that its stream exists and it never got a frame |
 | `could not be closed` | Warning | `qar_gui_panels_close_panel` failed; the sender was destroyed and the entry dropped regardless, but QarOS may still show the panel |
 | `was asked for from inside a pointer action` | Info | a close was queued because it came from the handler of the panel itself |
 | `the operator closed this panel in AR` | Info | capture stopped; the sender goes with the close of the window or the end of the session |
 | `removed panel stream` | Info or Warning | the session ended, or a stream that never created a sender was erased; it names the frames that were served |
 | `re-used the retired panel slot` | Info | `Notice` mode: a retired key was added again and its sender was reused |
-| `this session is holding` panels whose windows closed | Warning | the cap of `Notice` mode is reached, and no further panel stream is created |
+| `this session is holding` panels whose windows closed | Warning | the cap of the modes `Notice` and `Park` is reached, and no further panel stream is created |
+| `parked`, the key and the reason | Info | a close in the mode `Park` hid the panel in AR and kept it, with its sender, until the session ends |
+| `revived parked` | Info | the key of a parked panel was added again; QarOS is asked to show the panel again, and no new QarOS panel is made |
+| `"could not hide"` | Warning | QarOS refused the hide of a parked panel; the panel shows the notice instead, and nothing is closed |
+| `could not show the revived panel` | Warning | QarOS refused the show; the panel stays hidden |
+| `changed size:` and the key | Info or Warning | in the mode `Park` a size change hid and kept the old QarOS panel (Info); or QarOS refused the hide, or the limit of 32 kept panels is reached (Warning) |
+| `fitted to` and the key | Info | a dialog was fitted before its panel was made; the line gives the size, the number of rounds and a note |
+| `"went away after"` | Info | a dialog was hidden or destroyed while it was fitted, and it got no panel |
+| `scroll census` | Info | the scroll areas of the widget, measured at the first frame, 1.5 s later and when the host asks |
+| `still shows a vertical scroll bar` | Warning | a scroll bar that cannot be used in AR is still there 1.5 s after the first frame |
+| `frame luminance` | Info | the mean luminance of the first frame, and of the first one after a long streak of unserved ticks |
 | `the panel is too narrow to show its own name` | Warning | the notice of `Notice` mode is cut off |
 | a line that counts the dialogs that are owned by the panel | Info | `dismiss_owned_dialogs` closed them |
 | a bare reason such as `widget has a zero logical dimension (not laid out yet?)` | Warning | a stream could not capture; a reason is reported once, when it changes |
@@ -269,11 +280,16 @@ Send, in addition:
 
 ### A panel stays in AR after its window closed
 
-**Symptom.** A window was closed and its panel is still there, either blank or with a notice. **Cause.** The library does not watch windows: it closes a panel when the host asks, with `close_panel`, and a window that is closed on the desktop is only hidden. In the mode `notice`, which `QAR_PANEL_CLOSE_MODE=notice` chooses in the example, the panel stays by design and shows that the window has closed until the operator closes it in AR. **Fix.** Call `close_panel(key, reason)` when the window closes; in the default mode it closes the AR panel and destroys the sender. If the log has a line with `could not be closed`, `qar_gui_panels_close_panel` failed, the sender and the entry are gone on this side, and QarOS may still show the panel until the session ends.
+**Symptom.** A window was closed and its panel is still there, either blank or with a notice. **Cause.** The library does not watch windows: it closes a panel when the host asks, with `close_panel`, and a window that is closed on the desktop is only hidden. In the mode `notice`, which `QAR_PANEL_CLOSE_MODE=notice` chooses in the example, the panel stays by design and shows that the window has closed until the operator closes it in AR. In the mode `park`, which `QAR_PANEL_CLOSE_MODE=park` chooses, the panel is hidden and kept with its sender until the session ends. **Fix.** Call `close_panel(key, reason)` when the window closes; in the default mode it closes the AR panel and destroys the sender, and in the mode `park` it hides the panel and keeps it. If the log has a line with `could not be closed`, `qar_gui_panels_close_panel` failed, the sender and the entry are gone on this side, and QarOS may still show the panel until the session ends.
 
 ### The log says that a panel is not being served
 
 **Symptom.** The manager logs a warning that starts with `QarOS has a panel from us it is not being served`, with the key, the stream id, the seconds and the number of consecutive not-ready ticks, and it repeats once for every run. **Cause.** A sender exists before anything in the headset has attached to its stream, and the runtime reports that as status 604, which the library treats as not ready and not as an error. The state is normal for a moment, which is well under a second, and a panel that stays in it for `unserved_warn_seconds`, 5 s by default, has no receiver: the Visualizer or the headset is not connected, or it has not asked for this stream. QarOS asks again for a stream that it was promised and never received, for as long as the session lives. **Fix.** Check that the Visualizer is running and joined to the session. If it is, search the log of the runtime for the stream id that the line names; every line that the runtime writes about the panel carries it. [Reading the logs](#reading-the-logs) says where that log is.
+
+### A scroll track shows in the AR panel
+
+**Symptom.** QarOS draws a scroll track along the right edge of a panel, and the picture is narrower than the panel, or the picture leaves a band above and below it. **Cause.** QarOS draws the video of a stream panel inside a frame of its own, and the library makes the panel for a frame of its own, `PanelFrame`: by default a top inset of 0.066 m and 0.003 m at the other three insets and in the fit margin, the values that were measured on the stream panels of the desktop Visualizer. A video that is taller than the area between the top and the bottom inset is scrolled behind a track that takes a strip off its width, and a video that is shorter leaves a band above and below it. A runtime whose title bar or border differs from the default leaves one of the two. The scroll bars of Qt inside the widget are another matter, and the lines `scroll census` and `still shows a vertical scroll bar` of the log name them.
+**Fix.** Set `ar_frame` in the `QtPanelStreamingConfig` to the insets of your runtime. The geometry line of the log gives the video and the frame that the panel was made with, and a frame of all zeros makes the panel exactly as tall as its video. Keep the fit margin above the error of your measurement of the title bar, so that the video is always a hair shorter than the area.
 
 ### The text is blurry, or the panel is too small or too large
 
