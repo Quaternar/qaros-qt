@@ -52,6 +52,8 @@ to_string(PanelCloseMode mode)
       return "destroy";
     case PanelCloseMode::Notice:
       return "notice";
+    case PanelCloseMode::Park:
+      return "park";
   }
   return "destroy";
 }
@@ -77,8 +79,13 @@ parse_panel_close_mode(const char * value)
     choice.explicitly_chosen = true;
     return choice;
   }
+  if (word == "park") {
+    choice.mode = PanelCloseMode::Park;
+    choice.explicitly_chosen = true;
+    return choice;
+  }
   choice.warning = std::string(kPanelCloseModeEnv) + "='" + std::string(value) +
-    "' is not a close mode (expected 'destroy' or 'notice'); using the default, '" +
+    "' is not a close mode (expected 'destroy', 'notice' or 'park'); using the default, '" +
     to_string(choice.mode) + "'.";
   return choice;
 }

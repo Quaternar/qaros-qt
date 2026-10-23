@@ -251,17 +251,23 @@ TEST(PanelLifetime, ANoticeTakesNoInput)
   options.placement.pose.position = QarVector3{0.0f, 0.0f, 0.0f};
   ASSERT_TRUE(h.manager->add_panel("dock", source.get(), options).ok());
   ASSERT_EQ(h.manager->tick(), 1u);
+  // The middle of the panel: half its height below the pose on its top edge (QarOS centres the
+  // video in the panel, so this is the middle of the widget as well).
+  float panel_height_m = 0.0f;
+  for (const auto & p : h.manager->diagnostics().panels) {
+    if (p.key == "dock") { panel_height_m = p.height_meters; }
+  }
+  ASSERT_GT(panel_height_m, 0.0f);
+  const QarVector3 middle{0.0f, -0.5f * panel_height_m, 0.0f};
   // A point on the panel's plane resolves while it is live...
   ASSERT_TRUE(
-    h.manager->route_room_point(
-      QarVector3{0.0f, 0.0f, 0.0f}, qar_qt_streaming::PanelPointerEvent::Kind::Hover));
+    h.manager->route_room_point(middle, qar_qt_streaming::PanelPointerEvent::Kind::Hover));
 
   ASSERT_TRUE(h.manager->tombstone_panel("dock", "closed").ok());
   // ...and lands on nothing once it is a notice, rather than being swallowed by
   // a panel that has nothing to click.
   EXPECT_FALSE(
-    h.manager->route_room_point(
-      QarVector3{0.0f, 0.0f, 0.0f}, qar_qt_streaming::PanelPointerEvent::Kind::Hover));
+    h.manager->route_room_point(middle, qar_qt_streaming::PanelPointerEvent::Kind::Hover));
 }
 
 // --- the AR side ------------------------------------------------------------

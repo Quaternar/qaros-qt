@@ -54,12 +54,22 @@ public:
   /// has not reserved a destination yet.
   void set_ready(bool ready) { ready_ = ready; }
 
+  /// @brief The cause `not_ready_cause()` names while the adapter is not ready, as the real
+  /// adapter's 604 (no active transfers) and 603 (reconnecting) answers do.
+  void set_not_ready_cause(qar_ar_core::PanelNotReadyCause cause) { not_ready_cause_ = cause; }
+
   /// @brief Make the next call to the named method fail.
   void fail_next_begin() { fail_begin_ = true; }
   void fail_next_submit() { fail_submit_ = true; }
   /// @brief Make the close_panel step of the next close() fail, as the runtime's
   /// `qar_gui_panels_close_panel` returning an error would.
   void fail_next_close_panel() { fail_close_panel_ = true; }
+  /// @brief Make the next @p times calls of set_state() fail, as the runtime's
+  /// `qar_gui_panels_set_state` returning an error would.
+  void fail_next_set_state(std::uint32_t times = 1) { fail_set_state_ = times; }
+  /// @brief Whether supports_state() says the backend can hide and show a panel. True, like the
+  /// real adapter; false models one that cannot, and the stream then never calls set_state().
+  void set_supports_state(bool supported) { supports_state_ = supported; }
 
   bool try_begin_frame(bool & out_ready) override
   {
@@ -72,6 +82,8 @@ public:
     out_ready = ready_;
     return true;
   }
+
+  qar_ar_core::PanelNotReadyCause not_ready_cause() const override { return not_ready_cause_; }
 
   bool submit_frame(const qar_ar_core::PanelPixels & pixels) override
   {
@@ -100,6 +112,27 @@ public:
     ++placement_calls_;
     return true;
   }
+
+  /// Records every state it is asked for, refused ones included.
+  bool set_state(QarGuiPanelState state) override
+  {
+    ++state_calls_;
+    states_.push_back(state);
+    if (!supports_state_) {
+      last_error_ = "this recording adapter has no panel state";
+      return false;
+    }
+    if (fail_set_state_ > 0) {
+      --fail_set_state_;
+      last_error_ = "injected set_state failure";
+      return false;
+    }
+    last_state_ = state;
+    last_error_.clear();
+    return true;
+  }
+
+  bool supports_state() const override { return supports_state_; }
 
   /// Models the real adapter's three steps in the real adapter's order, and
   /// records them, so a manager-level test can say "the panel was closed, the
@@ -162,6 +195,12 @@ public:
   std::uint32_t begin_calls() const { return begin_calls_; }
   std::uint32_t submit_calls() const { return submit_calls_; }
   std::uint32_t placement_calls() const { return placement_calls_; }
+  /// Every call to set_state(), refused ones included, and the states asked for in order.
+  std::uint32_t state_calls() const { return state_calls_; }
+  const std::vector<QarGuiPanelState> & states() const { return states_; }
+  /// The state of the panel as this adapter holds it: the last one set_state() accepted,
+  /// VISIBLE before any.
+  QarGuiPanelState last_state() const { return last_state_; }
   /// Every call to close(), idempotent repeats included.
   std::uint32_t close_calls() const { return close_calls_; }
   /// What close() actually did, once: the steps it ran, in order, and how often
@@ -182,15 +221,21 @@ private:
   std::vector<std::string> steps_;
   std::string last_error_;
   std::string stream_id_ = "mock-stream";
+  qar_ar_core::PanelNotReadyCause not_ready_cause_ = qar_ar_core::PanelNotReadyCause::NoDestination;
   bool ready_ = true;
   bool fail_begin_ = false;
   bool fail_submit_ = false;
   bool fail_close_panel_ = false;
+  std::uint32_t fail_set_state_ = 0;
+  bool supports_state_ = true;
   bool closed_ = false;
   bool last_close_panel_closed_in_ar_ = false;
+  QarGuiPanelState last_state_ = QAR_GUI_PANEL_STATE_VISIBLE;
+  std::vector<QarGuiPanelState> states_;
   std::uint32_t begin_calls_ = 0;
   std::uint32_t submit_calls_ = 0;
   std::uint32_t placement_calls_ = 0;
+  std::uint32_t state_calls_ = 0;
   std::uint32_t close_calls_ = 0;
   std::uint32_t close_panel_calls_ = 0;
   std::uint32_t close_panel_skipped_ = 0;

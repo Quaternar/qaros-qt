@@ -20,7 +20,12 @@
 /// @code
 ///   ratio                 = dpr * render_scale
 ///   buffer_w              = align_up(round(logical_w * ratio), alignment)
-///   width_meters          = logical_w * meters_per_logical_px
+///   nominal_width_meters  = logical_w * meters_per_logical_px
+///   width_meters          = nominal_width_meters    // a dialog: fitted, see below
+///   video_width_meters    = width_meters - frame.left_m - frame.right_m
+///   video_height_meters   = video_width_meters * buffer_h / buffer_w
+///   height_meters         = video_height_meters + frame.top_m + frame.bottom_m
+///                           + frame.fit_margin_m
 ///   content_scale         = 1.0     // sent to QarOS verbatim - see below
 ///   effective_pixel_ratio = ratio   // reported for diagnostics, never sent
 /// @endcode
@@ -28,7 +33,39 @@
 /// Physical AR size tracks LOGICAL pixels, never buffer pixels. Otherwise a
 /// panel would physically double in size the moment the operator dragged the
 /// host window onto a 200 % display — backwards: a HiDPI display should make a panel
-/// SHARPER, not BIGGER.
+/// SHARPER, not BIGGER. The buffer enters the height only as an aspect ratio.
+///
+/// ## The frame: the video must fit the area QarOS draws it into
+///
+/// QarOS draws a stream panel as a window with a frame of its own: a title bar across the top of
+/// the panel, which the SDK header does not size (third_party/qar/include/qar_streaming.h,
+/// QarGuiPanelSize::content_scale). The video it draws is the whole BUFFER, padding included. It
+/// is drawn at the width of the panel less the left and right insets (the default frame has a
+/// border of 0.003 m on each side), and centred vertically in the area between the top and the
+/// bottom inset. A video taller than that area is scrolled by the renderer, which adds a scroll
+/// track along the right edge of the panel that takes a strip off the video's width; one that is
+/// shorter leaves a band above and below it. A panel is therefore made so that the video is a
+/// hair SHORTER than the area, by the fit margin: the video then fills the width the insets
+/// leave, the bands are half of the margin each, and there is no scroll track.
+///
+/// The frame is four insets in metres and the fit margin (PanelFrame); with `fv = top + bottom`,
+/// `fh = left + right`, `m` the fit margin and `a = buffer_h / buffer_w` the size of a panel
+/// makes room for it in one of two ways:
+///
+///   * A panel keeps the width W its widget asks for and is made as tall as its video needs
+///     plus the margin: the video is `W - fh` wide and `(W - fh) * a` tall, and
+///     `height_meters = fv + (W - fh) * a + m`.
+///   * A dialog (PanelGeometryInput::narrow_for_frame) keeps the height of its video at the
+///     width the widget asks for, `H = W * a`, and is made as wide as that height needs:
+///     `width_meters = fh + (H - fv - m) / a`, so that the video, `H - fv - m` tall, fits the
+///     area with the margin to spare. The width is never less than half of W and never more
+///     than W, and a frame whose `fv + m` is not below H is not applied
+///     (PanelGeometry::narrowing says which happened).
+///
+/// A frame whose horizontal part is not below the width of a panel is not applied either. The
+/// frame changes metres only: buffer, content size and content_scale are the same with and
+/// without it, and so is the mapping of a reported contact to a widget pixel (which uses the
+/// content size, never the metres).
 ///
 /// `render_scale` (see ar_readability.hpp) is a second, deliberate multiplier
 /// on top of the display's ratio: it supersamples the capture so small text
@@ -74,6 +111,46 @@ namespace qar_qt_streaming
 /// derivation from an explicit viewing distance.
 constexpr double kDefaultMetersPerLogicalPx = 0.0012;
 
+/// @name The default frame
+/// The insets, in metres, of the frame of the QarOS desktop Visualizer, measured on its stream
+/// panels: a title bar of about 0.063 m across the top and a border of about 0.003 m that it keeps
+/// around the video on every side. The top inset is the two together; the video fills the panel
+/// inside the insets and is centred between the top and the bottom inset. The fit margin is how
+/// much taller than the video the area inside the insets is made: more than the error of the
+/// measured title bar (about 0.001 m), so that the video always fits the area and QarOS draws no
+/// scroll track. A runtime whose frame differs needs other values (PanelFrame).
+/// @{
+constexpr double kDefaultArFrameTopM = 0.066;
+constexpr double kDefaultArFrameBottomM = 0.003;
+constexpr double kDefaultArFrameLeftM = 0.003;
+constexpr double kDefaultArFrameRightM = 0.003;
+constexpr double kDefaultArFitMarginM = 0.003;
+/// @}
+
+/// @brief The frame that QarOS draws around the video of a stream panel: four insets and the fit
+/// margin, in metres (see the file comment). All five are finite and not negative; 0 for all of
+/// them is no frame, a panel exactly as large as its video.
+struct PanelFrame
+{
+  double top_m = kDefaultArFrameTopM;        ///< the title bar, above the video
+  double bottom_m = kDefaultArFrameBottomM;  ///< below the area the video is centred in
+  double left_m = kDefaultArFrameLeftM;      ///< between the left edge of the panel and the video
+  double right_m = kDefaultArFrameRightM;    ///< between the video and the right edge of the panel
+  /// How much taller than the video the area inside the insets is made (see the file comment):
+  /// the video is a hair shorter than the area, so that it needs no scroll track.
+  double fit_margin_m = kDefaultArFitMarginM;
+
+  /// What the insets take from the height of a panel: `top_m + bottom_m`. The fit margin is not
+  /// part of it.
+  double vertical_m() const {return top_m + bottom_m;}
+  /// What the frame takes from the width of a panel: `left_m + right_m`.
+  double horizontal_m() const {return left_m + right_m;}
+};
+
+/// @brief The least share of its nominal width that the panel of a dialog keeps
+/// (PanelGeometryInput::narrow_for_frame): the width of a small dialog stops at half.
+constexpr double kMinNarrowedWidthShare = 0.5;
+
 /// @brief Encoder-friendly pixel alignment for the streamed buffer.
 constexpr std::uint32_t kDefaultBufferAlignment = 2;
 
@@ -92,8 +169,27 @@ struct PanelGeometryInput
   /// 1.0 = none. Changes buffer pixels and effective_pixel_ratio, never the
   /// metres or content_scale (see @ref PanelGeometry::content_scale).
   double render_scale = 1.0;
+  /// The frame that QarOS draws around the video (see the file comment): its vertical part and
+  /// the fit margin are added to the height of the panel, its horizontal part is taken from the
+  /// width of the video. Every inset and the margin finite and not negative; all of them 0 = no
+  /// frame.
+  PanelFrame frame{};
+  /// Fit the width to the frame instead of the height (the panel of a dialog): the panel keeps
+  /// the height of its video at the width the widget asks for and gets the width at which the
+  /// area inside the frame has the aspect ratio of the video (see the file comment).
+  bool narrow_for_frame = false;
   std::uint32_t buffer_alignment = kDefaultBufferAlignment;
   std::uint32_t max_buffer_dimension = kDefaultMaxBufferDimension;
+};
+
+/// @brief What became of the width of a panel that fits its width to the frame
+/// (PanelGeometryInput::narrow_for_frame).
+enum class FrameNarrowing
+{
+  None,     ///< the width is the one the widget asks for: no fit was asked for, or it would widen
+  Reduced,  ///< the width is `fh + (H - fv - m) / a`, H being the video's height: under nominal
+  Limited,  ///< that would be under half of the nominal width, so half of it is used
+  Skipped,  ///< the vertical part of the frame plus the margin is not below H: no frame is applied
 };
 
 /// @brief What QarOS needs: a pixel buffer size and a physical panel size.
@@ -115,8 +211,34 @@ struct PanelGeometry
   std::uint32_t content_width = 0;
   std::uint32_t content_height = 0;
 
+  /// @brief What is SENT to QarOS as the panel's width: @ref nominal_width_meters, or, for a
+  /// panel that fits its width to the frame, the width that fit gives (see @ref narrowing).
   float width_meters = 0.0f;
+
+  /// @brief What is SENT to QarOS as the panel's height: the vertical part of the frame plus
+  /// @ref video_height_meters plus the fit margin. Every place that needs the height of the AR
+  /// panel in metres (the ground rule of a host, say) uses this one.
   float height_meters = 0.0f;
+
+  /// @brief The width at which QarOS draws the video: the width that is sent less the horizontal
+  /// part of @ref frame.
+  float video_width_meters = 0.0f;
+
+  /// @brief The height at which QarOS draws the video: the BUFFER (padding included) at
+  /// @ref video_width_meters, `video_width_meters * buffer_height / buffer_width`.
+  float video_height_meters = 0.0f;
+
+  /// @brief The frame the sizes were made with: PanelGeometryInput::frame, or no frame at all
+  /// when it could not be applied (a dialog whose narrowing was skipped, a panel that is not
+  /// wider than the horizontal part of the frame).
+  PanelFrame frame{0.0, 0.0, 0.0, 0.0, 0.0};
+
+  /// @brief The width the widget asks for, `logical_width * meters_per_logical_px`. It is
+  /// @ref width_meters unless the panel fits its width to the frame.
+  float nominal_width_meters = 0.0f;
+
+  /// @brief What became of the width: None for a panel that does not fit its width.
+  FrameNarrowing narrowing = FrameNarrowing::None;
 
   /// @brief What is SENT to QarOS as QarGuiPanelSize::content_scale. Always
   /// 1.0 - it is a ZOOM in the SDK header, not a resolution, and QarOS

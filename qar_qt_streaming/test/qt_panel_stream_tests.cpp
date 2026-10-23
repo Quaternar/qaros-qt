@@ -27,6 +27,7 @@
 using qar_ar_core::PanelPointerSample;
 using qar_ar_core::PointerGesture;
 using qar_ar_core::PointerPhase;
+using qar_qt_streaming::PanelFrame;
 using qar_qt_streaming::PanelPointerEvent;
 using qar_qt_streaming::PanelStreamOptions;
 using qar_qt_streaming::QtPanelStream;
@@ -122,6 +123,452 @@ TEST(PanelStream, TheSenderIsToldTheDerivedBufferSizeAndPhysicalSize)
   EXPECT_EQ(desc.display_name, "Test Panel");
   // 200 logical px * kDefaultMetersPerLogicalPx (0.0012 m/px).
   EXPECT_NEAR(desc.placement.size.width_meters, 0.24f, 1e-4f);
+}
+
+TEST(PanelStreamHeight, TheSenderIsToldTheVideoInsideTheFrameAndTheWidthIsUnchanged)
+{
+  Fixture fixture;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  QtPanelStream stream("panel", fixture.widget(), options_no_pacing(), factory);
+  ASSERT_TRUE(stream.tick(0.0));
+
+  // 200 x 120 px: a buffer of 200 x 120 and a panel 0.24 m wide. The default frame leaves the
+  // video the width inside its two borders of 0.003 m, 0.234 m, which is 0.234 * 120 / 200 =
+  // 0.1404 m tall; the title bar and the border above it, 0.066 m, are on top of it, and the
+  // border of 0.003 m and the fit margin of 0.003 m below it: 0.2124 m.
+  const auto & desc = factory->latest()->desc();
+  EXPECT_NEAR(desc.placement.size.width_meters, 0.24f, 1e-6f);
+  EXPECT_NEAR(desc.placement.size.height_meters, 0.2124f, 1e-6f);
+  EXPECT_NEAR(stream.placement().size.height_meters, 0.2124f, 1e-6f);
+  EXPECT_NEAR(stream.diagnostics().width_meters, 0.24f, 1e-6f);
+  EXPECT_NEAR(stream.diagnostics().height_meters, 0.2124f, 1e-6f);
+  EXPECT_FLOAT_EQ(desc.placement.size.content_scale, 1.0f);
+  // The pixels the adapter normalises a reported contact against do not know the frame.
+  EXPECT_EQ(desc.content_width, 200u);
+  EXPECT_EQ(desc.content_height, 120u);
+}
+
+TEST(PanelStreamHeight, NoFrameSendsTheVideoAlone)
+{
+  Fixture fixture;
+  PanelStreamOptions options = options_no_pacing();
+  options.ar_frame = PanelFrame{0.0, 0.0, 0.0, 0.0, 0.0};
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  QtPanelStream stream("panel", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+
+  const auto & desc = factory->latest()->desc();
+  EXPECT_NEAR(desc.placement.size.width_meters, 0.24f, 1e-6f);
+  EXPECT_NEAR(desc.placement.size.height_meters, 0.144f, 1e-6f);
+  EXPECT_EQ(desc.buffer_width, 200u);
+  EXPECT_EQ(desc.buffer_height, 120u);
+}
+
+TEST(PanelStreamHeight, TheSizeLineNamesTheVideoTheFourInsetsAndTheFitMarginOfTheFrame)
+{
+  Fixture fixture;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  QtPanelStream stream("panel", fixture.widget(), options_no_pacing(), factory);
+  ASSERT_TRUE(stream.tick(0.0));
+
+  const std::string line = stream.diagnostics().last_geometry_summary;
+  EXPECT_NE(line.find("content 200x120 px, buffer 200x120 px, 0.240000x0.212400 m"),
+    std::string::npos) << line;
+  const std::string tail =
+    " (video 0.234000 x 0.140400 m inside a frame of top 0.066000, bottom 0.003000, "
+    "left 0.003000, right 0.003000 m, fit margin 0.003000 m)";
+  ASSERT_GE(line.size(), tail.size()) << line;
+  EXPECT_EQ(line.substr(line.size() - tail.size()), tail) << line;
+}
+
+TEST(PanelStreamHeight, AStatedFrameIsInThePanelAndInTheSizeLineWithAllFourInsetsAndTheMargin)
+{
+  Fixture fixture;
+  PanelStreamOptions options = options_no_pacing();
+  options.ar_frame = PanelFrame{0.05, 0.02, 0.01, 0.04, 0.005};
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  QtPanelStream stream("panel", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+
+  // The video is 0.24 - 0.05 = 0.19 m wide and 0.114 m tall; the vertical part of the frame is
+  // 0.07 m and the fit margin 0.005 m.
+  const auto & desc = factory->latest()->desc();
+  EXPECT_NEAR(desc.placement.size.width_meters, 0.24f, 1e-6f);
+  EXPECT_NEAR(desc.placement.size.height_meters, 0.189f, 1e-5f);
+  const std::string line = stream.diagnostics().last_geometry_summary;
+  const std::string tail =
+    " (video 0.190000 x 0.114000 m inside a frame of top 0.050000, bottom 0.020000, "
+    "left 0.010000, right 0.040000 m, fit margin 0.005000 m)";
+  ASSERT_GE(line.size(), tail.size()) << line;
+  EXPECT_EQ(line.substr(line.size() - tail.size()), tail) << line;
+}
+
+TEST(PanelStreamHeight, TheDialogPanelKeepsTheVideoHeightAndIsFittedToTheFrame)
+{
+  Fixture fixture;
+  PanelStreamOptions options = options_no_pacing();
+  options.dialog_panel = true;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  const float predicted = qar_qt_streaming::ar_panel_height_m(*fixture.widget(), options);
+  QtPanelStream stream("dialog:Add", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+
+  // 200 x 120 px: 0.24 m wide, a video of 0.144 m at that width. The area inside the default
+  // frame, less the fit margin, is 0.144 - 0.069 - 0.003 = 0.072 m tall, which a video of this
+  // shape fills at 0.072 / 0.6 = 0.12 m, so the panel is 0.12 + 0.006 = 0.126 m wide and keeps
+  // the 0.144 m of height of its video.
+  const auto & desc = factory->latest()->desc();
+  EXPECT_NEAR(desc.placement.size.width_meters, 0.126f, 1e-6f);
+  EXPECT_NEAR(desc.placement.size.height_meters, 0.144f, 1e-6f);
+  EXPECT_FLOAT_EQ(predicted, desc.placement.size.height_meters);
+  EXPECT_NEAR(stream.diagnostics().width_meters, 0.126f, 1e-6f);
+  // The buffer, the content and the zoom are those of the widget.
+  EXPECT_EQ(desc.buffer_width, 200u);
+  EXPECT_EQ(desc.buffer_height, 120u);
+  EXPECT_EQ(desc.content_width, 200u);
+  EXPECT_EQ(desc.content_height, 120u);
+  EXPECT_FLOAT_EQ(desc.placement.size.content_scale, 1.0f);
+  // The size line says which rule applied: the video, the frame, and the width before and after.
+  const std::string line = stream.diagnostics().last_geometry_summary;
+  const std::string tail =
+    " (video 0.120000 x 0.072000 m inside a frame of top 0.066000, bottom 0.003000, "
+    "left 0.003000, right 0.003000 m, fit margin 0.003000 m "
+    "(a dialog: width 0.240000 -> 0.126000 m for the frame))";
+  ASSERT_GE(line.size(), tail.size()) << line;
+  EXPECT_EQ(line.substr(line.size() - tail.size()), tail) << line;
+  EXPECT_NE(line.find("0.126000x0.144000 m"), std::string::npos) << line;
+}
+
+TEST(PanelStreamHeight, ADialogPanelWhoseFrameIsNotBelowItsVideoIsNotFramedAndSaysSo)
+{
+  Fixture fixture;
+  PanelStreamOptions options = options_no_pacing();
+  options.ar_frame = PanelFrame{0.30, 0.0, 0.0, 0.0, 0.0};  // more than the 0.144 m of its video
+  options.dialog_panel = true;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  QtPanelStream stream("dialog:Add", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+
+  const auto & desc = factory->latest()->desc();
+  EXPECT_NEAR(desc.placement.size.width_meters, 0.24f, 1e-6f);
+  EXPECT_NEAR(desc.placement.size.height_meters, 0.144f, 1e-6f);
+  const std::string line = stream.diagnostics().last_geometry_summary;
+  const std::string tail =
+    " (video 0.240000 x 0.144000 m inside a frame of top 0.000000, bottom 0.000000, "
+    "left 0.000000, right 0.000000 m, fit margin 0.000000 m "
+    "(a dialog: width 0.240000 -> 0.240000 m for the frame, "
+    "not applied because the frame and its fit margin are not below the video height))";
+  ASSERT_GE(line.size(), tail.size()) << line;
+  EXPECT_EQ(line.substr(line.size() - tail.size()), tail) << line;
+}
+
+TEST(PanelStreamHeight, ADialogPanelWhoseFrameIsBelowItsVideoOnlyWithoutTheMarginIsNotFramed)
+{
+  Fixture fixture;
+  PanelStreamOptions options = options_no_pacing();
+  // 0.14 m is below the 0.144 m of the video of the dialog, 0.14 + 0.01 m is not.
+  options.ar_frame = PanelFrame{0.14, 0.0, 0.0, 0.0, 0.01};
+  options.dialog_panel = true;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  QtPanelStream stream("dialog:Add", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+
+  const auto & desc = factory->latest()->desc();
+  EXPECT_NEAR(desc.placement.size.width_meters, 0.24f, 1e-6f);
+  EXPECT_NEAR(desc.placement.size.height_meters, 0.144f, 1e-6f);
+  const std::string line = stream.diagnostics().last_geometry_summary;
+  const std::string tail =
+    " (video 0.240000 x 0.144000 m inside a frame of top 0.000000, bottom 0.000000, "
+    "left 0.000000, right 0.000000 m, fit margin 0.000000 m "
+    "(a dialog: width 0.240000 -> 0.240000 m for the frame, "
+    "not applied because the frame and its fit margin are not below the video height))";
+  ASSERT_GE(line.size(), tail.size()) << line;
+  EXPECT_EQ(line.substr(line.size() - tail.size()), tail) << line;
+}
+
+TEST(PanelStreamHeight, ADialogPanelIsNeverNarrowerThanHalfAndSaysSo)
+{
+  Fixture fixture;
+  PanelStreamOptions options = options_no_pacing();
+  options.ar_frame = PanelFrame{0.10, 0.0, 0.0, 0.0, 0.0};  // would leave 0.044 m of its 0.144 m
+  options.dialog_panel = true;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  QtPanelStream stream("dialog:Add", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+
+  const auto & desc = factory->latest()->desc();
+  EXPECT_NEAR(desc.placement.size.width_meters, 0.12f, 1e-6f);
+  EXPECT_NEAR(desc.placement.size.height_meters, 0.144f, 1e-6f);
+  const std::string line = stream.diagnostics().last_geometry_summary;
+  const std::string tail =
+    " (video 0.120000 x 0.072000 m inside a frame of top 0.100000, bottom 0.000000, "
+    "left 0.000000, right 0.000000 m, fit margin 0.000000 m "
+    "(a dialog: width 0.240000 -> 0.120000 m for the frame, limited to half of the width))";
+  ASSERT_GE(line.size(), tail.size()) << line;
+  EXPECT_EQ(line.substr(line.size() - tail.size()), tail) << line;
+}
+
+TEST(PanelStreamHeight, ADialogPanelThatTheFrameWouldWidenKeepsItsWidthAndSaysSo)
+{
+  Fixture fixture;
+  fixture.widget()->resize(200, 500);
+  QCoreApplication::processEvents();
+  PanelStreamOptions options = options_no_pacing();
+  options.ar_frame = PanelFrame{0.063, 0.0, 0.0, 0.030, 0.003};
+  options.dialog_panel = true;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  QtPanelStream stream("dialog:Add", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+
+  // 200 x 500 px: 0.24 m wide, a video of 0.6 m. A frame with a strip of 0.030 m at the right
+  // asks for 0.030 + (0.6 - 0.063 - 0.003) / 2.5 = 0.2436 m, more than the widget asks for, so
+  // the width stays.
+  const auto & desc = factory->latest()->desc();
+  EXPECT_NEAR(desc.placement.size.width_meters, 0.24f, 1e-6f);
+  EXPECT_NEAR(desc.placement.size.height_meters, 0.6f, 1e-6f);
+  const std::string line = stream.diagnostics().last_geometry_summary;
+  const std::string tail =
+    " (video 0.210000 x 0.525000 m inside a frame of top 0.063000, bottom 0.000000, "
+    "left 0.000000, right 0.030000 m, fit margin 0.003000 m "
+    "(a dialog: width 0.240000 -> 0.240000 m for the frame, not made wider than the widget asks))";
+  ASSERT_GE(line.size(), tail.size()) << line;
+  EXPECT_EQ(line.substr(line.size() - tail.size()), tail) << line;
+}
+
+TEST(PanelStreamHeight, ThePanelThatIsNotADialogKeepsItsWidthAndAddsTheFrameAndMarginToItsHeight)
+{
+  Fixture fixture;
+  PanelStreamOptions options = options_no_pacing();
+  options.ar_frame = PanelFrame{0.30, 0.0, 0.0, 0.0, 0.01};
+  ASSERT_FALSE(options.dialog_panel);
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  QtPanelStream stream("dock:Views", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+  EXPECT_NEAR(factory->latest()->desc().placement.size.width_meters, 0.24f, 1e-6f);
+  EXPECT_NEAR(factory->latest()->desc().placement.size.height_meters, 0.454f, 1e-5f);
+  EXPECT_EQ(stream.diagnostics().last_geometry_summary.find("(a dialog"), std::string::npos);
+}
+
+TEST(PanelStreamHeight, TheHitPlacementIsTheVideoInsideTheFrame)
+{
+  Fixture fixture;
+  PanelStreamOptions without = options_no_pacing();
+  without.ar_frame = PanelFrame{0.0, 0.0, 0.0, 0.0, 0.0};
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  QtPanelStream a("a", fixture.widget(), options_no_pacing(), factory);
+  QtPanelStream b("b", fixture.widget(), without, factory);
+  ASSERT_TRUE(a.tick(0.0));
+  ASSERT_TRUE(b.tick(0.0));
+
+  // The panel that is sent is 0.24 x 0.2124 m with the default frame and 0.24 x 0.144 m without...
+  EXPECT_NEAR(a.placement().size.width_meters, 0.24f, 1e-6f);
+  EXPECT_NEAR(a.placement().size.height_meters, 0.2124f, 1e-6f);
+  EXPECT_NEAR(b.placement().size.height_meters, 0.144f, 1e-6f);
+  // ...while the pointer hit tests work on the video, which fills the 200 x 120 px buffer: 0.234 x
+  // 0.1404 m inside the frame with its borders of 0.003 m, and the whole panel without it.
+  EXPECT_NEAR(a.hit_placement().size.width_meters, 0.234f, 1e-6f);
+  EXPECT_NEAR(a.hit_placement().size.height_meters, 0.1404f, 1e-6f);
+  EXPECT_NEAR(b.hit_placement().size.width_meters, 0.24f, 1e-6f);
+  EXPECT_NEAR(b.hit_placement().size.height_meters, 0.144f, 1e-6f);
+  // With the default frame the borders left and right are equal, so the middle of the video is the
+  // middle of the panel, and its top edge is the 0.066 m of the title bar and the border and half
+  // of the 0.003 m of the fit margin below the top edge of the panel: 0.0675 m.
+  EXPECT_NEAR(a.hit_placement().pose.position.x, a.placement().pose.position.x, 1e-6f);
+  EXPECT_NEAR(a.hit_placement().pose.position.y, a.placement().pose.position.y - 0.0675f, 1e-6f);
+  EXPECT_FLOAT_EQ(a.hit_placement().pose.position.z, a.placement().pose.position.z);
+  // The video ends the other half of the margin and the border of 0.003 m above the bottom edge
+  // of the panel: 0.0045 m.
+  EXPECT_NEAR(
+    (a.hit_placement().pose.position.y - a.hit_placement().size.height_meters) -
+    (a.placement().pose.position.y - a.placement().size.height_meters), 0.0045f, 1e-6f);
+  // Without a frame the rectangle is the panel.
+  EXPECT_FLOAT_EQ(b.hit_placement().pose.position.x, b.placement().pose.position.x);
+  EXPECT_FLOAT_EQ(b.hit_placement().pose.position.y, b.placement().pose.position.y);
+}
+
+TEST(PanelStreamHeight, TheHitPlacementOfADialogIsItsVideoInsideTheFrameToo)
+{
+  Fixture fixture;
+  PanelStreamOptions options = options_no_pacing();
+  options.dialog_panel = true;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  QtPanelStream stream("dialog:Add", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+
+  // The panel that is sent is 0.126 x 0.144 m and its video, 0.12 m wide, is 0.072 m tall: the
+  // frame is the 0.066 m above it and the border of 0.003 m under it, and the fit margin of
+  // 0.003 m, half of it above the video and half under it.
+  const qar_ar_core::PanelPlacement sent = stream.placement();
+  const qar_ar_core::PanelPlacement hit = stream.hit_placement();
+  EXPECT_NEAR(sent.size.width_meters, 0.126f, 1e-6f);
+  EXPECT_NEAR(sent.size.height_meters, 0.144f, 1e-6f);
+  EXPECT_NEAR(hit.size.width_meters, 0.12f, 1e-6f);
+  EXPECT_NEAR(hit.size.height_meters, 0.072f, 1e-6f);
+  EXPECT_NEAR(hit.pose.position.x, sent.pose.position.x, 1e-6f);
+  EXPECT_NEAR(hit.pose.position.y, sent.pose.position.y - 0.0675f, 1e-6f);
+  EXPECT_FLOAT_EQ(hit.pose.position.z, sent.pose.position.z);
+  // The video ends half of the margin and the border above the bottom edge of the panel.
+  EXPECT_NEAR(
+    (hit.pose.position.y - hit.size.height_meters) -
+    (sent.pose.position.y - sent.size.height_meters), 0.0045f, 1e-6f);
+}
+
+TEST(PanelStreamHeight, TheHitPlacementIsCentredUnderTheTitleBarWhenThePanelIsTallerThanItNeeds)
+{
+  Fixture fixture;
+  fixture.widget()->resize(200, 500);
+  QCoreApplication::processEvents();
+  PanelStreamOptions options = options_no_pacing();
+  options.ar_frame = PanelFrame{0.063, 0.0, 0.0, 0.030, 0.003};
+  options.dialog_panel = true;  // the frame would widen it, so its width stays 0.24 m
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  QtPanelStream stream("dialog:Add", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+
+  // The panel is 0.24 x 0.6 m; the video, 0.21 m wide, is 0.525 m tall, 0.012 m less than the
+  // 0.537 m under the title bar. QarOS centres it there: 0.006 m of band above it and below it.
+  const qar_ar_core::PanelPlacement sent = stream.placement();
+  const qar_ar_core::PanelPlacement hit = stream.hit_placement();
+  EXPECT_NEAR(sent.size.height_meters, 0.6f, 1e-6f);
+  EXPECT_NEAR(hit.size.height_meters, 0.525f, 1e-5f);
+  EXPECT_NEAR(hit.pose.position.y, sent.pose.position.y - (0.063f + 0.006f), 1e-5f);
+  EXPECT_NEAR(
+    hit.pose.position.y - hit.size.height_meters,
+    sent.pose.position.y - sent.size.height_meters + 0.006f, 1e-5f);
+}
+
+TEST(PanelStreamHeight, TheHitPlacementStartsAtTheLeftInsetOfThePanel)
+{
+  Fixture fixture;
+  PanelStreamOptions options = options_no_pacing();
+  options.ar_frame = PanelFrame{0.0, 0.0, 0.02, 0.01, 0.0};
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  QtPanelStream stream("p", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+
+  // The video is 0.24 - 0.03 = 0.21 m wide and starts 0.02 m right of the left edge of the panel.
+  const qar_ar_core::PanelPlacement sent = stream.placement();
+  const qar_ar_core::PanelPlacement hit = stream.hit_placement();
+  EXPECT_NEAR(hit.size.width_meters, 0.21f, 1e-6f);
+  // The pose is the top centre and +X runs to the viewer's left, so the left edge of the
+  // rectangle is its centre plus half of its width, and it is 0.02 m from the left edge of the
+  // panel.
+  EXPECT_NEAR(
+    hit.pose.position.x + 0.5f * hit.size.width_meters,
+    sent.pose.position.x + 0.5f * sent.size.width_meters - 0.02f, 1e-6f);
+  EXPECT_NEAR(hit.pose.position.y, sent.pose.position.y, 1e-6f);
+}
+
+TEST(PanelStreamHeight, TheHitPlacementStartsAtTheLeftEdgeOfThePanelWhenThePaddingIsOnTheRight)
+{
+  Fixture fixture;
+  fixture.widget()->resize(201, 121);
+  QCoreApplication::processEvents();
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  QtPanelStream stream("p", fixture.widget(), options_no_pacing(), factory);
+  ASSERT_TRUE(stream.tick(0.0));
+
+  // 201 x 121 px is a content of that size in a buffer of 202 x 122 px: QarOS draws the whole
+  // buffer at the width the borders leave of the panel (0.2412 - 0.006 = 0.2352 m), the widget is
+  // the top left part of it, so the widget covers 201/202 of the width of the video and 121/202
+  // of that width as height.
+  const auto & desc = factory->latest()->desc();
+  ASSERT_EQ(desc.buffer_width, 202u);
+  ASSERT_EQ(desc.buffer_height, 122u);
+  ASSERT_EQ(desc.content_width, 201u);
+  ASSERT_EQ(desc.content_height, 121u);
+  const qar_ar_core::PanelPlacement sent = stream.placement();
+  const qar_ar_core::PanelPlacement hit = stream.hit_placement();
+  const float video_w_m = sent.size.width_meters - 0.006f;
+  EXPECT_NEAR(hit.size.width_meters, video_w_m * 201.0f / 202.0f, 1e-6f);
+  EXPECT_NEAR(hit.size.height_meters, video_w_m * 121.0f / 202.0f, 1e-6f);
+  // The pose is the top centre and +X runs to the viewer's left, so the left edge of the rectangle
+  // is its centre plus half of its width, and it is the border of 0.003 m from the left edge of
+  // the panel.
+  EXPECT_NEAR(
+    hit.pose.position.x + 0.5f * hit.size.width_meters,
+    sent.pose.position.x + 0.5f * sent.size.width_meters - 0.003f, 1e-6f);
+  // The panel is as tall as its frame asks for, so the top edge is the title bar with its border
+  // and half of the fit margin below the top.
+  EXPECT_NEAR(hit.pose.position.y, sent.pose.position.y - 0.0675f, 1e-6f);
+}
+
+TEST(PanelStreamHeight, TheHitPlacementMovesAlongTheTiltedPanelsOwnAxes)
+{
+  // Turned a quarter turn about the room's Z axis: the panel's -Y (down the panel) is then the
+  // room's +X and the panel's +X (to the viewer's left) is the room's +Y.
+  const float half_sqrt = 0.70710678f;
+  struct Case
+  {
+    const char * name;
+    PanelFrame frame;
+    float step_x_m;  ///< the room's X: down the panel, the top inset
+    float step_y_m;  ///< the room's Y: to the viewer's left of the panel's middle
+  };
+  const Case cases[] = {
+    {"a title bar of 0.20 m", PanelFrame{0.20, 0.0, 0.0, 0.0, 0.0}, 0.20f, 0.0f},
+    {"a strip of 0.03 m on the right", PanelFrame{0.0, 0.0, 0.0, 0.03, 0.0}, 0.0f, 0.015f},
+    {"a strip of 0.03 m on the left", PanelFrame{0.0, 0.0, 0.03, 0.0, 0.0}, 0.0f, -0.015f},
+  };
+  for (const Case & c : cases) {
+    Fixture fixture;
+    PanelStreamOptions options = options_no_pacing();
+    options.ar_frame = c.frame;
+    options.placement.pose.orientation = QarQuaternion{0.0f, 0.0f, half_sqrt, half_sqrt};
+    options.placement.pose.position = QarVector3{1.0f, 2.0f, 3.0f};
+    auto factory = std::make_shared<MockQarPanelSenderFactory>();
+    QtPanelStream stream("p", fixture.widget(), options, factory);
+    ASSERT_TRUE(stream.tick(0.0)) << c.name;
+
+    const qar_ar_core::PanelPlacement hit = stream.hit_placement();
+    EXPECT_NEAR(hit.pose.position.x, 1.0f + c.step_x_m, 1e-5f) << c.name;
+    EXPECT_NEAR(hit.pose.position.y, 2.0f + c.step_y_m, 1e-5f) << c.name;
+    EXPECT_NEAR(hit.pose.position.z, 3.0f, 1e-5f) << c.name;
+    EXPECT_FLOAT_EQ(hit.pose.orientation.z, half_sqrt) << c.name;
+    EXPECT_FLOAT_EQ(hit.pose.orientation.w, half_sqrt) << c.name;
+  }
+}
+
+TEST(PanelStreamHeight, TheHitPlacementOfATiltedDialogMovesAlongItsOwnVerticalAxisToo)
+{
+  Fixture fixture;
+  PanelStreamOptions options = options_no_pacing();
+  options.dialog_panel = true;
+  // 0.144 m of video: a width of 0.24 * 0.104 / 0.144, with no horizontal part in the frame.
+  options.ar_frame = PanelFrame{0.04, 0.0, 0.0, 0.0, 0.0};
+  const float half_sqrt = 0.70710678f;
+  options.placement.pose.orientation = QarQuaternion{0.0f, 0.0f, half_sqrt, half_sqrt};
+  options.placement.pose.position = QarVector3{1.0f, 2.0f, 3.0f};
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  QtPanelStream stream("dialog:Add", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+
+  // The 0.04 m title bar down the panel: along the room's +X after the quarter turn.
+  const qar_ar_core::PanelPlacement hit = stream.hit_placement();
+  EXPECT_NEAR(stream.placement().size.width_meters, 0.24f * 0.104f / 0.144f, 1e-5f);
+  EXPECT_NEAR(hit.pose.position.x, 1.0f + 0.04f, 1e-5f);
+  EXPECT_NEAR(hit.pose.position.y, 2.0f, 1e-5f);
+  EXPECT_NEAR(hit.pose.position.z, 3.0f, 1e-5f);
+}
+
+TEST(PanelStreamHeight, AWidgetThatHasNoSizeYetHasNoPanelHeight)
+{
+  QWidget never_shown;
+  never_shown.resize(0, 0);
+  EXPECT_FLOAT_EQ(qar_qt_streaming::ar_panel_height_m(never_shown, PanelStreamOptions{}), 0.0f);
+}
+
+TEST(PanelStreamHeight, TheHeightAHostPredictsIsTheHeightTheStreamSends)
+{
+  Fixture fixture;
+  PanelStreamOptions options = options_no_pacing();
+  options.ar_frame = PanelFrame{0.15, 0.0, 0.0, 0.0, 0.0};
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  const float predicted = qar_qt_streaming::ar_panel_height_m(*fixture.widget(), options);
+  QtPanelStream stream("panel", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+  EXPECT_NEAR(predicted, 0.294f, 1e-5f);
+  EXPECT_FLOAT_EQ(predicted, factory->latest()->desc().placement.size.height_meters);
 }
 
 TEST(PanelStream, AnUnchangedWidgetIsCapturedButNotSubmitted)
@@ -416,6 +863,63 @@ TEST(PanelStream, TheNotReadyStreakCountsConsecutiveUnreservedTicksAndResetsOnAS
   EXPECT_EQ(stream.diagnostics().not_ready_streak, 0u);
 }
 
+// The three answers of a sender that is not ready are different faults, so the streak is also
+// counted by cause: nothing reserved yet, nothing attached (604), a receiver that lost the stream
+// and reconnects (603). The heartbeat prints the three counts as `nr=<no destination>/<604>/<603>`.
+TEST(PanelStream, TheNotReadyStreakIsAlsoCountedByTheCauseTheSenderGives)
+{
+  Fixture fixture;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  PanelStreamOptions options = options_no_pacing();
+  options.keepalive_seconds = 1.0;
+  QtPanelStream stream("panel", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+  EXPECT_EQ(qar_ar_core::not_ready_split_text(stream.diagnostics()), "0/0/0");
+
+  factory->latest()->set_ready(false);
+  for (int i = 1; i <= 2; ++i) {
+    EXPECT_FALSE(stream.tick(static_cast<double>(i)));
+  }
+  factory->latest()->set_not_ready_cause(qar_ar_core::PanelNotReadyCause::NoActiveTransfers);
+  for (int i = 3; i <= 5; ++i) {
+    EXPECT_FALSE(stream.tick(static_cast<double>(i)));
+  }
+  factory->latest()->set_not_ready_cause(qar_ar_core::PanelNotReadyCause::Reconnecting);
+  EXPECT_FALSE(stream.tick(6.0));
+
+  const auto & d = stream.diagnostics();
+  EXPECT_EQ(d.not_ready_streak, 6u);
+  EXPECT_EQ(d.not_ready_streak_no_destination, 2u) << "the default cause";
+  EXPECT_EQ(d.not_ready_streak_no_transfers, 3u);
+  EXPECT_EQ(d.not_ready_streak_reconnecting, 1u);
+  EXPECT_EQ(qar_ar_core::not_ready_split_text(d), "2/3/1");
+
+  factory->latest()->set_ready(true);
+  EXPECT_TRUE(stream.tick(10.0));
+  EXPECT_EQ(stream.diagnostics().not_ready_streak, 0u);
+  EXPECT_EQ(qar_ar_core::not_ready_split_text(stream.diagnostics()), "0/0/0")
+    << "a frame that lands ends the streak and every count of it";
+}
+
+TEST(PanelStream, ANotReadyTickCountsOnlyForTheCauseOfThatTick)
+{
+  Fixture fixture;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  PanelStreamOptions options = options_no_pacing();
+  options.keepalive_seconds = 1.0;
+  QtPanelStream stream("panel", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+  factory->latest()->set_ready(false);
+
+  factory->latest()->set_not_ready_cause(qar_ar_core::PanelNotReadyCause::Reconnecting);
+  EXPECT_FALSE(stream.tick(1.0));
+  EXPECT_EQ(qar_ar_core::not_ready_split_text(stream.diagnostics()), "0/0/1");
+  factory->latest()->set_not_ready_cause(qar_ar_core::PanelNotReadyCause::NoActiveTransfers);
+  EXPECT_FALSE(stream.tick(2.0));
+  EXPECT_EQ(qar_ar_core::not_ready_split_text(stream.diagnostics()), "0/1/1")
+    << "the earlier tick keeps its count, the new one goes to its own cause";
+}
+
 TEST(PanelStream, ANotYetLaidOutWidgetIsRefusedWithoutTouchingTheFactory)
 {
   QWidget widget;
@@ -560,6 +1064,10 @@ make_config(std::shared_ptr<MockQarPanelSenderFactory> factory, std::shared_ptr<
   QtPanelStreamingConfig config;
   config.panel_sender_factory = std::move(factory);
   config.clock = std::move(clock);
+  // A frame that is the same above and below the video and has nothing at the sides: the middle
+  // of the panel is the middle of the widget, which the routing tests rely on. The tests of the
+  // frame itself state theirs.
+  config.ar_frame = PanelFrame{0.03, 0.03, 0.0, 0.0, 0.0};
   return config;
 }
 
@@ -743,20 +1251,155 @@ TEST(PanelManager, RoutesARoomPointToThePanelPixelUnderIt)
   // happen before a hit test can mean anything.
   manager.tick();
 
-  // The panel's pose sits on its TOP EDGE (QarOS panel space), so the point
-  // that lands on the widget's centre is half a panel height below it.
-  float height_m = 0.0f;
+  // The panel's pose sits on its TOP EDGE (QarOS panel space). The frame of this manager is the
+  // same above and below the video, so the point that lands on the widget's centre is half the
+  // height of the whole panel below it: 0.03 m of frame, the widget, 0.03 m of frame.
+  float panel_height_m = 0.0f;
   for (const auto & p : manager.diagnostics().panels) {
-    if (p.key == "p") { height_m = p.height_meters; }
+    if (p.key == "p") { panel_height_m = p.height_meters; }
   }
-  ASSERT_GT(height_m, 0.0f);
+  ASSERT_GT(panel_height_m, static_cast<float>(config.ar_frame.vertical_m()));
   EXPECT_TRUE(manager.route_room_point(
-      QarVector3{0.0f, -0.5f * height_m, 0.0f}, PanelPointerEvent::Kind::Click));
+      QarVector3{0.0f, -0.5f * panel_height_m, 0.0f}, PanelPointerEvent::Kind::Click));
   ASSERT_EQ(sink.events().size(), 1u);
   EXPECT_EQ(sink.events()[0].panel_key, "p");
   EXPECT_EQ(sink.events()[0].kind, PanelPointerEvent::Kind::Click);
   EXPECT_EQ(sink.events()[0].widget_x, 100);
   EXPECT_EQ(sink.events()[0].widget_y, 60);
+
+  // A point in the band above the widget and one in the band below it hit nothing. The widget
+  // spans 0.144 m, from 0.03 m under the panel's top edge to 0.174 m under it.
+  EXPECT_FALSE(manager.route_room_point(
+      QarVector3{0.0f, -0.015f, 0.0f}, PanelPointerEvent::Kind::Click));
+  EXPECT_FALSE(manager.route_room_point(
+      QarVector3{0.0f, -0.189f, 0.0f}, PanelPointerEvent::Kind::Click));
+  EXPECT_EQ(sink.events().size(), 1u);
+  // ...and the points just inside the two edges of the widget land on its first and last row.
+  EXPECT_TRUE(manager.route_room_point(
+      QarVector3{0.0f, -0.0305f, 0.0f}, PanelPointerEvent::Kind::Click));
+  EXPECT_TRUE(manager.route_room_point(
+      QarVector3{0.0f, -0.1735f, 0.0f}, PanelPointerEvent::Kind::Click));
+  ASSERT_EQ(sink.events().size(), 3u);
+  EXPECT_EQ(sink.events()[1].widget_y, 0);
+  EXPECT_EQ(sink.events()[2].widget_y, 119);
+}
+
+TEST(PanelManager, APointInThePaddingStripOrBesideThePanelHitsNothing)
+{
+  // 201 x 121 px is a content of that size in a buffer of 202 x 122 px. QarOS draws the buffer at
+  // the sent width of the panel, so a column of the video is that width / 202 wide, the widget
+  // covers the first 201 of them from the left edge of the panel, and the last one is padding.
+  // The same holds for the panel of a dialog, whose width is reduced for the frame.
+  for (const bool dialog : {false, true}) {
+    Fixture fixture;
+    fixture.widget()->resize(201, 121);
+    QCoreApplication::processEvents();
+    auto factory = std::make_shared<MockQarPanelSenderFactory>();
+    RecordingPanelInputSink sink;
+    QtPanelStreamingConfig config = make_config(factory, std::make_shared<ManualClock>());
+    config.input_sink = &sink;
+    QtPanelStreamManager manager(config);
+    PanelStreamOptions options = options_no_pacing();
+    options.dialog_panel = dialog;
+    ASSERT_TRUE(manager.add_panel("p", fixture.widget(), options).ok());
+    manager.tick();
+
+    float width_m = 0.0f;
+    float height_m = 0.0f;
+    for (const auto & p : manager.diagnostics().panels) {
+      if (p.key == "p") {
+        width_m = p.width_meters;
+        height_m = p.height_meters;
+      }
+    }
+    ASSERT_GT(width_m, 0.0f);
+    const float column_m = width_m / 202.0f;
+    // +X runs to the viewer's left, so the left edge of the panel is at +width / 2; the middle of
+    // the panel's height is inside the widget.
+    const auto route = [&](float from_left_edge_m) {
+        return manager.route_room_point(
+          QarVector3{0.5f * width_m - from_left_edge_m, -0.5f * height_m, 0.0f},
+          PanelPointerEvent::Kind::Click);
+      };
+    EXPECT_TRUE(route(0.5f * column_m)) << dialog;
+    EXPECT_TRUE(route(200.5f * column_m)) << dialog;
+    ASSERT_EQ(sink.events().size(), 2u) << dialog;
+    EXPECT_EQ(sink.events()[0].widget_x, 0) << dialog;
+    EXPECT_EQ(sink.events()[1].widget_x, 200) << dialog;
+    EXPECT_FALSE(route(201.5f * column_m)) << dialog << ": the padding column";
+    EXPECT_FALSE(route(-0.5f * column_m)) << dialog << ": left of the panel";
+    EXPECT_FALSE(route(width_m + 0.5f * column_m)) << dialog << ": right of the panel";
+    EXPECT_EQ(sink.events().size(), 2u) << dialog;
+  }
+}
+
+TEST(PanelManagerHeight, TheManagersFrameIsAppliedToEveryPanelInPlaceOfTheOptions)
+{
+  Fixture fixture;
+  Fixture other;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  QtPanelStreamingConfig config = make_config(factory, std::make_shared<ManualClock>());
+  config.ar_frame = PanelFrame{0.20, 0.0, 0.0, 0.0, 0.0};
+  QtPanelStreamManager manager(config);
+
+  PanelStreamOptions options = options_no_pacing();
+  options.ar_frame = PanelFrame{0.50, 0.0, 0.0, 0.0, 0.0};  // the manager's value wins
+  const float predicted = manager.ar_panel_height_m(*fixture.widget(), options);
+  ASSERT_TRUE(manager.add_panel("a", fixture.widget(), options).ok());
+  ASSERT_TRUE(manager.add_panel("b", other.widget(), options_no_pacing()).ok());
+  manager.tick();
+
+  ASSERT_EQ(factory->created().size(), 2u);
+  for (const auto & adapter : factory->created()) {
+    EXPECT_NEAR(adapter->desc().placement.size.height_meters, 0.144f + 0.20f, 1e-5f);
+  }
+  // What the host is told before the panel exists is what the panel is sent.
+  EXPECT_NEAR(predicted, 0.344f, 1e-5f);
+  EXPECT_FLOAT_EQ(predicted, factory->created()[0]->desc().placement.size.height_meters);
+}
+
+TEST(PanelManagerHeight, TheDefaultManagerGivesTheFrameOfTheVisualizer)
+{
+  Fixture fixture;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  QtPanelStreamingConfig config = make_config(factory, std::make_shared<ManualClock>());
+  config.ar_frame = PanelFrame{};  // what a manager that is not told otherwise has
+  QtPanelStreamManager manager(config);
+  ASSERT_TRUE(manager.add_panel("a", fixture.widget(), options_no_pacing()).ok());
+  manager.tick();
+  // 200 x 120 px: 0.24 m wide, the video 0.234 m wide inside the borders and 0.6 times that tall,
+  // under a title bar and border of 0.066 m, above a border of 0.003 m and with a fit margin of
+  // 0.003 m.
+  EXPECT_NEAR(factory->latest()->desc().placement.size.width_meters, 0.24f, 1e-6f);
+  EXPECT_NEAR(factory->latest()->desc().placement.size.height_meters, 0.2124f, 1e-6f);
+  EXPECT_NEAR(manager.ar_panel_height_m(*fixture.widget(), options_no_pacing()), 0.2124f, 1e-6f);
+}
+
+TEST(PanelManagerHeight, TheManagerMakesTheDialogPanelNarrowerAndKeepsItsHeight)
+{
+  Fixture fixture;
+  Fixture other;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  QtPanelStreamingConfig config = make_config(factory, std::make_shared<ManualClock>());
+  config.ar_frame = PanelFrame{0.05, 0.0, 0.0, 0.0, 0.0};
+  QtPanelStreamManager manager(config);
+
+  PanelStreamOptions dialog_options = options_no_pacing();
+  dialog_options.dialog_panel = true;
+  const float predicted = manager.ar_panel_height_m(*fixture.widget(), dialog_options);
+  ASSERT_TRUE(manager.add_panel("dialog:Add", fixture.widget(), dialog_options).ok());
+  ASSERT_TRUE(manager.add_panel("dock:Views", other.widget(), options_no_pacing()).ok());
+  manager.tick();
+
+  // The same 200 x 120 px (0.24 m wide, a video of 0.144 m) with the manager's 0.05 m of frame:
+  // the dialog keeps the 0.144 m of height and is 0.24 * 0.094 / 0.144 = 0.15667 m wide, the
+  // other panel keeps the width and is 0.194 m tall.
+  ASSERT_EQ(factory->created().size(), 2u);
+  EXPECT_NEAR(factory->created()[0]->desc().placement.size.height_meters, 0.144f, 1e-5f);
+  EXPECT_NEAR(factory->created()[0]->desc().placement.size.width_meters, 0.156667f, 1e-5f);
+  EXPECT_NEAR(factory->created()[1]->desc().placement.size.height_meters, 0.194f, 1e-5f);
+  EXPECT_NEAR(factory->created()[1]->desc().placement.size.width_meters, 0.24f, 1e-6f);
+  EXPECT_NEAR(predicted, 0.144f, 1e-5f);
 }
 
 TEST(PanelManager, ARoomPointThatMissesEveryPanelNotifiesNobody)
@@ -789,10 +1432,24 @@ TEST(PanelManager, RoutesARoomRayThroughTheSameSeam)
   ASSERT_TRUE(manager.add_panel("p", fixture.widget(), options_no_pacing()).ok());
   manager.tick();
 
+  // The ray goes through the middle of the panel (half its height below the pose on its top
+  // edge), which is the middle of the widget: QarOS centres the video in the panel.
+  float panel_height_m = 0.0f;
+  for (const auto & p : manager.diagnostics().panels) {
+    if (p.key == "p") { panel_height_m = p.height_meters; }
+  }
+  ASSERT_GT(panel_height_m, 0.0f);
   EXPECT_TRUE(manager.route_room_ray(
-      QarVector3{0.0f, 0.0f, 1.0f}, QarVector3{0.0f, 0.0f, -1.0f}, PanelPointerEvent::Kind::Click));
+      QarVector3{0.0f, -0.5f * panel_height_m, 1.0f}, QarVector3{0.0f, 0.0f, -1.0f},
+      PanelPointerEvent::Kind::Click));
   ASSERT_EQ(sink.events().size(), 1u);
   EXPECT_EQ(sink.events()[0].widget_x, 100);
+  EXPECT_EQ(sink.events()[0].widget_y, 60);
+  // The ray through the pose, on the top edge of the panel, meets the band of the frame above the
+  // widget and lands on no pixel.
+  EXPECT_FALSE(manager.route_room_ray(
+      QarVector3{0.0f, 0.0f, 1.0f}, QarVector3{0.0f, 0.0f, -1.0f}, PanelPointerEvent::Kind::Click));
+  EXPECT_EQ(sink.events().size(), 1u);
 }
 
 TEST(PanelManager, RoutingWithoutASinkIsSafe)
@@ -803,7 +1460,13 @@ TEST(PanelManager, RoutingWithoutASinkIsSafe)
 
   ASSERT_TRUE(manager.add_panel("p", fixture.widget(), options_no_pacing()).ok());
   manager.tick();
-  EXPECT_TRUE(manager.route_room_point(QarVector3{0.0f, 0.0f, 0.0f}, PanelPointerEvent::Kind::Click));
+  float panel_height_m = 0.0f;
+  for (const auto & p : manager.diagnostics().panels) {
+    if (p.key == "p") { panel_height_m = p.height_meters; }
+  }
+  ASSERT_GT(panel_height_m, 0.0f);
+  EXPECT_TRUE(manager.route_room_point(
+      QarVector3{0.0f, -0.5f * panel_height_m, 0.0f}, PanelPointerEvent::Kind::Click));
 }
 
 

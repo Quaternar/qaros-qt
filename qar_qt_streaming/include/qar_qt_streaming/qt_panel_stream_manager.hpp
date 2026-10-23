@@ -17,10 +17,14 @@
 #include "qar_qt_streaming/qt_panel_stream.hpp"
 
 #include <QPointer>
+#include <QRect>
+#include <QSize>
 
+#include <functional>
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 class QWidget;
@@ -123,6 +127,33 @@ struct QtPanelStreamingConfig
   /// two do not overlap, by the same rule and 0.5 m the host uses for several panels.
   double dialog_panel_offset_m = 0.5;
 
+  /// @brief How much taller than it is a dialog is made on the desktop when it is promoted to a
+  /// panel of its own: its height is multiplied by this, its width is left alone. 1.0, the
+  /// default, changes nothing.
+  ///
+  /// The change is made before the dialog's stream is added, so the QarOS panel is created at
+  /// the final size and is never rebuilt for it. It is made once for each dialog window: the
+  /// same window promoted again after it was hidden keeps the height it has. Only a factor above
+  /// 1.0 has an effect, and a dialog of a fixed height ignores it. A dialog size adjuster
+  /// (QtPanelStreamManager::set_dialog_size_adjuster) takes its place: the factor is not applied
+  /// while one is installed.
+  double dialog_height_factor = 1.0;
+
+  /// @brief The frame that QarOS draws around the video of the AR panels of this manager: four
+  /// insets and the fit margin in metres (default PanelFrame{}, the frame of the QarOS desktop
+  /// Visualizer).
+  ///
+  /// QarOS draws the video of a stream panel inside a frame of its own, which the SDK does not
+  /// size, so the area under it must be a hair taller than the video (panel_geometry.hpp). A
+  /// panel is therefore made as tall as its video needs at the width the frame leaves it, plus
+  /// the fit margin, and keeps its width. The panel of a dialog that a streamed window opens
+  /// (PanelStreamOptions::dialog_panel) keeps the height of its video and gets the width the
+  /// frame and the margin need for that height instead. All four insets and the margin 0 gives a
+  /// panel exactly as tall as its video and a dialog the width of its widget. The value is
+  /// applied to every panel the manager makes in place of PanelStreamOptions::ar_frame. Every
+  /// inset and the margin finite and not negative.
+  PanelFrame ar_frame{};
+
   /// @brief Seconds a panel may hold a live sender without ever submitting a
   /// frame before the manager says so out loud. 0 disables the report.
   ///
@@ -151,35 +182,61 @@ struct QtPanelStreamingConfig
   /// rebuild. Every close the Qt side initiates goes through this — the dialog
   /// sweep, the host's own sweep for a destroyed widget, the Stop button, a
   /// closed dock — so the mode is the single switch.
+  ///
+  /// `Park` (`QAR_PANEL_CLOSE_MODE=park`) closes nothing while the session runs: the
+  /// AR panel is hidden and kept, and adding the same key again shows it again. The host
+  /// can change the mode while the manager runs (@ref QtPanelStreamManager::set_close_mode).
   PanelCloseMode close_mode = PanelCloseMode::Destroy;
 
-  /// @brief How many tombstoned panels this manager may hold at once. Only
-  /// meaningful in @ref PanelCloseMode::Notice: in the default Destroy mode
-  /// nothing is ever tombstoned, so nothing accumulates.
+  /// @brief How many tombstoned or parked panels this manager may hold at once. Only
+  /// meaningful in @ref PanelCloseMode::Notice and @ref PanelCloseMode::Park: in the
+  /// default Destroy mode nothing is ever tombstoned or parked, so nothing accumulates.
+  /// The QarOS panels that size changes replaced and kept do not count here: they have a
+  /// budget of their own, @ref max_replaced_panels.
   ///
-  /// A tombstoned panel (see @ref QtPanelStreamManager, "Panel lifetime")
+  /// A tombstoned or parked panel (see @ref QtPanelStreamManager, "Panel lifetime")
   /// keeps its video sender and its QarOS GUI panel for the rest of the
-  /// session by design: Notice mode exists for a runtime that does not survive
-  /// destroying a sender mid-session. That makes tombstones a resource
+  /// session by design: both modes exist for a runtime that does not survive
+  /// closing a panel or destroying a sender mid-session. That makes them a resource
   /// that only ever grows, so it is bounded in two ways:
   ///
-  ///  1. **Slot reuse first.** Re-adding a tombstoned KEY revives that stream
+  ///  1. **Slot reuse first.** Re-adding a tombstoned or parked KEY revives that stream
   ///     onto the new widget rather than minting a sender — so an operator
   ///     opening and closing the same dock, or the same dialog, fifty times
   ///     costs exactly one sender. That is what bounds the case that actually
   ///     happens.
   ///  2. **This cap for the rest.** Once this many DISTINCT windows have been
-  ///     tombstoned, no new panel stream is created at all — not a
-  ///     host-requested one and not a promoted dialog — and a Warning says so
+  ///     tombstoned or parked, no new panel stream is created at all - not a
+  ///     host-requested one and not a promoted dialog - and a Warning says so
   ///     naming the cap. Refusing to create is the only lever available:
-  ///     closing an existing tombstone's sender to make room would destroy a
-  ///     sender mid-session, which is what this mode exists to avoid. The
+  ///     closing an existing stream's sender to make room would destroy a
+  ///     sender mid-session, which is what these modes exist to avoid. The
   ///     session has to end (or this number be raised) to reclaim them.
   ///
   /// 16 is chosen to be far more distinct windows than an operator streams in
   /// one session, and far fewer than a number of senders that would trouble
   /// the runtime. 0 disables the cap entirely.
   std::uint32_t max_tombstoned_panels = 16;
+
+  /// @brief How many QarOS panels that size changes replaced this manager may keep hidden at
+  /// once, over all streams. Only meaningful in @ref PanelCloseMode::Park (see
+  /// @ref QtPanelStreamManager, "A size change in Park mode").
+  ///
+  /// A widget that changes size needs a new sender and a new QarOS panel. In Park mode the old
+  /// panel is hidden and kept until the session ends instead of being closed, because closing a
+  /// QarOS panel while the session runs may crash the desktop Visualizer. Each kept panel holds
+  /// a video sender and a QarOS panel for the rest of the session, so they are bounded:
+  ///
+  ///  * While the session holds fewer kept panels than this, a size change keeps its old panel.
+  ///    The Warning of the size change that takes the last slot says that the next ones close.
+  ///  * At the limit a size change closes its old panel, as in the other modes, and a Warning
+  ///    says so.
+  ///
+  /// The kept panels have this budget of their own: they do not count toward
+  /// @ref max_tombstoned_panels and never block a new panel stream. 32 is far more size changes
+  /// than a session normally makes once the host sizes its windows before it streams them. 0
+  /// disables the limit.
+  std::uint32_t max_replaced_panels = 32;
 
   /// Double-click detection tunables; defaults match Qt's desktop defaults.
   PointerStateConfig pointer_state{};
@@ -217,6 +274,11 @@ struct QtPanelStreamingConfig
 ///    injector, for which the dialog IS the panel, so AR input reaches it by the
 ///    ordinary path. Meanwhile an application-modal dialog still blocks input to
 ///    its OWNER panel, exactly as Qt blocks the window behind it.
+///
+/// A dialog is made to fit its content before its panel exists: by the fixed
+/// QtPanelStreamingConfig::dialog_height_factor, or, with a dialog size adjuster installed
+/// (@ref QtPanelStreamManager::set_dialog_size_adjuster), by measuring its scroll areas over a
+/// few rounds and streaming it once, at the size the fit ends with.
 ///
 /// The sweep is also the only place an attribution DECISION is taken, because
 /// promoting the dialog is what makes it visible in AR; see
@@ -274,6 +336,43 @@ struct QtPanelStreamingConfig
 /// sender is destroyed when the Qt window closes, or at shutdown, whichever is
 /// first — and the AR close is then remembered so `close_panel` is not called a
 /// second time.
+///
+/// **Park (`QAR_PANEL_CLOSE_MODE=park`).** For a runtime on which CLOSING a panel mid-session
+/// is not safe, nothing is closed until the session ends. Every Qt-side close - the dialog
+/// sweep, the host's sweep for a destroyed widget, @ref close_panel, @ref remove_panel -
+/// PARKS the stream instead, and neither the QarOS panel nor the video sender is touched:
+///
+/// | Event | What happens | QarOS panel and sender |
+/// |---|---|---|
+/// | Source widget destroyed, dock closed, dialog dismissed, @ref close_panel / @ref remove_panel, dialog sweep retiring a stale dialog | pointers pressed on the panel are released, then the panel is hidden in AR (the next tick calls `qar_gui_panels_set_state` with HIDDEN), capture stops and input is dropped; no notice is built; the window is remembered only while it exists | **kept** |
+/// | The same key is added again (@ref add_panel), or a parked panel whose window still exists is shown (@ref set_panel_ar_visible) | the stream is revived onto the window, and the next tick applies the pose given and shows the panel again (a Warning if QarOS refuses the show); a dialog key is free for reuse, so opening the dialog again revives its stream | **re-used** |
+/// | QarOS refuses the hide | the stream falls back to the closed-window notice, as in Notice mode, and a Warning names the key and the reason; it is never closed | **kept** |
+/// | The operator closed the panel in AR before the Qt close | parked without any hide call; a revival tries to show the panel again | **kept** |
+/// | Session shutdown (@ref clear, destructor) | every panel is closed exactly once, parked ones included | **destroyed** |
+///
+/// Parked and notice panels count together against
+/// @ref QtPanelStreamingConfig::max_tombstoned_panels; reviving one is always allowed. A stream
+/// that never created a sender has no QarOS panel to keep and is dropped. The mode can be
+/// switched while the manager runs (@ref set_close_mode); it applies to the closes that follow.
+///
+/// **A size change in Park mode.** A widget that changes size gets a new sender and a new QarOS
+/// panel in every mode, because the layout of a sender is fixed at creation. In Destroy and
+/// Notice mode the old panel is closed. In Park mode it is not closed: it is hidden in AR
+/// (`qar_gui_panels_set_state` with HIDDEN, on the tick that makes the new panel) and kept with
+/// its sender until the session ends, and one Info line says so. The kept panels have a budget
+/// of their own, QtPanelStreamingConfig::max_replaced_panels, and do not count against the
+/// cap above: the size change that takes the last slot says in a Warning that the next ones
+/// close, and at the limit the old panel is closed as in the other modes and a Warning says
+/// that. When QarOS refuses the hide, the old panel stays visible and kept, a Warning says so,
+/// and the hide is asked for again on later ticks, three more times at most, a second apart; a
+/// late success is logged. The kept panels are closed once each, with their stream, at
+/// @ref clear or when the stream is closed in Destroy mode.
+///
+/// The residual risk of a kept panel that stayed visible: the input source keeps one
+/// subscription for each key, so the subscription that reports a close in AR goes with the
+/// panel when the new one is made. The operator closing a visible kept panel in AR is therefore
+/// not seen, and the end of the session closes it a second time. A kept panel that was hidden
+/// cannot be closed in AR.
 class QtPanelStreamManager
 {
 public:
@@ -296,6 +395,13 @@ public:
   /// pose. That is the primary bound on tombstone growth — see
   /// @ref QtPanelStreamingConfig::max_tombstoned_panels.
   ///
+  /// If @p key names a PARKED stream (PanelCloseMode::Park), it is revived the same way: the
+  /// QarOS panel and the sender that are standing behind the key are re-used, the stream
+  /// takes @p widget (the window it was parked with or another one) and the pose of
+  /// @p options, and the panel is asked to be shown again. This call makes no QarOS call: the
+  /// next @ref tick applies the pose, carries the show out and sends a fresh frame, and a
+  /// Warning names a show QarOS refuses. One Info line says that the show is asked for.
+  ///
   /// Refused with @c Status::InvalidState when the tombstone cap is already
   /// reached and this would be a NEW stream; reviving is always allowed,
   /// because it creates nothing.
@@ -315,15 +421,22 @@ public:
   ///    key is free again: adding it later is a normal fresh add. One summary line
   ///    per close goes to the diagnostics sink (key, reason, what each step did,
   ///    frames served).
-  ///  * @ref PanelCloseMode::Notice: exactly @ref tombstone_panel.
+  ///  * @ref PanelCloseMode::Notice: @ref tombstone_panel, with @p notice_reason as the text.
+  ///  * @ref PanelCloseMode::Park: pointers pressed on the panel are released, then the stream
+  ///    is parked - hidden in AR by the next tick, capture and input stopped, the QarOS panel,
+  ///    the sender and the subscriptions kept, no notice. The window is kept only while it
+  ///    exists. One Info line names the key and @p reason. A stream that never created a
+  ///    sender is simply dropped. If QarOS refuses the hide, the stream becomes the
+  ///    closed-window notice of Notice mode (and a Warning says why); it is never closed.
   ///
-  /// **Safe to call from inside the panel's own click handler** — which is where
-  /// a Stop button pressed in AR on the very panel it stops calls it from. A
+  /// **Safe to call from inside the panel's own click handler, in all three modes** - which
+  /// is where a Stop button pressed in AR on the very panel it stops calls it from. A
   /// stream with a pointer action still being delivered into its widget is not
-  /// destroyed under that delivery; the close is queued and runs as soon as the
-  /// delivery has returned (on the way out of the outermost @ref pump_input /
-  /// @ref handle_sample, or at the top of the next @ref tick). The call still
-  /// returns success.
+  /// destroyed, parked or turned into a notice under that delivery (each of the three drops
+  /// the stream's input injector, which is on the stack); the close is queued and runs as soon
+  /// as the delivery has returned (on the way out of the outermost @ref pump_input /
+  /// @ref handle_sample, or at the top of the next @ref tick), in the mode that is current
+  /// then. The call still returns success.
   ///
   /// @param reason One SHORT phrase for the log line and the status line, e.g.
   ///        "the window was closed". Empty means "no reason given".
@@ -341,6 +454,9 @@ public:
   /// **Does not close the video sender.** See the lifetime table on this class.
   /// Pointers pressed on the panel are cancelled first, so no widget is left
   /// holding a press.
+  ///
+  /// Carried out at once, and it drops the stream's input injector: a click handler that
+  /// stops its own panel asks for @ref close_panel, which waits for the delivery to unwind.
   ///
   /// A stream that never got as far as creating a sender is simply erased
   /// instead: the rule is about not destroying senders, and there is none to
@@ -373,6 +489,139 @@ public:
   /// already closed that panel, and it is never closed twice.
   /// @return false if @p key is not streaming.
   bool note_ar_panel_closed(const std::string & key);
+
+  /// @brief Hide @p key's panel in AR (@p visible false) or show it again, without closing it.
+  ///
+  /// Records the request on the stream and makes **no QarOS call itself**: the next @ref tick
+  /// carries it out (QtPanelStream::request_ar_visible has the whole contract). While the panel
+  /// is hidden it is not captured, takes no input and is skipped by every hit test, so a pointer
+  /// never lands on it; the QarOS panel, the video sender and the subscriptions stay, and a
+  /// close (@ref close_panel) still closes them once. A refused request keeps the old state and
+  /// shows in the stream's visibility counters; falling back to a close is the caller's call.
+  /// Showing also tries to bring back a panel the operator closed in AR.
+  /// @return NotFound if @p key is not streaming, InvalidState if it shows the closed-window
+  ///         notice (a notice has no window to hide).
+  qar_ar_core::Result set_panel_ar_visible(const std::string & key, bool visible);
+
+  /// @brief Is @p key's panel hidden in AR? The state QarOS accepted, so a request made since
+  /// the last @ref tick is not in it yet. False for an unknown key.
+  bool is_ar_hidden(const std::string & key) const;
+
+  /// @brief Is @p key a parked stream (PanelCloseMode::Park)? True from the Qt-side close that
+  /// parked it, before the tick that carries out the hide, until a window is shown on it
+  /// again. False for an unknown key.
+  bool is_parked(const std::string & key) const;
+
+  /// @brief The keys of the parked streams, in key order.
+  std::vector<std::string> parked_panel_keys() const;
+
+  /// @brief How many QarOS panels earlier size changes replaced and kept, over all streams (Park
+  /// mode; see the class comment). They count toward
+  /// @ref QtPanelStreamingConfig::max_replaced_panels and not toward
+  /// @ref QtPanelStreamingConfig::max_tombstoned_panels.
+  std::uint32_t replaced_panel_count() const;
+
+  /// @brief Change what the Qt-side closes that follow do (QtPanelStreamingConfig::close_mode).
+  /// Streams that are already parked or tombstoned stay as they are; a deferred close runs in
+  /// the mode that is current when it runs. The host calls this when its visibility setting
+  /// changes.
+  void set_close_mode(PanelCloseMode mode) { config_.close_mode = mode; }
+
+  /// @brief The height in metres that the AR panel of @p widget gets from this manager when it is
+  /// added with @p options: the vertical part of QtPanelStreamingConfig::ar_frame plus the video
+  /// at the width the frame leaves of the panel's plus the fit margin (the frame of @p options is
+  /// replaced by the manager's, as add_panel does), or, for PanelStreamOptions::dialog_panel, the
+  /// height of the video at the width the widget asks for. A host that places a panel before it
+  /// is added uses this height. 0 when the widget has no size yet.
+  float ar_panel_height_m(const QWidget & widget, const PanelStreamOptions & options) const;
+
+  /// @brief What the host does to the pose of a dialog's panel, given its top-centre pose and
+  /// its physical height in metres (as this library computes it: ar_panel_height_m(), the height
+  /// of the video of the dialog). Every pose the dialog sweep works out -
+  /// for a new dialog panel and for a revived one - goes through it before the panel takes it;
+  /// the owner's pose stepped sideways is the argument. An empty function leaves the poses as
+  /// they are (the default).
+  using DialogPoseAdjuster = std::function<QarPose(const QarPose & top_centre, float height_m)>;
+  void set_dialog_pose_adjuster(DialogPoseAdjuster adjuster)
+  {
+    dialog_pose_adjuster_ = std::move(adjuster);
+  }
+
+  /// @name Fitting a dialog to its content before its panel is made
+  ///
+  /// A dialog opened from a streamed panel gets a panel of its own, and a scroll bar inside it
+  /// cannot be used in AR. A dialog size adjuster measures the dialog and sizes it, instead of
+  /// the fixed QtPanelStreamingConfig::dialog_height_factor. While one is installed, a dialog
+  /// the sweep finds (and the cap has not refused) is NOT streamed at once: on each tick, at most
+  /// every @ref kDialogFitIntervalSeconds for each dialog, the adjuster is called with the dialog,
+  /// the available geometry of its screen as @c room (the primary screen's when the dialog is on
+  /// none, an empty rectangle when there is no screen at all) and the round, counting from 0.
+  /// The adjuster may resize the dialog, and says whether it is done. The stream is added once,
+  /// when a step says it is done or after @ref kDialogFitMaxRounds rounds, at the size the dialog
+  /// has then, so the QarOS panel is made once at its final size and never rebuilt for the fit.
+  /// A dialog that is hidden or destroyed while it is fitted never gets a panel. One Info line
+  /// says it when the panel is made: `'<key>' fitted to <w>x<h> px in <r> round(s): <note>`.
+  /// @{
+
+  /// What one call of a dialog size adjuster found.
+  struct DialogFitStep
+  {
+    /// The size of the dialog after the step.
+    QSize size;
+    /// The dialog is done: its stream is added now.
+    bool settled = false;
+    /// Said in the Info line when the stream is added (the note of the step that settled it):
+    /// `no scroll bar`, `a scroll bar of <o> px is left (<reason>)`, `not confirmed (<reason>)`,
+    /// `clamped to the screen (<room h> px)`.
+    std::string note;
+  };
+
+  /// Sizes a dialog. Called on the GUI thread from tick(); it must not block and must not call
+  /// back into the manager.
+  using DialogSizeAdjuster =
+    std::function<DialogFitStep(QWidget & dialog, const QRect & room, int round)>;
+
+  /// @brief Install the adjuster; an empty one, the default, leaves the fixed height factor in
+  /// charge. Dialogs that are being fitted when it is removed get their panels at their size
+  /// then.
+  void set_dialog_size_adjuster(DialogSizeAdjuster adjuster)
+  {
+    dialog_size_adjuster_ = std::move(adjuster);
+  }
+
+  /// The least time between two calls of the adjuster for one dialog, in seconds on the manager's
+  /// clock, and the number of calls after which a dialog is streamed whatever the adjuster says.
+  static constexpr double kDialogFitIntervalSeconds = 0.1;
+  static constexpr int kDialogFitMaxRounds = 24;
+
+  /// @brief The adjuster that fits a dialog to its scroll areas (scroll_census.hpp).
+  ///
+  /// Each call measures the dialog. Scroll areas that overflow vertically and do not scroll by
+  /// design make it taller by their stacked overflow (the horizontal bar of such an area included)
+  /// plus @p slack_px, to at most the available height of the screen less 40 px; the width never
+  /// changes. A dialog that was made taller is moved up by as much as its lower edge then lies
+  /// below the available geometry of its screen, never above the top of that geometry. Areas that
+  /// scroll by design never make it grow, and the note names those that show a bar.
+  ///
+  /// A dialog is done when
+  ///  * two calls in a row, at the same size, found nothing to remove and every area measured:
+  ///    `no scroll bar`, or `a scroll bar of <o> px is left (a horizontal bar: a taller dialog
+  ///    does not remove it)` when a horizontal bar is there that no height removes;
+  ///  * growing it did not shrink the overflow (`a scroll bar of <o> px is left (growing the
+  ///    dialog did not remove it)`), or it cannot grow any more (`clamped to the screen`);
+  ///  * the round @p max_rounds is reached: `a scroll bar of <o> px is left (the fit gave up
+  ///    after <n> round(s))` when a bar is left, `not confirmed (the round limit)` when the last
+  ///    look found none but nothing confirmed it, `not confirmed (an area could not be measured)`
+  ///    when an area could not be measured.
+  static DialogSizeAdjuster make_census_dialog_adjuster(int slack_px = 8, int max_rounds = 6);
+  /// @}
+
+  /// @brief Take a scroll-area census of @p key's widget at the next frame its stream submits,
+  /// and say it in one line labelled @p reason (QtPanelStream::request_scroll_census has the
+  /// format). A host asks when the widget has just changed what it shows, say a tab was selected.
+  /// @return false, and nothing is asked, if @p key is not streaming or its panel is not on show:
+  /// parked, hidden in AR, closed in AR or showing its notice.
+  bool request_scroll_census(const std::string & key, const std::string & reason);
 
   /// @brief **SESSION SHUTDOWN.** Close every panel still held — destroying every
   /// remaining video sender, exactly once — and forget them.
@@ -497,18 +746,49 @@ private:
     QPointer<QWidget> dialog;
   };
 
+  /// One dialog window that a dialog size adjuster is fitting and that has no stream yet.
+  struct FittingDialog
+  {
+    std::string owner_key;       ///< The panel whose dialog it is.
+    QPointer<QWidget> dialog;    ///< Weak: a dialog that is closed meanwhile is dropped.
+    int round = 0;               ///< Calls of the adjuster made so far.
+    double next_seconds = 0.0;   ///< The adjuster is not called again before this instant.
+  };
+
   /// A close the Qt side asked for while the stream was still inside a pointer
   /// delivery: held until that delivery has returned. See @ref close_panel.
   struct DeferredClose
   {
     std::string key;
     std::string reason;
+    std::string notice_reason;  ///< what the notice says: Notice mode, or a park that falls back
   };
 
   /// The Destroy-mode body of @ref close_panel (also what a deferred close runs):
   /// pointers released, adapter closed (input, panel, sender), entry dropped, one
   /// summary line logged.
   qar_ar_core::Result destroy_panel(const std::string & key, const std::string & reason);
+
+  /// The Park-mode body of @ref close_panel (also what a deferred close runs): pointers
+  /// released, the stream parked (hide asked for, nothing closed), one Info line logged. A
+  /// stream without a sender is dropped instead.
+  qar_ar_core::Result park_panel(
+    const std::string & key, const std::string & reason, const std::string & notice_reason);
+
+  /// What a close of @p key does in the current close mode when it is carried out: the body of
+  /// @ref close_panel after its deferral check, and what a deferred close runs.
+  qar_ar_core::Result close_now(
+    const std::string & key, const std::string & reason, const std::string & notice_reason);
+
+  /// Show a window on the parked stream @p key again: the stream takes @p widget (null: the
+  /// window it was parked with) and, when @p pose is given, that pose; the pointer state and
+  /// the dialog attribution learn the window; the revival is counted and logged.
+  qar_ar_core::Result revive_parked_panel(
+    const std::string & key, QWidget * widget, const QarPose * pose);
+
+  /// The hide a park asked for was refused: turn the parked stream of @p key into the
+  /// closed-window notice and say why in a Warning. Never closes anything.
+  void fall_back_to_notice(const std::string & key);
 
   /// Run the closes @ref close_panel queued. Called at the top of @ref tick and on
   /// the way out of the outermost input frame; a close whose stream is STILL in a
@@ -537,8 +817,27 @@ private:
 
   /// Create the stream for @p dialog, owned by @p owner_key. Sized from the
   /// dialog, placed beside the owner, inheriting the owner's readability,
-  /// pacing and input policy.
+  /// pacing and input policy. With a dialog size adjuster installed the stream is not made
+  /// here: the dialog is handed to @ref advance_dialog_fits, which makes it when the fit is done.
   void add_dialog_panel(const std::string & owner_key, QWidget * dialog);
+
+  /// The stream of a dialog whose size is final: the options it inherits from its owner, the
+  /// pose beside it, add_panel and the bookkeeping. False (after saying why) when the panel was
+  /// refused.
+  bool add_dialog_stream(
+    const std::string & owner_key, QWidget * dialog, const std::string & key,
+    const std::string & name);
+
+  /// Call the adjuster for each dialog being fitted whose time has come, and make the streams of
+  /// those that are done; drop those that were hidden or destroyed, or whose owner stopped
+  /// streaming. Called from @ref tick with the instant it reads.
+  void advance_dialog_fits(double now_seconds);
+
+  /// Make the stream of a dialog whose fit is over, and say how the fit went.
+  void finish_dialog_fit(const FittingDialog & fitting, const std::string & note);
+
+  /// Is @p dialog being fitted?
+  bool dialog_is_fitting(const QWidget * dialog) const;
 
   /// Is @p widget already streaming - as a host panel or as a dialog panel?
   bool widget_is_streamed(const QWidget * widget) const;
@@ -556,19 +855,37 @@ private:
   bool key_is_live(const std::string & key) const;
 
   /// @p key's stream, but only while it can still take input — end() for a
-  /// notice or a panel the operator closed in AR. A click can still be
-  /// delivered for a tombstoned panel (its QarOS click subscription outlives
+  /// notice, a panel the operator closed in AR, one hidden in AR or a parked one. A click
+  /// can still be delivered for a tombstoned panel (its QarOS click subscription outlives
   /// the widget, like everything else about the stream), and it must land
   /// nowhere rather than on a placeholder.
   std::map<std::string, std::unique_ptr<QtPanelStream>>::const_iterator
   find_live(const std::string & key) const;
 
-  /// Panels currently showing the closed-source notice.
-  std::uint32_t tombstoned_count() const;
+  /// Panels that hold a sender and a QarOS panel for a window that is gone: notices and parked
+  /// streams. This is what the tombstone cap counts; the panels that size changes replaced and
+  /// kept are counted apart (@ref replaced_panel_count).
+  std::uint32_t retained_count() const;
+
+  /// May a stream that changes size keep, hidden, the QarOS panel it replaces instead of closing
+  /// it? In Park mode while fewer than QtPanelStreamingConfig::max_replaced_panels are kept.
+  /// Asked by the streams, once per rebuild.
+  bool may_keep_replaced_panel() const;
+
+  /// Is @p dialog a window that add_panel refused and that has been on show since? The sweep
+  /// does not try it again on every tick.
+  bool dialog_was_refused(const QWidget * dialog) const;
+
+  /// Say, in one Info line, that @p count kept QarOS panels of @p key were closed with it.
+  void report_replaced_closed(const std::string & key, std::size_t count);
 
   /// Would creating a NEW stream exceed the tombstone cap? Emits the warning
   /// and counts the refusal when it would.
   bool refuse_for_tombstone_cap(const std::string & key);
+
+  /// Say, once per crossing, that the cap is reached (see max_tombstoned_panels), without
+  /// counting a refusal.
+  void warn_cap_reached(const std::string & key);
 
   /// Drain the input source's AR-side panel-closed notifications and apply
   /// them. Called from @ref tick.
@@ -619,6 +936,13 @@ private:
   /// Dialog panels in creation order, so a dialog's offset from its owner is
   /// stable for as long as it is open.
   std::vector<DialogPanel> dialog_panels_;
+  /// The dialog windows that QtPanelStreamingConfig::dialog_height_factor has made taller.
+  /// Weak, and pruned when a window is added.
+  std::vector<QPointer<QWidget>> grown_dialogs_;
+  /// The dialog windows that add_panel refused (the cap was reached), so that the sweep tries
+  /// each of them once and says so once. Weak. A window leaves the list when it is hidden or
+  /// destroyed, and the list is emptied when a slot is free again.
+  std::vector<QPointer<QWidget>> refused_dialogs_;
   PanelPointerStateMachine pointer_state_;
   std::vector<qar_ar_core::PanelPointerSample> sample_scratch_;
   std::vector<PointerAction> action_scratch_;
@@ -630,6 +954,14 @@ private:
   std::uint64_t tombstones_created_ = 0;
   std::uint64_t tombstones_revived_ = 0;
   std::uint64_t tombstone_cap_refusals_ = 0;
+  /// Session totals behind PanelDiagnosticsSnapshot's park counters.
+  std::uint64_t parks_ = 0;
+  std::uint64_t park_revivals_ = 0;
+  DialogPoseAdjuster dialog_pose_adjuster_;
+  /// Empty: the height factor sizes dialogs. See set_dialog_size_adjuster.
+  DialogSizeAdjuster dialog_size_adjuster_;
+  /// The dialog windows being fitted, oldest first; they have no stream yet.
+  std::vector<FittingDialog> fitting_dialogs_;
   /// Latched so the cap is reported once per crossing rather than once per
   /// refused call, like every other "say it once" diagnostic here.
   bool tombstone_cap_reported_ = false;
@@ -648,6 +980,14 @@ private:
   std::uint64_t closes_deferred_ = 0;
   std::string last_error_;
 };
+
+/// @brief The same as QtPanelStreamManager::make_census_dialog_adjuster, for a caller that
+/// does not name the class.
+inline QtPanelStreamManager::DialogSizeAdjuster
+make_census_dialog_adjuster(int slack_px = 8, int max_rounds = 6)
+{
+  return QtPanelStreamManager::make_census_dialog_adjuster(slack_px, max_rounds);
+}
 
 }  // namespace qar_qt_streaming
 

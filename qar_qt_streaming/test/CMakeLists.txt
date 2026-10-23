@@ -17,9 +17,14 @@ add_executable(qar_qt_streaming_tests
   panel_hit_test_tests.cpp
   qt_widget_capture_tests.cpp
   qt_panel_stream_tests.cpp
+  frame_brightness_tests.cpp
+  scroll_census_tests.cpp
+  dialog_fit_tests.cpp
   panel_tombstone_tests.cpp
   panel_close_mode_tests.cpp
   panel_close_tests.cpp
+  qt_panel_visibility_tests.cpp
+  qt_panel_park_tests.cpp
   offscreen_panel_tests.cpp
   offscreen_popup_guard_tests.cpp
   ar_readability_tests.cpp

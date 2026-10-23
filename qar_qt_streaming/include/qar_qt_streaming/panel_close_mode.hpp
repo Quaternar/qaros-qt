@@ -36,10 +36,19 @@ enum class PanelCloseMode
   /// tombstone, panel_tombstone.hpp) until the session ends. Selected with
   /// `QAR_PANEL_CLOSE_MODE=notice` for a runtime on which destroying a sender
   /// mid-session is not safe.
-  Notice
+  Notice,
+
+  /// Nothing is closed while the session runs: a Qt-side close PARKS the stream. The AR
+  /// panel is hidden (`qar_gui_panels_set_state`), capture stops and input is dropped, and
+  /// the QarOS panel, the video sender and the subscriptions are kept, with no notice shown.
+  /// Adding the same key again revives the parked stream onto its window and shows it, so
+  /// no second QarOS panel is created. Everything is closed once, at session end.
+  /// Selected with `QAR_PANEL_CLOSE_MODE=park` for a runtime on which closing a panel
+  /// mid-session is not safe.
+  Park
 };
 
-/// @brief "destroy" or "notice" — the spelling QAR_PANEL_CLOSE_MODE accepts, and
+/// @brief "destroy", "notice" or "park" - the spelling QAR_PANEL_CLOSE_MODE accepts, and
 /// the one the logs print.
 const char * to_string(PanelCloseMode mode);
 
@@ -66,7 +75,7 @@ struct PanelCloseModeChoice
 
 /// @brief Parse a QAR_PANEL_CLOSE_MODE value.
 ///
-/// Case-insensitive, surrounding whitespace ignored: `destroy` or `notice`.
+/// Case-insensitive, surrounding whitespace ignored: `destroy`, `notice` or `park`.
 /// A null pointer, an empty string and an all-whitespace string mean "unset" and
 /// give the default WITHOUT a warning. Anything else gives the default plus one
 /// @ref PanelCloseModeChoice::warning naming the value and the accepted words.

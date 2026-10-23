@@ -48,6 +48,14 @@ compute_panel_geometry(
     out_error = "render_scale must be finite and positive";
     return false;
   }
+  const auto inset_ok = [](double inset_m) {return std::isfinite(inset_m) && inset_m >= 0.0;};
+  if (!inset_ok(input.frame.top_m) || !inset_ok(input.frame.bottom_m) ||
+    !inset_ok(input.frame.left_m) || !inset_ok(input.frame.right_m) ||
+    !inset_ok(input.frame.fit_margin_m))
+  {
+    out_error = "every inset and the fit margin of the frame must be finite and not negative";
+    return false;
+  }
   const std::uint32_t max_dim =
     input.max_buffer_dimension == 0 ? kDefaultMaxBufferDimension : input.max_buffer_dimension;
   if (max_dim < input.buffer_alignment) {
@@ -95,10 +103,64 @@ compute_panel_geometry(
   // below the widget's scaled size, and the widget is then simply cropped.
   out_geometry.content_width = std::min(content_w, width);
   out_geometry.content_height = std::min(content_h, height);
-  out_geometry.width_meters =
-    static_cast<float>(input.logical_width * input.meters_per_logical_px);
-  out_geometry.height_meters =
-    static_cast<float>(input.logical_height * input.meters_per_logical_px);
+  // QarOS draws the video into the panel inside a frame of its own, so the area it draws into must
+  // be a hair taller than the video: the BUFFER (the buffer is what the video is, padding
+  // included). A video taller than the area is scrolled, behind a scroll track that narrows it,
+  // so the area is the video plus the fit margin. A panel keeps its width and is made as tall as
+  // the video at the width the frame leaves it needs, plus the margin; a dialog keeps the height
+  // of its video at the width it asks for and is given the width the frame and the margin need
+  // for that height. The nominal width stays logical px * metres per px, so a HiDPI display or a
+  // supersample does not change it; the buffer enters the heights only as an aspect ratio. See
+  // panel_geometry.hpp.
+  const PanelFrame no_frame{0.0, 0.0, 0.0, 0.0, 0.0};
+  PanelFrame frame = input.frame;
+  const double nominal_width_m =
+    static_cast<double>(input.logical_width) * input.meters_per_logical_px;
+  const double aspect = static_cast<double>(height) / static_cast<double>(width);
+  double width_m = nominal_width_m;
+  double height_m = 0.0;
+  FrameNarrowing narrowing = FrameNarrowing::None;
+  if (input.narrow_for_frame) {
+    // The height of the dialog is the one of its video at the width it asks for.
+    height_m = nominal_width_m * aspect;
+    if (frame.vertical_m() + frame.fit_margin_m >= height_m) {
+      narrowing = FrameNarrowing::Skipped;
+      frame = no_frame;
+    } else {
+      // The video must be (height - fv - m) tall and, at the aspect ratio of the buffer, that
+      // wide.
+      const double fitted_m = frame.horizontal_m() +
+        (height_m - frame.vertical_m() - frame.fit_margin_m) / aspect;
+      // The tolerances are for rounding: a width of exactly one half is not Limited, and one of
+      // exactly the nominal width is a reduction by nothing.
+      if (fitted_m < kMinNarrowedWidthShare * nominal_width_m - 1e-9) {
+        width_m = kMinNarrowedWidthShare * nominal_width_m;
+        narrowing = FrameNarrowing::Limited;
+      } else if (fitted_m <= nominal_width_m + 1e-9) {
+        width_m = std::min(fitted_m, nominal_width_m);
+        narrowing = FrameNarrowing::Reduced;
+      }
+      // Else the frame would widen the panel: the width the widget asks for is kept, and the
+      // video is a little shorter than the area, which leaves a thin band above and below it.
+    }
+    if (frame.horizontal_m() >= width_m) {
+      frame = no_frame;
+    }
+  } else {
+    if (frame.horizontal_m() >= nominal_width_m) {
+      frame = no_frame;
+    }
+    height_m = frame.vertical_m() + (nominal_width_m - frame.horizontal_m()) * aspect +
+      frame.fit_margin_m;
+  }
+  const double video_width_m = width_m - frame.horizontal_m();
+  out_geometry.width_meters = static_cast<float>(width_m);
+  out_geometry.nominal_width_meters = static_cast<float>(nominal_width_m);
+  out_geometry.video_width_meters = static_cast<float>(video_width_m);
+  out_geometry.video_height_meters = static_cast<float>(video_width_m * aspect);
+  out_geometry.frame = frame;
+  out_geometry.height_meters = static_cast<float>(height_m);
+  out_geometry.narrowing = narrowing;
   // QarGuiPanelSize::content_scale (third_party/qar/include/qar_streaming.h) is
   // documented as a ZOOM: "1.0 fits the content across the full panel surface,
   // 2.0 shows it at twice the size so only half of it fits, and 0.5 shows it at

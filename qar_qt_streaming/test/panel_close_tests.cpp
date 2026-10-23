@@ -772,6 +772,85 @@ TEST(PanelClose, ACloseOfAnotherPanelFromAClickHandlerIsImmediate)
   EXPECT_EQ(h.manager->diagnostics().closes_deferred, 0u);
 }
 
+TEST(PanelCloseNoticeMode, ACloseAskedForFromThePanelsOwnClickIsMadeOnceTheClickHasReturned)
+{
+  Harness h(PanelCloseMode::Notice);
+  ButtonPanel panel;
+  ASSERT_TRUE(h.manager->add_panel("p", panel.widget(), options_no_pacing()).ok());
+  h.clock->advance(0.1);
+  ASSERT_EQ(h.manager->tick(), 1u);
+  const auto adapter = h.factory->latest();
+
+  // The Stop button, pressed in AR on the very panel it stops: the handler runs INSIDE the
+  // stream's own deliver_input, with the input injector on the stack beneath it. The notice
+  // drops that injector, so it must not be made until the click has returned.
+  int handler_runs = 0;
+  qar_ar_core::Result asked;
+  bool tombstoned_inside_handler = true;
+  QObject::connect(
+    panel.button(), &QPushButton::clicked, [&]() {
+      ++handler_runs;
+      asked = h.manager->close_panel("p", "stopped in RViz", "This window has been stopped.");
+      // Asked again, and by the other door: still one deferred close.
+      EXPECT_TRUE(h.manager->close_panel("p", "stopped in RViz").ok());
+      EXPECT_TRUE(h.manager->remove_panel("p").ok());
+      tombstoned_inside_handler = h.manager->is_tombstoned("p");
+    });
+  EXPECT_TRUE(h.manager->handle_sample(centre_click("p")));
+
+  EXPECT_EQ(handler_runs, 1);
+  EXPECT_TRUE(asked.ok()) << "from the caller's side the close succeeded";
+  EXPECT_FALSE(tombstoned_inside_handler)
+    << "the stream is not turned into a notice under its own handler";
+  // ...and by the time the outermost input frame has unwound, it is the notice.
+  EXPECT_TRUE(h.manager->has_panel("p"));
+  EXPECT_TRUE(h.manager->is_tombstoned("p"));
+  const auto snapshot = h.manager->diagnostics();
+  EXPECT_EQ(snapshot.closes_deferred, 1u);
+  EXPECT_EQ(snapshot.tombstones_created, 1u);
+  EXPECT_EQ(snapshot.panels_closed, 0u);
+  ASSERT_EQ(snapshot.panels.size(), 1u);
+  EXPECT_EQ(snapshot.panels.front().tombstone_reason, "This window has been stopped.")
+    << "the deferred close keeps the notice's own wording";
+  EXPECT_EQ(adapter->close_calls(), 0u) << "notice mode keeps the sender until shutdown";
+  EXPECT_NE(h.diagnostics.find("was asked for from inside a pointer action"), nullptr);
+
+  // The notice takes no input any more.
+  EXPECT_FALSE(h.manager->handle_sample(centre_click("p")));
+  EXPECT_EQ(handler_runs, 1);
+}
+
+TEST(PanelCloseNoticeMode, ACloseOfAnotherPanelFromAClickHandlerIsImmediate)
+{
+  Harness h(PanelCloseMode::Notice);
+  ButtonPanel stopper;     // the panel being clicked
+  SourceWidget victim;     // the panel it closes
+  ASSERT_TRUE(h.manager->add_panel("stopper", stopper.widget(), options_no_pacing()).ok());
+  ASSERT_TRUE(h.manager->add_panel("victim", victim.get(), options_no_pacing()).ok());
+  h.clock->advance(0.1);
+  ASSERT_EQ(h.manager->tick(), 2u);
+
+  bool victim_is_a_notice_inside_handler = false;
+  QObject::connect(
+    stopper.button(), &QPushButton::clicked, [&]() {
+      EXPECT_TRUE(h.manager->close_panel("victim", "stopped in RViz").ok());
+      victim_is_a_notice_inside_handler = h.manager->is_tombstoned("victim");
+    });
+  EXPECT_TRUE(h.manager->handle_sample(centre_click("stopper")));
+
+  EXPECT_TRUE(victim_is_a_notice_inside_handler) << "only the clicked panel has to wait";
+  EXPECT_FALSE(h.manager->is_tombstoned("stopper"));
+  EXPECT_EQ(h.manager->diagnostics().closes_deferred, 0u);
+  EXPECT_EQ(h.manager->diagnostics().tombstones_created, 1u);
+}
+
+TEST(PanelCloseNoticeMode, ClosingAKeyThatIsNotStreamingIsNotFound)
+{
+  Harness h(PanelCloseMode::Notice);
+  EXPECT_EQ(h.manager->close_panel("nothing-here", "x").status, Status::NotFound);
+  EXPECT_EQ(h.manager->remove_panel("nothing-here").status, Status::NotFound);
+}
+
 TEST(PanelClose, ATickThatRunsMidDeliveryLeavesTheDeferredCloseAlone)
 {
   Harness h;

@@ -62,6 +62,32 @@ TEST(PanelCloseModeParse, CaseAndSurroundingWhitespaceDoNotMatter)
   EXPECT_TRUE(parse_panel_close_mode(" NOTICE ").warning.empty());
 }
 
+TEST(PanelCloseModeParse, ParkIsRecognised)
+{
+  const PanelCloseModeChoice choice = parse_panel_close_mode("park");
+  EXPECT_EQ(choice.mode, PanelCloseMode::Park);
+  EXPECT_TRUE(choice.explicitly_chosen);
+  EXPECT_TRUE(choice.warning.empty());
+  EXPECT_EQ(parse_panel_close_mode("  PARK\t").mode, PanelCloseMode::Park);
+  EXPECT_EQ(parse_panel_close_mode("Park").mode, PanelCloseMode::Park);
+}
+
+TEST(PanelCloseModeParse, NearMissesOfParkAreStillNotModes)
+{
+  for (const char * text : {"parked", "parking", "pa rk", "hide", "parks"}) {
+    const PanelCloseModeChoice choice = parse_panel_close_mode(text);
+    EXPECT_EQ(choice.mode, PanelCloseMode::Destroy) << "'" << text << "'";
+    EXPECT_FALSE(choice.warning.empty()) << "'" << text << "'";
+  }
+}
+
+TEST(PanelCloseModeParse, TheWarningNamesAllThreeModes)
+{
+  const PanelCloseModeChoice choice = parse_panel_close_mode("notise");
+  EXPECT_NE(choice.warning.find("'destroy', 'notice' or 'park'"), std::string::npos)
+    << choice.warning;
+}
+
 TEST(PanelCloseModeParse, AnUnknownValueFallsBackToTheDefaultWithOneWarningThatNamesIt)
 {
   const PanelCloseModeChoice choice = parse_panel_close_mode("notise");
@@ -103,6 +129,12 @@ TEST(PanelCloseModeNames, TheSpellingsAreTheOnesTheParserAccepts)
   EXPECT_EQ(parse_panel_close_mode(to_string(PanelCloseMode::Notice)).mode,
     PanelCloseMode::Notice);
   EXPECT_STREQ(qar_qt_streaming::kPanelCloseModeEnv, "QAR_PANEL_CLOSE_MODE");
+}
+
+TEST(PanelCloseModeNames, ParkIsSpelledTheWayTheParserTakesIt)
+{
+  EXPECT_STREQ(to_string(PanelCloseMode::Park), "park");
+  EXPECT_EQ(parse_panel_close_mode(to_string(PanelCloseMode::Park)).mode, PanelCloseMode::Park);
 }
 
 TEST(PanelCloseModeConfig, TheManagerConfigDefaultsToDestroy)

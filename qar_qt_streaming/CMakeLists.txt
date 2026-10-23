@@ -25,6 +25,7 @@ add_library(qar_qt_streaming STATIC
   src/latest_video_frame.cpp
   src/video_panel_widget.cpp
   src/qt_widget_capture.cpp
+  src/scroll_census.cpp
   src/qt_panel_stream.cpp
   src/qt_panel_stream_manager.cpp
   src/ar_readability.cpp
