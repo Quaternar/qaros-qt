@@ -1,0 +1,16 @@
+# Copyright 2026 QuaternAR
+# SPDX-License-Identifier: MIT
+#
+# qar_qt_streaming package configuration.
+#   find_package(qar_qt_streaming 0.1.0 CONFIG REQUIRED)  ->  qar_qt_streaming::qar_qt_streaming
+# Needs Qt 5 (Core, Gui, Widgets; searched on CMAKE_PREFIX_PATH and in $ENV{QAR_QT_ROOT}) and
+# qar_ogre_adapter (component qar_ar_core) from the same prefix.
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+file(TO_CMAKE_PATH "$ENV{QAR_QT_ROOT}" _qar_qt_hint)
+find_dependency(Qt5 COMPONENTS Core Gui Widgets HINTS "${_qar_qt_hint}")
+find_dependency(qar_ogre_adapter 0.1.0 COMPONENTS qar_ar_core)
+
+include("${CMAKE_CURRENT_LIST_DIR}/qar_qt_streamingTargets.cmake")
+check_required_components(qar_qt_streaming)
