@@ -242,11 +242,16 @@ QtPanelStreamManager::add_panel(
   // dialog fits its width to it, the others their height (PanelStreamOptions::dialog_panel).
   PanelStreamOptions stream_options = options;
   stream_options.ar_frame = config_.ar_frame;
+  stream_options.name_scope = config_.name_scope;
+  stream_options.resize_mode = config_.resize_mode;
   auto stream =
     std::make_unique<QtPanelStream>(key, widget, stream_options, config_.panel_sender_factory);
   // A size change of the widget needs a new QarOS panel. Whether the old one is closed or kept
   // hidden is the close mode's answer when the rebuild is made, not when the stream is added.
   stream->set_replaced_panel_policy([this]() { return may_keep_replaced_panel(); });
+  // A size change swaps the video sender on the same QarOS panel where nothing may be closed; in
+  // Destroy mode the old panel is closed, as that mode always did.
+  stream->set_swap_policy([this]() { return config_.close_mode != PanelCloseMode::Destroy; });
   streams_.emplace(key, std::move(stream));
   // Known to dialog attribution for as long as it streams, so a dialog parented
   // into THIS widget's tree can never be claimed by a click on another panel.
@@ -586,7 +591,8 @@ QtPanelStreamManager::report_closed(
     std::string("input ") +
     (report.input_unsubscribed ? "subscriptions cancelled" : "had no subscription") +
     ", close_panel " + to_string(report.panel) + ", video sender " +
-    (report.sender_destroyed ? "destroyed" : "none to destroy");
+    (report.sender_destroyed ? "destroyed" :
+    report.panel == qar_ar_core::PanelCloseOutcome::Queued ? "to be destroyed" : "none to destroy");
   const std::string why = reason.empty() ? std::string("none given") : reason;
   const std::string tail =
     " Teardown: " + teardown + ". The stream entry is gone (no closed-window notice); "
@@ -905,6 +911,33 @@ QtPanelStreamManager::report_replaced_closed(const std::string & key, std::size_
     key);
 }
 
+void
+QtPanelStreamManager::report_session_end(
+  const std::string & key, std::size_t replaced_kept, const SessionEndReport & ended)
+{
+  if (ended.left_in_place == 0) {
+    report_replaced_closed(key, replaced_kept);  // nothing could be left: the kept ones closed
+    return;
+  }
+  emit_diagnostic(
+    qar_ar_core::DiagnosticSeverity::Info, "panel",
+    "ended the session for '" + key + "': " +
+    std::to_string(static_cast<unsigned long long>(ended.left_in_place)) +
+    " QarOS panel(s) left hidden in place, not closed; the next session finds them by name" +
+    (ended.closed == 0 ? std::string() :
+    " (" + std::to_string(static_cast<unsigned long long>(ended.closed)) +
+    " whose sender cannot detach closed)"),
+    key);
+  if (ended.hide_failures > 0) {
+    emit_diagnostic(
+      qar_ar_core::DiagnosticSeverity::Warning, "panel",
+      "could not hide " + std::to_string(static_cast<unsigned long long>(ended.hide_failures)) +
+      " QarOS panel(s) of '" + key + "' before the session ended (" + ended.hide_error +
+      "); they stay visible in AR until QarOS removes them",
+      key);
+  }
+}
+
 bool
 QtPanelStreamManager::refuse_for_tombstone_cap(const std::string & key)
 {
@@ -983,17 +1016,24 @@ QtPanelStreamManager::clear()
   // THE session-shutdown path. In Notice mode it is the only place a video
   // sender is destroyed (every other teardown tombstones instead — see the
   // lifetime table on QtPanelStreamManager); here the whole peer is going away,
-  // so there is no other stream left for a reconnecting receiver to starve. Each
-  // panel is closed exactly once: close() is idempotent, and the map is emptied
-  // immediately afterwards so nothing can reach a closed stream again.
+  // so there is no other stream left for a reconnecting receiver to starve. In
+  // Destroy mode each panel is closed exactly once (close() is idempotent); in
+  // Notice and Park mode each is hidden and detached and left for the next
+  // session (end_session). The map is emptied immediately afterwards so nothing
+  // can reach a released stream again.
   for (auto & entry : streams_) {
     // Unregister BEFORE close(), while widget() is whatever this stream is
     // actually showing — a tombstoned stream shows a notice it owns, and that
     // notice dies with the stream a few lines below.
     PanelOverlayAttribution::instance().unregister_panel(entry.second->widget());
     const std::size_t replaced_kept = entry.second->replaced_panel_count();
-    entry.second->close();
-    report_replaced_closed(entry.first, replaced_kept);
+    if (config_.close_mode == PanelCloseMode::Destroy) {
+      entry.second->close();
+      report_replaced_closed(entry.first, replaced_kept);
+    } else {
+      // Nothing is closed that can be left: hidden and detached, found again by its name.
+      report_session_end(entry.first, replaced_kept, entry.second->end_session());
+    }
     // Same accounting as a tombstone: a session that ends is still the last
     // word on what each panel served, and a panel that served nothing is worth
     // the same warning here as anywhere else.
@@ -1216,7 +1256,14 @@ QtPanelStreamManager::tick()
           ". This session now keeps " + std::to_string(static_cast<unsigned long long>(kept)) +
           " replaced QarOS panels, the limit (max_replaced_panels): the next size changes close "
           "their old QarOS panel, and in park mode that close may crash the desktop Visualizer.";
-        if (rebuild.fate == ReplacedPanelFate::HiddenKept) {
+        if (rebuild.fate == ReplacedPanelFate::Swapped) {
+          // The usual case with the real sender: the QarOS panel keeps its name and its place,
+          // only its video sender is exchanged. Nothing is hidden, kept or closed.
+          emit_diagnostic(
+            qar_ar_core::DiagnosticSeverity::Info, "panel",
+            key_text + "its QarOS panel stays and gets a new video sender (no new panel, no close)",
+            entry.first);
+        } else if (rebuild.fate == ReplacedPanelFate::HiddenKept) {
           emit_diagnostic(
             last_slot ? qar_ar_core::DiagnosticSeverity::Warning :
             qar_ar_core::DiagnosticSeverity::Info,

@@ -58,6 +58,17 @@ public:
   /// adapter's 604 (no active transfers) and 603 (reconnecting) answers do.
   void set_not_ready_cause(qar_ar_core::PanelNotReadyCause cause) { not_ready_cause_ = cause; }
 
+  /// @brief Whether the adapter is still being made, like the real one while its panel and video
+  /// sender are made on the session's thread: pending() is true and try_begin_frame() reports
+  /// "not ready" with PanelNotReadyCause::Creating.
+  void set_pending(bool pending) { pending_ = pending; }
+
+  /// @brief Queues the outcome of a call, which the next drain_results() hands to the stream. The
+  /// calls themselves are accepted at once, as the real adapter accepts them.
+  void queue_result(qar_ar_core::PanelOpResult result) { results_.push_back(std::move(result)); }
+  /// @brief How often drain_results() was called.
+  std::uint32_t drain_calls() const { return drain_calls_; }
+
   /// @brief Make the next call to the named method fail.
   void fail_next_begin() { fail_begin_ = true; }
   void fail_next_submit() { fail_submit_ = true; }
@@ -70,6 +81,12 @@ public:
   /// @brief Whether supports_state() says the backend can hide and show a panel. True, like the
   /// real adapter; false models one that cannot, and the stream then never calls set_state().
   void set_supports_state(bool supported) { supports_state_ = supported; }
+  /// @brief Whether supports_detach() says the backend leaves the QarOS panel in place on
+  /// detach(). False like a sender that closes, so a test that does not ask for it sees the
+  /// close/keep behaviour the library had before.
+  void set_supports_detach(bool supported) { supports_detach_ = supported; }
+  /// @brief What reattached() reports: the factory found a panel of this name and took it over.
+  void set_reattached(bool reattached) { reattached_ = reattached; }
 
   bool try_begin_frame(bool & out_ready) override
   {
@@ -79,11 +96,25 @@ public:
       last_error_ = "mock begin failure";
       return false;
     }
-    out_ready = ready_;
+    out_ready = ready_ && !pending_;
     return true;
   }
 
-  qar_ar_core::PanelNotReadyCause not_ready_cause() const override { return not_ready_cause_; }
+  qar_ar_core::PanelNotReadyCause not_ready_cause() const override
+  {
+    return pending_ ? qar_ar_core::PanelNotReadyCause::Creating : not_ready_cause_;
+  }
+
+  bool pending() const override { return pending_; }
+
+  void drain_results(std::vector<qar_ar_core::PanelOpResult> & out) override
+  {
+    ++drain_calls_;
+    for (qar_ar_core::PanelOpResult & result : results_) {
+      out.push_back(std::move(result));
+    }
+    results_.clear();
+  }
 
   bool submit_frame(const qar_ar_core::PanelPixels & pixels) override
   {
@@ -145,7 +176,7 @@ public:
     ++close_calls_;
     last_close_panel_closed_in_ar_ = panel_closed_in_ar;
     qar_ar_core::PanelCloseReport report;
-    if (closed_) {
+    if (closed_ || detached_) {
       return report;  // idempotent, like the real one
     }
     closed_ = true;
@@ -180,6 +211,23 @@ public:
     return report;
   }
 
+  /// Records the call, and the event "detach <key>" in the factory's shared log. The panel is
+  /// left as it is: nothing is hidden or closed. Idempotent; the adapter is finished after it.
+  void detach() override
+  {
+    ++detach_calls_;
+    if (detached_ || closed_) {
+      return;
+    }
+    detached_ = true;
+    steps_.push_back("detach");
+    if (events_) {
+      events_->push_back("detach " + desc_.key);
+    }
+  }
+
+  bool supports_detach() const override { return supports_detach_; }
+
   const std::string & last_error() const override { return last_error_; }
 
   std::string stream_id_text() const override { return stream_id_; }
@@ -212,6 +260,15 @@ public:
   std::uint32_t sender_destroy_calls() const { return sender_destroy_calls_; }
   /// The flag the most recent close() was given.
   bool last_close_panel_closed_in_ar() const { return last_close_panel_closed_in_ar_; }
+  /// Every call to detach(), idempotent repeats included.
+  std::uint32_t detach_calls() const { return detach_calls_; }
+  bool detached() const { return detached_; }
+  /// True while the adapter holds its QarOS panel: neither closed nor detached.
+  bool live() const { return !closed_ && !detached_; }
+  /// What the real adapter reports after its probe: the panel of this name existed already.
+  bool reattached() const { return reattached_; }
+  /// The common name the library gave the panel (PanelDesc::common_name).
+  const std::string & common_name() const { return desc_.common_name; }
 
 private:
   qar_ar_core::PanelDesc desc_;
@@ -223,11 +280,18 @@ private:
   std::string stream_id_ = "mock-stream";
   qar_ar_core::PanelNotReadyCause not_ready_cause_ = qar_ar_core::PanelNotReadyCause::NoDestination;
   bool ready_ = true;
+  bool pending_ = false;
+  std::vector<qar_ar_core::PanelOpResult> results_;
+  std::uint32_t drain_calls_ = 0;
   bool fail_begin_ = false;
   bool fail_submit_ = false;
   bool fail_close_panel_ = false;
   std::uint32_t fail_set_state_ = 0;
   bool supports_state_ = true;
+  bool supports_detach_ = false;
+  bool reattached_ = false;
+  bool detached_ = false;
+  std::uint32_t detach_calls_ = 0;
   bool closed_ = false;
   bool last_close_panel_closed_in_ar_ = false;
   QarGuiPanelState last_state_ = QAR_GUI_PANEL_STATE_VISIBLE;
@@ -251,6 +315,18 @@ public:
   /// served (the runtime reports it as MEDIA_STREAMING_NO_ACTIVE_TRANSFERS).
   void set_senders_start_not_ready(bool not_ready) { senders_start_not_ready_ = not_ready; }
 
+  /// @brief Hand out senders whose supports_detach() is @p detach, like the real sender (true).
+  /// A name that an adapter of this factory holds live (not closed, not detached) when another
+  /// one is made for it counts as a collision (see @ref live_name_collisions); a name that a
+  /// finished adapter held makes the new adapter report reattached(), as the real probe does.
+  void set_senders_support_detach(bool detach) { senders_detach_ = detach; }
+
+  /// @brief Hand out senders that are still being made, like the real one while its panel and
+  /// video sender are made on the session's thread: pending() is true and the stream id is empty
+  /// until the test lets them finish (MockQarPanelSenderAdapter::set_pending, set_stream_id and a
+  /// queued Create result).
+  void set_senders_start_pending(bool pending) { senders_start_pending_ = pending; }
+
   /// @brief Make every subsequent create_panel_sender() return null.
   void set_fails(bool fails, std::string reason = "mock factory refuses")
   {
@@ -266,11 +342,28 @@ public:
       return nullptr;
     }
     auto adapter = std::make_shared<MockQarPanelSenderAdapter>(desc, events_);
+    adapter->set_supports_detach(senders_detach_);
+    if (!desc.common_name.empty()) {
+      for (const auto & earlier : created_) {
+        if (earlier->common_name() != desc.common_name) {
+          continue;
+        }
+        if (earlier->live()) {
+          ++live_name_collisions_;  // two senders on ONE QarOS panel
+        } else {
+          adapter->set_reattached(true);
+        }
+      }
+    }
     // Distinct per sender, like the runtime's: a rebuild mints a new stream,
     // and a test that asserts on a retirement line needs to tell them apart.
     adapter->set_stream_id("mock-stream-" + std::to_string(create_calls_));
     if (senders_start_not_ready_) {
       adapter->set_ready(false);
+    }
+    if (senders_start_pending_) {
+      adapter->set_pending(true);
+      adapter->set_stream_id(std::string());
     }
     created_.push_back(adapter);
     events_->push_back("create " + desc.key);
@@ -285,6 +378,9 @@ public:
   const std::vector<std::string> & events() const { return *events_; }
 
   std::uint32_t create_calls() const { return create_calls_; }
+  /// @brief How often an adapter was made for a common name that another adapter of this factory
+  /// still held (neither closed nor detached): both would point at one QarOS panel. Must stay 0.
+  std::uint32_t live_name_collisions() const { return live_name_collisions_; }
   const std::vector<std::shared_ptr<MockQarPanelSenderAdapter>> & created() const
   {
     return created_;
@@ -303,6 +399,9 @@ private:
   std::string failure_reason_ = "mock factory refuses";
   bool fails_ = false;
   bool senders_start_not_ready_ = false;
+  bool senders_detach_ = false;
+  bool senders_start_pending_ = false;
+  std::uint32_t live_name_collisions_ = 0;
   std::uint32_t create_calls_ = 0;
 };
 

@@ -7,7 +7,9 @@
 #include "qar_qt_streaming/ar_readability.hpp"
 #include "qar_qt_streaming/capture_gate.hpp"
 #include "qar_qt_streaming/panel_geometry.hpp"
+#include "qar_qt_streaming/panel_resize_mode.hpp"
 #include "qar_qt_streaming/panel_tombstone.hpp"
+#include "qar_ar_core/common_name.hpp"
 #include "qar_ar_core/panel_types.hpp"
 #include "qar_ar_core/qar_panel_sender.hpp"
 #include "qar_qt_streaming/qt_panel_input_injector.hpp"
@@ -25,6 +27,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <string>
@@ -54,6 +57,15 @@ struct PanelStreamOptions
   /// no frame. A QtPanelStreamManager sets this from QtPanelStreamingConfig::ar_frame for every
   /// panel it makes.
   PanelFrame ar_frame{};
+
+  /// Scope of the QarOS common name of this panel (qar_ar_core::make_panel_common_name). A
+  /// QtPanelStreamManager sets it from QtPanelStreamingConfig::name_scope for every panel it
+  /// makes.
+  qar_ar_core::NameScope name_scope{};
+
+  /// What a size change does to the QarOS panel. A QtPanelStreamManager sets it from
+  /// QtPanelStreamingConfig::resize_mode for every panel it makes.
+  PanelResizeMode resize_mode = PanelResizeMode::Swap;
 
   /// The panel is the panel of a dialog window (QtPanelStreamManager makes the panels of the
   /// dialogs that a streamed window opens): it keeps the height of its video and fits its width
@@ -157,6 +169,7 @@ enum class ReplacedPanelFate
   Closed,       ///< closed together with its video sender
   HiddenKept,   ///< hidden in AR and kept; closed with the stream
   VisibleKept,  ///< could not be hidden, so it is still shown; kept and closed with the stream
+  Swapped,      ///< left in place: only its video sender went, the new sender joined the same panel
 };
 
 /// @brief The record of one size rebuild; see QtPanelStream::take_size_rebuild.
@@ -165,6 +178,16 @@ struct SizeRebuildReport
   ReplacedPanelFate fate = ReplacedPanelFate::Closed;
   /// Why QarOS did not hide the old panel; set when @ref fate is VisibleKept.
   std::string hide_error;
+};
+
+/// @brief What QtPanelStream::end_session did with the QarOS panels of a stream.
+struct SessionEndReport
+{
+  std::size_t panels = 0;          ///< QarOS panels the stream held (the current and kept ones)
+  std::size_t left_in_place = 0;   ///< hidden where QarOS can, then detached, not closed
+  std::size_t closed = 0;          ///< closed, because their sender cannot detach
+  std::size_t hide_failures = 0;   ///< panels that could not be hidden before they were detached
+  std::string hide_error;          ///< why the first of them could not
 };
 
 /// @brief One QWidget streamed as one QarOS GUI panel.
@@ -228,7 +251,8 @@ public:
   /// `reconnecting`, which raises 603 out of the QarOS mixer's frame callback
   /// and starves EVERY other stream it serves, the stereo 3D scene included
   /// (see panel_tombstone.hpp). In Park mode (`QAR_PANEL_CLOSE_MODE=park`) a closed source
-  /// window calls @ref park instead, which closes nothing at all until the session ends.
+  /// window calls @ref park instead, which closes nothing; the end of the session hides and
+  /// detaches it (@ref end_session).
   ///
   /// An AR-side panel close calls @ref suspend_capture, never this.
   ///
@@ -380,10 +404,37 @@ public:
   /// that panel in AR is not seen, and @ref close closes it a second time.
   void set_replaced_panel_policy(std::function<bool()> may_keep);
 
+  /// @brief Lets a size change swap the video sender on the QarOS panel instead of replacing the
+  /// panel.
+  ///
+  /// With @ref PanelStreamOptions::resize_mode Swap and a sender whose
+  /// IQarPanelSenderAdapter::supports_detach is true, a size change first detaches the old sender
+  /// (its video sender and its click/hover subscription go; the QarOS panel stays), then makes the
+  /// new sender with the same common name, which the factory attaches to that same QarOS panel.
+  /// The old sender is never kept, so a key never has two live senders on one panel. The function
+  /// is asked once per rebuild and answers whether the swap is allowed; an empty function, the
+  /// default, allows it. A sender that cannot detach takes the path of
+  /// @ref set_replaced_panel_policy.
+  void set_swap_policy(std::function<bool()> swap_allowed);
+
+  /// @brief End of the session: leave the QarOS panels where they are for the next session.
+  ///
+  /// Releases the injector, then for the current sender and every kept one: a sender that
+  /// supports detach has its panel hidden (`set_state(HIDDEN)`, unless it is hidden already or
+  /// the operator closed it) and is detached; a sender that does not is closed, as @ref close
+  /// does. Nothing is closed that can be left. The outcomes the senders have queued are taken
+  /// first (a hide that was accepted and refused since the last tick is asked again). Idempotent:
+  /// the stream holds no sender afterwards.
+  SessionEndReport end_session();
+
   /// How many more times a hide that QarOS refused is asked for, and the least time between two
   /// tries, in seconds on the clock @ref tick is given.
   static constexpr std::uint32_t kKeptHideRetries = 3;
   static constexpr double kKeptHideRetrySeconds = 1.0;
+
+  /// The least time, in seconds on the clock @ref tick is given, between the failure of a sender's
+  /// creation (reported through IQarPanelSenderAdapter::drain_results) and the next try.
+  static constexpr double kCreateRetrySeconds = 1.0;
 
   /// @brief How many QarOS panels earlier size rebuilds replaced and kept.
   std::size_t replaced_panel_count() const { return replaced_adapters_.size(); }
@@ -573,9 +624,37 @@ private:
   ///        timed against it.
   void retire_adapter_for_rebuild(double now_seconds);
 
+  /// The common name of the QarOS panel for a sender of the given buffer size: the scope and the
+  /// key, plus "@<w>x<h>" in PanelResizeMode::NewPanel.
+  std::string common_name_for(std::uint32_t buffer_width, std::uint32_t buffer_height) const;
+
+  /// Takes the kept panel that has @p desc's common name and buffer size out of the kept list and
+  /// makes it the current one (shown again when it was hidden). A common name is one QarOS panel,
+  /// so a second sender for it is never made while a kept one holds it. Only in
+  /// PanelResizeMode::NewPanel; false when no kept panel matches.
+  bool revive_kept_panel(const qar_ar_core::PanelDesc & desc);
+
   /// Asks again for the hide of every kept panel whose hide QarOS refused, when its time has
   /// come; says a late success, and the end of the attempts.
   void retry_kept_hides(double now_seconds);
+
+  /// Takes the outcomes of the calls the senders only queued
+  /// (IQarPanelSenderAdapter::drain_results) and applies them: a creation that failed ends the
+  /// sender (it is made again after @ref kCreateRetrySeconds), a creation that succeeded gives the
+  /// stream its id, a refused placement is recorded, and a refused hide or show undoes what was
+  /// assumed when the call was accepted. Called first on every tick, so that nothing below acts on
+  /// a stale assumption.
+  /// @param now_seconds Same instant @ref tick was given.
+  void drain_adapter_results(double now_seconds);
+
+  /// One hide or show a sender accepted and whose outcome is still to come.
+  struct StateAsk
+  {
+    bool changes_flag = false;     ///< it changed diagnostics_.ar_hidden, to be undone on refusal
+    bool previous_hidden = false;  ///< what diagnostics_.ar_hidden was before
+    bool revival = false;          ///< it is the show of a revived parked panel
+  };
+  void note_state_ask(const StateAsk & ask);
 
   void record_error(std::string message);
   void sync_input_diagnostics();
@@ -639,11 +718,27 @@ private:
     std::shared_ptr<qar_ar_core::IQarPanelSenderAdapter> adapter;
     bool hidden = false;                ///< QarOS has accepted the hide
     std::uint32_t retries_left = 0;     ///< times a refused hide is still to be asked for again
+    std::uint32_t attempts = 0;         ///< times the hide has been asked for, the first included
     double next_retry_seconds = 0.0;    ///< not before this instant
+    std::string common_name;            ///< the common name its QarOS panel has
+    std::uint32_t buffer_width = 0;     ///< the buffer size its sender was made for
+    std::uint32_t buffer_height = 0;
   };
   /// The panels that size rebuilds replaced and kept, oldest first.
   std::vector<KeptPanel> replaced_adapters_;
+  /// The hides and shows of adapter_ that were accepted and whose outcome has not been drained,
+  /// oldest first. A sender that reports through return values never drains, so the list is capped.
+  std::deque<StateAsk> state_asks_;
+  /// A show of a revived parked panel was refused after it had been accepted;
+  /// take_revival_refusal says so.
+  bool late_revival_refusal_ = false;
+  /// No new sender before this instant after a creation failed.
+  bool has_create_retry_ = false;
+  double create_retry_at_seconds_ = 0.0;
   std::function<bool()> replaced_panel_policy_;
+  std::function<bool()> swap_policy_;
+  /// The common name of the QarOS panel behind adapter_.
+  std::string adapter_common_name_;
   /// A size rebuild nobody has taken the record of yet, and the record.
   bool size_rebuild_pending_ = false;
   SizeRebuildReport size_rebuild_;

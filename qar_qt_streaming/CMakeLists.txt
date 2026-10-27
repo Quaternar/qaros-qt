@@ -16,6 +16,7 @@ find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets)
 add_library(qar_qt_streaming STATIC
   src/capture_gate.cpp
   src/panel_close_mode.cpp
+  src/panel_resize_mode.cpp
   src/offscreen_panel.cpp
   src/offscreen_popup_guard.cpp
   src/panel_geometry.cpp
