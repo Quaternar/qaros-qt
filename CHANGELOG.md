@@ -2,7 +2,7 @@
 
 All notable changes to this repository are listed in this file, newest version first. The format follows Keep a Changelog, and the versions follow Semantic Versioning. While the major version is 0, the minor version marks changes that may not be backward compatible, and the CMake packages of this stack accept a request only for the same minor version.
 
-Each version lists what it adds, the compatibility it was verified with (the QarOS SDK drops, the ROS 2 distribution, Qt, the toolchain and the versions of the repositories it builds on), and its known limitations. The version of a repository is the version of its CMake package, 0.1.0 for this release.
+Each version lists what it adds, the compatibility it was verified with (the QAROS version, the ROS 2 distribution, Qt, the toolchain and the versions of the repositories it builds on), and its known limitations. The version of a repository is the version of its CMake package, 0.1.0 for this release.
 
 ## 0.1.0
 
@@ -15,7 +15,9 @@ The first version of the repository. It adds the features that the [README](READ
 - sizing of panels for the frame that QarOS draws around the video: a panel is a fit margin taller than its video, the panel of a dialog fits its width to the frame, and the frame is `PanelFrame`;
 - AR input as Qt events: touch with a mouse fallback, an implicit grab for each pointer, double clicks, drags, the hover lifecycle and two hands as two pointers;
 - popups drawn into the picture of their panel, and dialogs as GUI panels of their own, with an optional fit of a dialog to its scroll areas;
-- adoption of a new widget size only when it is large and has settled;
+- adoption of a new widget size only when it is large and has settled, and a new video sender on the same QarOS panel for it (`QAR_PANEL_RESIZE` chooses a second panel instead);
+- stable common names for the panels (`name_scope`), so that a panel that was hidden when the session ended is found and shown again by the next start, and a session end that hides and detaches the panels in the modes `notice` and `park`;
+- the example joins the QAROS Hub through the session owner of `qar_ogre_adapter`, as a local app or with a pairing code;
 - closing of the AR panel of a closed window, which destroys the video sender by default, with the close mode `notice` as the escape hatch and the close mode `park`, which closes nothing until the session ends;
 - hiding and showing of panels in AR without closing them;
 - the brightness of the frames that a panel sends and the census of the scroll areas of its widget, for the log;
@@ -27,7 +29,7 @@ The first version of the repository. It adds the features that the [README](READ
 
 | Item | Version |
 |---|---|
-| QarOS SDK | verified against the drop of 2026-09-28; needs at least the drop of 2026-09-21 |
+| QAROS | verified against the installed QAROS 0.9.0-dev.3008+65dc9aeb |
 | Qt | 5.15.2, the kit `win64_msvc2019_64`, with the modules Core, Gui and Widgets |
 | Compiler | Microsoft C++ toolset v142 of Visual Studio 2019 |
 | CMake | 3.22 or newer is required; verified with 3.29.5 as bundled with Visual Studio 2022 version 17.11; CMake 4 not tested |

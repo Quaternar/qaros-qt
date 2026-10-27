@@ -5,8 +5,8 @@
 This section gives the result of each level. The results of Level 0 and Level 1 are those of this release, and each comes from a recorded run of the commands that the level names. The result of Level 2 comes from live sessions and live checks, and its line says which build each ran.
 
 - Level 0, automated checks: passed. Every test of the repository that ran passed and none failed; a test that the run reports as skipped is not a failure ([Run all tests](#run-all-tests) shows the totals). The layering guard and its self-test reported OK ([The layering guard](#the-layering-guard)), and the consumer program of the install smoke test built and ran ([Install and the install smoke test](#install-and-the-install-smoke-test)).
-- Level 1, headless checks: passed with an SDK that has the header of the verified drop of 2026-09-28 ([SDK compatibility](SDK_COMPATIBILITY.md)): the Qt example opened a QarOS session without a window and printed the line that says that it is connected ([A QarOS session without a window](#a-qaros-session-without-a-window)).
-- Level 2, desktop checks: the authors of qar_qt_streaming did not run the Qt example of this repository in a session with a Visualizer ([Desktop Visualizer checks (Level 2)](#desktop-visualizer-checks-level-2)); the library ran in the live checks of qar_rviz_plugin on the desktop Visualizer, which streams windows of RViz into AR as panels through it, with a build that differs from this release only in comments and the text of one tool tip, and no session with a headset has run this release ([What the live sessions showed](#what-the-live-sessions-showed)).
+- Level 1, headless checks: the connection check of the Qt example starts the QAROS Hub, so it is not run for this document ([A QarOS session without a window](#a-qaros-session-without-a-window)).
+- Level 2, desktop checks: the authors of qar_qt_streaming did not run the Qt example of this repository in a session with a Visualizer ([Desktop Visualizer checks (Level 2)](#desktop-visualizer-checks-level-2)); the library ran in the live checks of qar_rviz_plugin on the desktop Visualizer with the installed QAROS 0.9.0-dev.3008+65dc9aeb, which streams windows of RViz into AR as panels through it and which the maintainers judged as passed, and no session with a headset has run this release ([What the live sessions showed](#what-the-live-sessions-showed)).
 - Level 3, device checks: not run for this release; [Device checks (Level 3)](#device-checks-level-3) says why.
 
 ## Verification levels
@@ -52,8 +52,8 @@ Preset CMake variables:
 ...
 -- qar_ogre_adapter 0.1.0: C:/qar/install/share/qar_ogre_adapter/cmake
 ...
--- Configuring done (8.0s)
--- Generating done (0.1s)
+-- Configuring done (10.9s)
+-- Generating done (0.2s)
 -- Build files have been written to: C:/qar/src/qar_qt_streaming/build/vs2019-x64
 ```
 
@@ -61,13 +61,13 @@ Preset CMake variables:
 cmake --build --preset vs2019-x64
 ```
 ```text
-...
   qar_qt_streaming.vcxproj -> C:\qar\src\qar_qt_streaming\build\vs2019-x64\qar_qt_streaming\RelWithDebInfo\qar_qt_streaming.lib
 ...
   qar_qt_panel_example.vcxproj -> C:\qar\src\qar_qt_streaming\build\vs2019-x64\examples\qt_panel_example\RelWithDebInfo\qar_qt_panel_example.exe
 ...
-  qar_qt_streaming_tests.vcxproj -> C:\qar\src\qar_qt_streaming\build\vs2019-x64\qar_qt_streaming\test\RelWithDebInfo\qar_qt_streaming_tests.exe
+  qar_qt_streaming_doc_snippets.vcxproj -> C:\qar\src\qar_qt_streaming\build\vs2019-x64\docs\snippets\RelWithDebInfo\qar_qt_streaming_doc_snippets.exe
 ...
+  qar_qt_streaming_tests.vcxproj -> C:\qar\src\qar_qt_streaming\build\vs2019-x64\qar_qt_streaming\test\RelWithDebInfo\qar_qt_streaming_tests.exe
 ```
 
 ### Run all tests
@@ -80,20 +80,19 @@ ctest --preset vs2019-x64
 ```text
 Test project C:/qar/src/qar_qt_streaming/build/vs2019-x64
         Start   1: check_layering_qar_qt_streaming
-  1/420 Test   #1: check_layering_qar_qt_streaming ...........................................................   Passed    0.17 sec
+  1/681 Test   #1: check_layering_qar_qt_streaming ................................................................   Passed    0.27 sec
         Start   2: check_layering_examples
-  2/420 Test   #2: check_layering_examples ...................................................................   Passed    0.04 sec
+  2/681 Test   #2: check_layering_examples ........................................................................   Passed    0.05 sec
         Start   3: check_layering_selftest
-  3/420 Test   #3: check_layering_selftest ...................................................................   Passed    0.05 sec
+  3/681 Test   #3: check_layering_selftest ........................................................................   Passed    0.06 sec
         Start   4: AlignUp.RoundsUpToTheNextMultiple
-  4/420 Test   #4: AlignUp.RoundsUpToTheNextMultiple .........................................................   Passed    0.01 sec
 ...
-100% tests passed, 0 tests failed out of 420
+100% tests passed, 0 tests failed out of 681
 
-Total Test time (real) =  30.54 sec
+Total Test time (real) =  67.68 sec
 ```
 
-[Testing](TESTING.md#what-the-automated-tests-do-not-cover) lists what these tests leave out: every call into QarOS and the live desktop. Of the checks of the next levels, only `--connect-only` of Level 1 was run for this release, and it covers the bootstrap of a QarOS session without a panel. The calls that create and drive panels were exercised only in the live checks of qar_rviz_plugin on the desktop Visualizer, with a build that differs from this release only in comments and the text of one tool tip, and the checks of Level 2 have not been run.
+[Testing](TESTING.md#what-the-automated-tests-do-not-cover) lists what these tests leave out: every call into QarOS and the live desktop. Of the checks of the next levels, none was run for this document: `--connect-only` of Level 1 starts the QAROS Hub. The calls that create and drive panels were exercised only in the live checks of qar_rviz_plugin on the desktop Visualizer, and the checks of Level 2 have not been run.
 
 ### The layering guard
 
@@ -104,7 +103,7 @@ The guard checks the include rules of the module and of the example, and its sel
 ```
 ```text
 check_layering examples: OK (1 files)
-check_layering qar_qt_streaming: OK (54 files)
+check_layering qar_qt_streaming: OK (66 files)
 ```
 
 ```powershell
@@ -123,7 +122,13 @@ cmake --install build\vs2019-x64 --config RelWithDebInfo --prefix $env:QAR_PREFI
 ```
 ```text
 -- Installing: C:\qar\install/lib/qar_qt_streaming.lib
+-- Up-to-date: C:\qar\install/include
+-- Installing: C:\qar\install/include/qar_qt_streaming
 ...
+-- Installing: C:\qar\install/share/qar_qt_streaming/LICENSE
+-- Installing: C:\qar\install/share/qar_qt_streaming/cmake/qar_qt_streamingTargets.cmake
+-- Installing: C:\qar\install/share/qar_qt_streaming/cmake/qar_qt_streamingTargets-relwithdebinfo.cmake
+-- Installing: C:\qar\install/share/qar_qt_streaming/cmake/qar_qt_streamingConfig.cmake
 -- Installing: C:\qar\install/share/qar_qt_streaming/cmake/qar_qt_streamingConfigVersion.cmake
 ```
 
@@ -131,8 +136,9 @@ cmake --install build\vs2019-x64 --config RelWithDebInfo --prefix $env:QAR_PREFI
 cmake -S docs\snippets\consumer -B build\consumer -G "Visual Studio 16 2019" -A x64 "-DCMAKE_PREFIX_PATH=$env:QAR_PREFIX;$env:QAR_QT_ROOT"
 ```
 ```text
+-- The CXX compiler identification is MSVC 19.29.30151.0
 ...
--- Configuring done (1.6s)
+-- Configuring done (2.3s)
 -- Generating done (0.0s)
 -- Build files have been written to: C:/qar/src/qar_qt_streaming/build/consumer
 ```
@@ -141,9 +147,7 @@ cmake -S docs\snippets\consumer -B build\consumer -G "Visual Studio 16 2019" -A 
 cmake --build build\consumer --config RelWithDebInfo
 ```
 ```text
-...
-  qar_qt_streaming_consumer.vcxproj -> C:\qar\src\qar_qt_streaming\build\consumer\RelWithDebInfo\qar_qt_streaming_consumer.exe
-...
+  main.cpp
 ```
 
 ```powershell
@@ -153,30 +157,26 @@ cmake --build build\consumer --config RelWithDebInfo
 qar_qt_streaming 0.1.0
 targets: qar_qt_streaming::qar_qt_streaming
 arm's-length preset: 0.50 mm per logical pixel, render scale 2.0
-a 420 x 200 widget: buffer 420 x 200 px, panel 0.504 x 0.240 m
+a 420 x 200 widget: buffer 420 x 200 px, panel 0.504 x 0.309 m
 close mode of "notice": notice
 ```
 
 ## Headless checks (Level 1)
 
-The headless check runs the Qt example without a window and without a Visualizer. It needs the QarOS SDK that `QAR_SDK_ROOT` names, and it opens a real QarOS session.
+The headless check runs the Qt example without a window and without a Visualizer. It needs the installed QAROS, and it joins the Hub of the PC.
 
 ### A QarOS session without a window
 
-With `--connect-only` the example creates no application object and no window. It opens a QarOS session through the session factory of qar_ogre_adapter, checks that the session is ready and ends again. A pass is an exit code of 0 and a line that says that the example is connected. A folder that does not hold the QarOS library makes the example print the reason and exit with 1. [Check the connection to QarOS without a window](GETTING_STARTED.md#check-the-connection-to-qaros-without-a-window) describes the output.
+With `--connect-only` the example creates no application object and no window. It joins the QAROS Hub through the session owner of qar_ogre_adapter, prints the runtime, the mode, its peer and the targets, and ends again. A pass is an exit code of 0 and a line that says that the example is connected. A session that does not run makes the example print a failure line with the state and exit with 1. The command starts the Hub when it is not running and the Hub asks its operator to allow the program, so a person runs it and it is not run for this document. [Check the connection to QarOS without a window](GETTING_STARTED.md#check-the-connection-to-qaros-without-a-window) describes the output.
 
 ```powershell
 $env:PATH = "$env:QAR_QT_ROOT\bin;$env:PATH"
-& .\build\vs2019-x64\examples\qt_panel_example\RelWithDebInfo\qar_qt_panel_example.exe --sdk-bin "$env:QAR_SDK_ROOT\bin" --connect-only
-```
-```text
-...
-example: connected to QarOS: ready=1
+& .\build\vs2019-x64\examples\qt_panel_example\RelWithDebInfo\qar_qt_panel_example.exe --local --connect-only
 ```
 
 ## Desktop Visualizer checks (Level 2)
 
-The Qt example runs against a real Visualizer: it invites a Visualizer into the session, streams a counter window and a hidden off-screen widget into AR, and stops by itself after the time that `--seconds` gives. You start the example, you look at the Visualizer and you tap in it; nothing in this repository clicks or moves a window. The commands are those of [Getting started](GETTING_STARTED.md), and each check below names its section.
+The Qt example runs against a real Visualizer: it joins the Hub, streams a counter window and a hidden off-screen widget into AR, and stops by itself after the time that `--seconds` gives. You start the example, you look at the Visualizer and you tap in it; nothing in this repository clicks or moves a window. The commands are those of [Getting started](GETTING_STARTED.md), and each check below names its section.
 
 - **Stream one widget into AR.** [Stream one widget into AR](GETTING_STARTED.md#stream-one-widget-into-ar) starts the example. A pass is a Visualizer that opens by itself and shows two panels, the counter window with its button and the label, and a second panel with a combo box. The adapter prints a line for each panel when the QarOS panel exists, and the picture of the counter panel is readable.
 - **AR input on the panel.** [Use AR input on the panel](GETTING_STARTED.md#use-ar-input-on-the-panel): tap the button of the counter panel in the Visualizer a few times. A pass is a label that counts the taps and one line of the example for each tap, and a hover that highlights the button.
@@ -187,13 +187,13 @@ Dragging a slider or a scrollbar in AR and the use of two hands are covered by u
 
 ### What the live sessions showed
 
-The authors of qar_qt_streaming did not run the Qt example of this repository in a session with a Visualizer, so the checks above have not been run. The library ran in two live sessions of qar_rviz_plugin, which streams windows of RViz into AR as panels through it, with builds of the three repositories that were made before the last changes of the code. The live checks of qar_rviz_plugin on the desktop Visualizer ran a build that differs from this release only in comments and the text of one tool tip; no session with a headset has run this release.
+The authors of qar_qt_streaming did not run the Qt example of this repository in a session with a Visualizer, so the checks above have not been run. The library ran in the live checks of qar_rviz_plugin, which streams windows of RViz into AR as panels through it: the plugin joined the Hub of the PC as a local app, the maintainers added a receiver in the Visualizer, and the panels of the plugin reached it. The maintainers judged those checks as passed; the judgement is theirs, and this document gives no measurement of it. No session with a headset has run this release.
 
-The logs of the two sessions show the panels that the manager of this library added, created and closed: the hidden Displays panel, docks and the panel of a dialog, each with the line of the adapter that reports its creation and the lines that report its close. The authors of qar_qt_streaming confirmed in earlier live sessions, held with older builds before the SDK drop of 2026-09-28, that a click and a hover reach the real widget, with the lists of drop-down boxes and the dialogs. In the two sessions of qar_rviz_plugin they gave no verdict step by step. The drag of a slider and the use of two hands are covered by unit tests, the tap count and the long press by neither a unit test nor a live session, and no live session has exercised any of the four.
+The logs of the two sessions show the panels that the manager of this library added, created and closed: the hidden Displays panel, docks and the panel of a dialog, each with the line of the adapter that reports its creation and the lines that report its close. The authors of qar_qt_streaming confirmed in earlier live sessions, held with a QAROS runtime earlier than the verified version, that a click and a hover reach the real widget, with the lists of drop-down boxes and the dialogs. In the two sessions of qar_rviz_plugin they gave no verdict step by step. The drag of a slider and the use of two hands are covered by unit tests, the tap count and the long press by neither a unit test nor a live session, and no live session has exercised any of the four.
 
 ## Device checks (Level 3)
 
-Not run for this release: no device was available. The authors of qar_qt_streaming state that an earlier build of this stack worked on a HoloLens 2 with the SDK drop of 2026-09-28; that is their statement, and no record of that run exists.
+Not run for this release: no device was available. The authors of qar_qt_streaming state that an earlier build of this stack worked on a HoloLens 2 with a QAROS runtime earlier than the verified version; that is their statement, and no record of that run exists.
 
 None of the checks of this repository needs a device. Devices are invited and admitted by qar_ogre_adapter, and qar_rviz_plugin checks the invitation in its dry-run form.
 

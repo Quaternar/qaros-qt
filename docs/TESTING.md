@@ -23,17 +23,16 @@ ctest --preset vs2019-x64
 ```text
 Test project C:/qar/src/qar_qt_streaming/build/vs2019-x64
         Start   1: check_layering_qar_qt_streaming
-  1/420 Test   #1: check_layering_qar_qt_streaming ...........................................................   Passed    0.17 sec
+  1/681 Test   #1: check_layering_qar_qt_streaming ................................................................   Passed    0.27 sec
         Start   2: check_layering_examples
-  2/420 Test   #2: check_layering_examples ...................................................................   Passed    0.04 sec
+  2/681 Test   #2: check_layering_examples ........................................................................   Passed    0.05 sec
         Start   3: check_layering_selftest
-  3/420 Test   #3: check_layering_selftest ...................................................................   Passed    0.05 sec
+  3/681 Test   #3: check_layering_selftest ........................................................................   Passed    0.06 sec
         Start   4: AlignUp.RoundsUpToTheNextMultiple
-  4/420 Test   #4: AlignUp.RoundsUpToTheNextMultiple .........................................................   Passed    0.01 sec
 ...
-100% tests passed, 0 tests failed out of 420
+100% tests passed, 0 tests failed out of 681
 
-Total Test time (real) =  30.54 sec
+Total Test time (real) =  67.68 sec
 ```
 
 The last lines are the summary: how many tests passed, and the names of those that failed. A test that is skipped is reported as skipped and does not count as a failure.
@@ -56,11 +55,9 @@ Test project C:/qar/src/qar_qt_streaming/build/vs2019-x64
   Test   #6: PanelGeometry.AtRatioOneBufferMatchesLogicalSize
   Test   #7: PanelGeometry.HiDpiGrowsTheBufferButNotThePhysicalSize
 ...
-  Test #418: StreamTiming.AnUnchangedFrameIsRecordedAsSuchAndAFramelessTraceLeavesBlanks
-  Test #419: StreamTiming.APanelThatIsNotVideoDrivenWritesNoVideoFile
-  Test #420: StreamTiming.WithTimingOffTheStreamBehavesAsBeforeAndWritesNothing
+  Test #681: StreamTiming.WithTimingOffTheStreamBehavesAsBeforeAndWritesNothing
 
-Total Tests: 420
+Total Tests: 681
 ```
 
 ```powershell
@@ -69,11 +66,11 @@ ctest --preset vs2019-x64 -R check_layering_selftest
 ```text
 Test project C:/qar/src/qar_qt_streaming/build/vs2019-x64
     Start 3: check_layering_selftest
-1/1 Test #3: check_layering_selftest ..........   Passed    0.05 sec
+1/1 Test #3: check_layering_selftest ..........   Passed    0.06 sec
 
 100% tests passed, 0 tests failed out of 1
 
-Total Test time (real) =   0.07 sec
+Total Test time (real) =   0.09 sec
 ```
 
 Use `-R` with a part of a suite name to run one suite, and add `-j` followed by a number to run tests in parallel. When a test fails, its output is printed by the preset; add the option `--rerun-failed` to the command to run only the tests that failed in the last run.
@@ -97,6 +94,7 @@ The unit tests are one GoogleTest executable, `qar_qt_streaming_tests`, and the 
 | `PanelClose`, `PanelCloseReport`, `PanelCloseNoticeMode`, `PanelCloseModeParse`, `PanelCloseModeNames`, `PanelCloseModeConfig` | destroy is the default; a close closes the panel and destroys the sender once and in order; a close that fails still destroys the sender, drops the entry and warns; a close asked for from the click handler of the panel runs when the click has returned; the notice mode keeps the sender; the word park is recognised; an unknown close mode gives the default and one warning |
 | `PanelLifetime`, `PanelTombstoneSizing`, `PanelTombstoneWidget` | in the notice mode a closed source keeps the stream and the sender; the notice takes no input; a close in AR stops the capture and does not destroy the sender; the session shutdown closes every panel exactly once; a retired slot is reused; the number of retired panels is capped |
 | `PanelGeometryFrame`, `PanelGeometryDialog`, `PanelStreamHeight`, `PanelManagerHeight` | the default frame is the one measured on the Visualizer; a panel is the video inside the frame plus the fit margin and keeps its width, and no frame makes it exactly as tall as its video; each inset has its own effect; a frame that leaves no width is not applied; the panel of a dialog keeps the height of its video, fits its width to the frame, is never under half of its nominal width, and a frame that is not below the height of the video is not applied; the sender is told the video inside the frame; the hit rectangle is the video inside the frame, centred under the title bar; the frame of the manager replaces the frame of the options |
+| `PanelResizeMode`, `PanelCommonName`, `PanelSwap`, `PanelNewPanel`, `PanelNameRule`, `PanelSessionEnd`, `PanelPaused`, `PanelAsync` | the parser of `QAR_PANEL_RESIZE` and its warning, the common name of a panel with and without the buffer size, a size change that swaps the sender of the same panel and one that makes a second panel, the rule that selects the name, what the end of a session does to each close mode, a stream that the receiver paused, and the results that the panel adapter reports through `drain_results` |
 | `PanelPark`, `PanelParkResize`, `PanelStreamReplacedPanels` | in the mode park a Qt-side close hides the panel and closes nothing, releases a pressed pointer without a click, and the parked stream is not pointed at; adding the key again revives it onto another window and pose, and a revival is allowed whatever the cap; parked panels and notices count together against the cap; a refused hide falls back to the notice and never to a close; a panel that the operator closed in AR is parked without a hide call; a size change hides and keeps the old panel, asks again for a refused hide three more times, and closes as before at the limit of kept panels; the end of the session closes every kept and parked panel once |
 | `QtPanelVisibility` | a hide applies on the next tick and pauses the capture; a show resumes with one frame; a hidden panel is not hit and drops its input; a refused request keeps the state and is counted; a notice is refused and an unknown key is not found |
 | `DialogFit`, `DialogPoseHook`, `DialogFrame`, `DialogHeightFactor`, `DialogCapRefusal` | the stream of a dialog is added once, at the size the fit ends with; a fit settles on the second equal look; a dialog that cannot fit the screen is clamped and says so; an area that scrolls by design never makes a dialog grow; a dialog that is hidden or destroyed meanwhile gets no panel; the pose hook sees every dialog pose; the fixed factor makes a dialog taller once and is not applied while an adjuster is installed; a refused dialog is tried once |
@@ -117,7 +115,7 @@ The tests replace the QarOS side of the library, the clock and the receiver of r
 | `RecordingPanelInputSink` | the receiver of resolved pointer events: it records which panel, which pixel, and whether the event was a hover or a click |
 | `ManualClock` | the clock of the manager: its time advances by hand, so the frame-rate limit, the keepalive, the settling of a resize and the warning for an unserved panel are tested without a wall clock |
 
-There is no stand-in for the QarOS SDK or for its C API. The code that calls the C API for panels, in the component `panels` of `qar_ogre_adapter`, has no automated test: only live sessions exercise it, and the live checks of qar_rviz_plugin on the desktop Visualizer ran a build that differs from this release only in comments and the text of one tool tip. The check `--connect-only` of the example opens a session and creates no panel.
+There is no stand-in for the QarOS C API in this repository. The tests of the panel adapters in the component `panels` of `qar_ogre_adapter` run against a fake of the QarOS function tables that belongs to that repository; the real runtime and Hub are exercised only in the live checks of qar_rviz_plugin on the desktop Visualizer. The check `--connect-only` of the example joins the Hub and creates no panel.
 
 ## What the automated tests do not cover
 
@@ -155,7 +153,7 @@ The first command checks all modules of this repository and prints one summary l
 ```
 ```text
 check_layering examples: OK (1 files)
-check_layering qar_qt_streaming: OK (54 files)
+check_layering qar_qt_streaming: OK (66 files)
 ```
 
 ```powershell

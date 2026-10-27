@@ -57,7 +57,7 @@ These conventions apply to every C++ file of this repository. Keep them when you
 
 **Logic that talks to another system.** Code that reads the environment, Qt, ROS 2 or QarOS is kept thin; the decisions it makes are put into functions that take plain values, so that they can be tested without a QarOS session, a window or a ROS 2 graph. For example, the helpers that parse environment variables take the raw text and never read the environment themselves; their callers pass it in. There is no fake of the QarOS SDK.
 
-Three rules of the threads apply to the code of this repository. Everything that touches a widget runs on the Qt GUI thread, and so do the synchronous calls of the C API that create and close a panel. Everything that another thread may do is in the mailbox of the video frames, which holds one mutex, and in the decoders, which touch only `QImage`. And the library starts no thread of its own.
+Three rules of the threads apply to the code of this repository. Everything that touches a widget runs on the Qt GUI thread, and the calls of the C API that create and close a panel run as tasks on the thread that owns the session. Everything that another thread may do is in the mailbox of the video frames, which holds one mutex, and in the decoders, which touch only `QImage`. And the library starts no thread of its own.
 
 ## Adding code and tests
 

@@ -1,67 +1,66 @@
 # QarOS SDK compatibility
 
-## Supported QarOS SDK drops
+## Supported QAROS versions
 
-A QarOS SDK drop has no version number: its C header carries no version macro, and its libraries carry no version resource. QuaternAR names a drop by its date, and this stack states the drops it supports by those dates.
+QAROS has a product version. The setup program records it in the registry value `Version` of the key `HKLM\SOFTWARE\Quaternar\QAROS`, for example `0.9.0-dev.3008+65dc9aeb`; the library `qar-streaming-c.dll` itself carries no version resource. This stack states the version that it was verified against.
 
-| SDK drop | Status | Meaning |
+| QAROS version | Status | Meaning |
 |---|---|---|
-| 2026-09-28 | verified | The drop that this stack was built, tested and run against. The vendored C header is the header of this drop. |
-| 2026-09-21 | minimum | The earliest drop that provides everything the code calls. The four items below set this minimum. |
-| earlier drops | not supported | They lack at least one of the four items below. |
+| 0.9.0-dev.3008+65dc9aeb | verified | The installation that this stack was built, tested and run against. The vendored C header is the header of this installation. |
+| any other version | not verified | The stack may work with it, but nobody has checked. |
 
-The minimum is set by these parts of the C API, all of which the code uses and which the vendored header declares:
+The vendored header declares these three parts of the C API, all of which the code uses:
 
-- the function `qar_session_id_unique`, which makes a session id that is unique and not zero;
 - the function `qar_gui_panels_subscribe_all_gesture_events`, which subscribes to all gesture events of a GUI panel;
 - the parameter structure `QarStreamParamsOpenGlWgl`, which hands the Windows OpenGL context of the host to a render stream;
 - the field `app_volume_id` of `QarRenderSenderInit`, which must not be NULL: a NULL id is rejected with the status `QAR_STATUS_APP_VOLUME_INVALID_ID`.
 
-At the time of writing, the public QarOS repository <https://github.com/Quaternar/qaros> publishes a later generation of the C API. This stack does not build against it: the session set-up (create, serialise, join and invite), the hand of a gesture, the time points and the init structures of volumes and panels would have to be ported.
+## Identifying the QAROS version
 
-## Identifying an SDK drop
+You identify the QAROS of your PC by its version and by the SHA256 of its C header, the file `include\qar_streaming.h` in the install folder. Two installations with the same header have the same C API; the hash does not prove that every binary of the two installations is identical.
 
-Because a drop has no version number, you identify it by the SHA256 of its C header, the file `include\qar_streaming.h` in the SDK folder. Two drops with the same header have the same C API; the hash does not prove that every binary of the two drops is identical.
-
-The first command prints the hash of the header in your SDK folder.
+The first command prints the version, the install folder and the hash of the header of your installation.
 
 ```powershell
-(Get-FileHash -LiteralPath (Join-Path $env:QAR_SDK_ROOT 'include\qar_streaming.h') -Algorithm SHA256).Hash
+$qaros = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Quaternar\QAROS'
+$qaros.Version
+(Get-FileHash -LiteralPath (Join-Path $qaros.InstallFolder 'include\qar_streaming.h') -Algorithm SHA256).Hash
 ```
 ```text
-5223B56251F3085B376A8BDE5ECEFCF661D6E8F8B800F6AA46414ADC1F4DB6EA
+0.9.0-dev.3008+65dc9aeb
+55E6E3F48D940CA29331F0528FE475C1B7230FB19A59C31D5525C6E90B097F6C
 ```
 
-The header that this stack compiles against is the header of the verified drop, and the second command prints its hash.
+The header that this stack compiles against is the header of the verified installation, and the second command prints its hash.
 The repository qar_ogre_adapter installs the header with its libraries, so the command reads it from the install prefix.
 
 ```powershell
 (Get-FileHash -LiteralPath (Join-Path $env:QAR_PREFIX 'include\qar_streaming.h') -Algorithm SHA256).Hash
 ```
 ```text
-5223B56251F3085B376A8BDE5ECEFCF661D6E8F8B800F6AA46414ADC1F4DB6EA
+55E6E3F48D940CA29331F0528FE475C1B7230FB19A59C31D5525C6E90B097F6C
 ```
 
-If the two hashes are equal, your SDK has the C API of the verified drop. If they differ, your drop is another one. The third command checks whether it still provides the four items that set the minimum drop; it prints True for each item that the header of your SDK declares.
+If the two hashes are equal, your QAROS has the C API of the verified version. If they differ, your installation is another one. The third command checks whether the header of your installation still declares the three parts of the C API that the code uses; it prints True for each item that the header declares.
 
 ```powershell
-$header = Join-Path $env:QAR_SDK_ROOT 'include\qar_streaming.h'
-foreach ($name in 'qar_session_id_unique', 'qar_gui_panels_subscribe_all_gesture_events', 'QarStreamParamsOpenGlWgl', 'app_volume_id') {
+$qaros = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Quaternar\QAROS'
+$header = Join-Path $qaros.InstallFolder 'include\qar_streaming.h'
+foreach ($name in 'qar_gui_panels_subscribe_all_gesture_events', 'QarStreamParamsOpenGlWgl', 'app_volume_id') {
     '{0,-46} {1}' -f $name, (Select-String -LiteralPath $header -Pattern $name -SimpleMatch -Quiet)
 }
 ```
 ```text
-qar_session_id_unique                          True
 qar_gui_panels_subscribe_all_gesture_events    True
 QarStreamParamsOpenGlWgl                       True
 app_volume_id                                  True
 ```
 
-A drop that has all four items and a different header is not verified: the stack may work with it, but nobody has checked. Build the repositories, run the tests, and read the changes listed for each drop before you rely on it.
+An installation that has all three items and a different header is not verified: the stack may work with it, but nobody has checked. Build the repositories, run the tests, and read the changes listed for each version before you rely on it.
 
 ## Updating the QarOS header
 
-This repository does not hold the QarOS C header. It comes with the repository qar_ogre_adapter, which vendors it and installs it into the prefix next to its libraries, so that every repository of this stack compiles against the same file. To move to another SDK drop, update the header there first, following the document "SDK compatibility" of qar_ogre_adapter, install qar_ogre_adapter into the prefix again, and then rebuild this repository.
+This repository does not hold the QarOS C header. It comes with the repository qar_ogre_adapter, which vendors it and installs it into the prefix next to its libraries, so that every repository of this stack compiles against the same file. To move to another QAROS version, update the header there first, following the document "SDK compatibility" of qar_ogre_adapter, install qar_ogre_adapter into the prefix again, and then rebuild this repository.
 
 ### Rebuild order
 
@@ -90,31 +89,25 @@ cmake --build --preset vs2019-x64 --clean-first
 ...
 ```
 
-## API changes by SDK drop
+## API changes by QAROS version
 
-The table lists the changes of the C header from the minimum drop to the verified drop, grouped by drop. The rows of the minimum drop say what its header declares and what this stack needs from it; the rows of the later drops are the differences between the headers of the drops. The drop that lies between the minimum drop and the verified drop is called "after the minimum drop". Only the rows that concern this repository are shown. In the third column, the adapter is the QarOS C API adapter in qar_ogre_adapter:
+The table lists the parts of the C header of the installed QAROS that this stack depends on, with the effect on this stack. Only the rows that concern this repository are shown. In the third column, the adapter is the QarOS C API adapter in qar_ogre_adapter:
 
-| SDK drop | Change in the header | Effect on this stack |
+| QAROS version | Change in the header | Effect on this stack |
 |---|---|---|
-| 2026-09-21 (minimum drop) | Panel input is a gesture stream: the per-kind click and hover subscriptions and their flat pointer event are replaced by `qar_gui_panels_subscribe_all_gesture_events`, which takes every kind through one reader, and by the opaque handle `QarGuiPanelGesture`, which is read through accessors. The kinds are hover, tap, long press and drag, each with a phase. Every panel, URL panels included, reports gestures. | The adapter subscribes once per stream panel and reads the handle at the top of the callback. |
-| 2026-09-21 (minimum drop) | A panel gesture names its hand, `qar_gui_panel_gesture_get_hand`, and counts its taps, `qar_gui_panel_gesture_get_tap_count`. A position, `QarGuiPanelPoint`, holds signed integers. | Every hand of every peer is its own pointer with its own grab, and the adapter reads the tap count. |
-| 2026-09-21 (minimum drop) | The header documents the frame of a panel: the origin is the midpoint of the top edge, +X runs to the viewer's left, the front normal is -Z, and panel content space runs backwards along both panel axes. | The pose of a panel is passed to the header unchanged, and the hit test of the Qt library uses this frame. |
-| 2026-09-28 (verified drop) | A stream panel ignores `content_scale`: its video is drawn at the full panel width and scrolled vertically when it is taller than the panel. | This stack sends 1.0 by default, so its panels are not affected. |
-| 2026-09-28 (verified drop) | The position of a gesture on a stream panel refers to the video as its sender draws it, at the resolution of the sender, and for a video that the renderer has scrolled it is the pixel under the finger. | The adapter normalises the position against the content size that its caller names. |
+| 0.9.0-dev.3008+65dc9aeb | Panel input is a gesture stream: the per-kind click and hover subscriptions and their flat pointer event are replaced by `qar_gui_panels_subscribe_all_gesture_events`, which takes every kind through one reader, and by the opaque handle `QarGuiPanelGesture`, which is read through accessors. The kinds are hover, tap, long press and drag, each with a phase. Every panel, URL panels included, reports gestures. | The adapter subscribes once per stream panel and reads the handle at the top of the callback. |
+| 0.9.0-dev.3008+65dc9aeb | A panel gesture names its hand, `qar_gui_panel_gesture_get_handedness`, and counts its taps, `qar_gui_panel_gesture_get_tap_count`. A position, `QarGuiPanelPoint`, holds signed integers. | Every hand of every peer is its own pointer with its own grab, and the adapter reads the tap count. |
+| 0.9.0-dev.3008+65dc9aeb | The header documents the frame of a panel: the origin is the midpoint of the top edge, +X runs to the viewer's left, the front normal is -Z, and panel content space runs backwards along both panel axes. | The pose of a panel is passed to the header unchanged, and the hit test of the Qt library uses this frame. |
+| 0.9.0-dev.3008+65dc9aeb | A stream panel ignores `content_scale`: its video is drawn at the full panel width and scrolled vertically when it is taller than the panel. | This stack sends 1.0 by default, so its panels are not affected. |
+| 0.9.0-dev.3008+65dc9aeb | The position of a gesture on a stream panel refers to the video as its sender draws it, at the resolution of the sender, and for a video that the renderer has scrolled it is the pixel under the finger. | The adapter normalises the position against the content size that its caller names. |
 
-The SHA256 of the file `include\qar_streaming.h` tells the three headers apart:
-
-| SDK drop | SHA256 of the header |
-|---|---|
-| 2026-09-21 (minimum drop) | D26892604A186E5CC0AEC149614410F7DD648570FE28510A9D49C65220034C50 |
-| after the minimum drop | BF0C8C2DE23584B02E7CC1E96B66282908792477FB48C7990CF7AE4E1E78D0FE |
-| 2026-09-28 (verified drop) | 5223B56251F3085B376A8BDE5ECEFCF661D6E8F8B800F6AA46414ADC1F4DB6EA |
+The SHA256 of the file `include\qar_streaming.h` of the verified version is 55E6E3F48D940CA29331F0528FE475C1B7230FB19A59C31D5525C6E90B097F6C.
 
 ## QarOS behaviour this repo relies on
 
 This repository relies on the QarOS behaviour for GUI panels that the sections below state. Three statements are specific to this library and tell what its code depends on:
 
-- **The panel gesture API needs the drop of 2026-09-21 or later.** The input of a panel comes from one subscription with `qar_gui_panels_subscribe_all_gesture_events`, which the adapter of qar_ogre_adapter makes for every panel, and that function is one of the four items that set the minimum drop. A drop before it does not declare that function, and this stack does not support such a drop.
+- **The panel gesture API is part of the header that this stack was verified against.** The input of a panel comes from one subscription with `qar_gui_panels_subscribe_all_gesture_events`, which the adapter of qar_ogre_adapter makes for every panel, and the vendored header declares that function. A QAROS whose header lacks it is not verified.
 - **Destroying the sender of a closed panel is the default, and the current runtime supports it.** QuaternAR states that the current runtime survives the destruction of a stream while other streams run, so closing a window closes its AR panel and destroys its video sender. The header does not document this, and the statement is that of the vendor; the code relies on it in the default mode of `panel_close_mode.hpp`. The mode `notice` is the fallback for a runtime on which it is not safe: it keeps the stream and its sender until the session ends. The mode `park` is for a runtime on which even closing a QarOS panel while the session runs is not safe: nothing is closed until the session ends. [Closing panels](ARCHITECTURE.md#closing-panels) describes the three modes.
 - **The C API does not tell a panel-only program where the operator is.** The pose of the viewer, its head and its eyes, comes from the frame information of a render sender, in the app content space of the volume that the sender is bound to, and the hands from the same sender; a program that streams only panels has no render sender, and the library has no input for one. A dialog panel is therefore placed beside its owner and not in front of the operator.
 
@@ -156,7 +149,7 @@ A contact that lies outside the letterboxed content rectangle cannot start a lif
 
 ### Teardown and destroy order
 
-The header documents no order of teardown. It gives these facts about the calls: `qar_library_destroy` frees the process-wide state of the library, and no other call may be used after it until the next `qar_library_init`; `qar_session_destroy` leaves and destroys a session; a subscription whose cancel token is NULL stays alive until the session is destroyed; `qar_gui_panels_close_panel` closes and removes a panel; and `qar_video_sender_handle_destroy` destroys a logical video sender and returns nothing.
+The header documents no order of teardown. It gives these facts about the calls: `qar_library_destroy` frees the process-wide state of the library, and no other call may be used after it until the next `qar_library_init`; `qar_session_handle_destroy` releases a session handle; a subscription whose cancel token is NULL stays alive until the session is destroyed; `qar_gui_panels_close_panel` closes and removes a panel; and `qar_video_sender_handle_destroy` destroys a logical video sender and returns nothing.
 
 This stack closes a GUI panel in three steps, in this order. First it cancels the input subscriptions of the panel, the gesture subscription and the panel-update subscription; the call does not return until no callback for the panel is running, so no callback can name a panel that is being destroyed, and the close that the stack itself makes is not mistaken for a close by the operator in AR. Second it calls `qar_gui_panels_close_panel`, unless the operator already closed the panel in AR, and it reports a failure of the call. Third it destroys the video sender with `qar_video_sender_handle_destroy`, whatever the second step did, because closing the sender first would leave a live panel that refers to a retired stream.
 
@@ -168,7 +161,7 @@ QuaternAR states that the current runtime survives the destruction of a stream w
 
 The variable `QAR_PANEL_CLOSE_MODE` set to `notice` is the escape hatch for a runtime on which destroying a sender while other streams run is not safe: the stream and its sender are kept, and the AR panel shows a notice until the session ends. Set to `park`, it selects the mode for a runtime on which closing a QarOS panel while the session runs may crash the desktop Visualizer: nothing is closed until the session ends, and the AR panel is hidden with `qar_gui_panels_set_state` and kept, with its sender.
 
-At shutdown, each render stream first destroys a frame handle that was fetched and not used, and then the stream. The factory destroys the session, then the invite handle, then the runtime, and then, when the library is loaded, calls `qar_library_destroy`. The OpenGL contexts that this stack created for the senders are deleted only after the library is destroyed, so that no context is deleted while a thread of QarOS may still have it current, and the library is unloaded last.
+At shutdown, each render stream first destroys a frame handle that was fetched and not used, and then the stream. The factory then detaches, and its destructor deletes the OpenGL contexts that this stack created for the senders, after every sender is gone, so that no context is deleted while a thread of QarOS may still have it current. The session owner then releases the session, destroys the runtime, calls `qar_library_destroy` and unloads the library last.
 
 ### Known SDK limitations
 
@@ -178,7 +171,7 @@ These limits of the SDK are either observations of the authors of qar_qt_streami
 - **A cancelled gesture subscription may leave its runtime subscription.** Cancelling the token stops the delivery of events to the callback, but the header does not promise that a callback that is already running has returned when the cancel call returns, so this stack gives up the callback slot under a lock and never frees the slot. The authors of qar_qt_streaming also observed that the runtime-side subscription of a panel persisted until the session was destroyed, so a session that opens many panels keeps a pair of subscriptions for each of them.
 - **A widget resize needs a new sender.** The receiver of a stream panel takes its resolution from the layout of the video sender, and the SDK does not document whether a change of that layout with `qar_video_sender_change_layout` reaches a receiver that is already attached. This stack therefore creates a new sender when the size of a widget changes.
 - **What the runtime intersects a gesture with is not documented by the SDK.** The header names the action point as the intersection that the gesture acts on, and it does not say which geometry is intersected.
-- **The viewport of URL panels is fixed.** The page of a URL panel sees a viewport of 500 by 500 CSS pixels at a device pixel ratio of 2.0, whatever the size of the panel, and the SDK does not document a way to configure it.
+- **The viewport of a URL panel is not the program's to set.** With an earlier QAROS runtime the page of a URL panel saw a viewport of 500 by 500 CSS pixels at a device pixel ratio of 2.0, whatever the size of the panel; with the installed QAROS it follows the size of the panel, so a size computed from the viewport that the page reports would feed back into itself. The SDK does not document a way to configure the viewport.
 - **No call asks where the operator is.** The header declares the pose of the viewer, its head and its eyes, only with a render sender: `qar_render_frame_info_get_view_pose` on the frame information of a frame returns it in the app content space of the volume that the sender is bound to, and `qar_render_sender_last_hands` returns the hands of the same sender. A program that streams only panels has no render sender, so it cannot know where the operator stands or looks, and the code of this stack places its panels at fixed positions.
 - **A panel that is created again after it was closed can crash the Visualizer.** With a Visualizer attached, the Visualizer crashed in each of the 25 cases, observed by the authors of this stack, in which the plugin qar_rviz_plugin created its hidden Displays panel, a GUI panel, again after it had been closed. The crash came within a second of the creation, every running Visualizer crashed with it, and QarOS started a Visualizer again after several seconds. It happened with the display name unchanged, with a numbered display name, with a shifted position and with a pause of 8 seconds before the start. In one longer session the Visualizer crashed five more times, each within a second of the close or the creation of a panel: twice at the close of the panel of a dialog, once at the close and the creation again of a video panel, and twice at the opening of the page of an AR tool in a URL panel. It did not crash at the other closes and creations of panels in that session. Every crash report names the same access violation at the same place inside `WebCore.dll`, the browser engine library of QarOS. The crash reports are files of the QarOS log folder that are named after the program `qar-stereokit-gui.exe`, which the authors call the Visualizer GUI process. The SDK `bin` folder holds this program next to `qar-streaming-viz.exe`, which this documentation names as the Visualizer elsewhere; how the two programs relate is not documented here. The SDK documents no rule for display names, and the defect is the Visualizer's. The plugin gives every QarOS panel that it starts for a window of RViz or for a video a display name that no earlier panel of its process used: the name that was asked for at the first start, and `<name> (2)`, `<name> (3)` and so on at the later ones. This does not prevent the crash. It does not number the panel that the Qt library of this stack, qar_qt_streaming, creates for a dialog of a streamed window, the panel that this library creates again when the size of a streamed window changes, or the URL panels of the AR tools.
 - **Further limits are named where they apply.** The OpenGL frame has no field for synchronisation, the SDK exposes no field for the role of a peer, and the encoding of the depth values is not documented.

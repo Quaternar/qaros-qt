@@ -7,8 +7,8 @@ One program of this repository, built together with the library: `qar_qt_panel_e
 | Command | What it does | Needs | Opens a window |
 |---|---|---|---|
 | `qar_qt_panel_example --help` | prints the options and exits | the Qt folder on `PATH` | no |
-| `qar_qt_panel_example --connect-only` | opens a QarOS session, prints that it is ready and exits | the QarOS SDK | no |
-| `qar_qt_panel_example` | invites a QarOS Visualizer, shows the counter window, streams it and the hidden panel, and stops after `--seconds` seconds, 60 by default | the QarOS SDK, a local desktop session | the counter window; the Visualizer opens its own |
+| `qar_qt_panel_example --connect-only` | joins the QAROS Hub, prints the runtime, the mode, its peer and the targets, and exits | the installed QAROS | no |
+| `qar_qt_panel_example` | joins the Hub, shows the counter window, streams it and the hidden panel, and stops after `--seconds` seconds, 60 by default | the installed QAROS, a local desktop session | the counter window; the Visualizer opens its own |
 
 The sections follow that order. The last section lists what to check when you put the library into your own Qt application.
 
@@ -20,7 +20,7 @@ Finish [Installation](INSTALL.md), up to and including the build of this reposit
 Set-Location "$env:QAR_ROOT\src\qar_qt_streaming"
 ```
 
-The example uses the Qt modules Core, Gui and Widgets, and Windows finds the DLLs of a program through the folders on `PATH`, so the Qt `bin` folder has to be on `PATH`. A program that shows a window also needs the platform plugin of Qt, `qwindows.dll`, in a folder named `platforms`; the variable `QT_QPA_PLATFORM_PLUGIN_PATH` names that folder. The example creates its application object, and so loads the plugin, only after `--help` and `--connect-only` have returned, so those two need no plugin. The QarOS DLL is not found through `PATH`: the example loads it from the folder that you pass in `--sdk-bin`.
+The example uses the Qt modules Core, Gui and Widgets, and Windows finds the DLLs of a program through the folders on `PATH`, so the Qt `bin` folder has to be on `PATH`. A program that shows a window also needs the platform plugin of Qt, `qwindows.dll`, in a folder named `platforms`; the variable `QT_QPA_PLATFORM_PLUGIN_PATH` names that folder. The example creates its application object, and so loads the plugin, only after `--help` and `--connect-only` have returned, so those two need no plugin. The QarOS DLL is not found through `PATH`: the example loads it from the installed QAROS.
 
 ```powershell
 $env:PATH = "$env:QAR_QT_ROOT\bin;$env:PATH"
@@ -39,66 +39,73 @@ $env:PATH = "$env:QAR_QT_ROOT\bin;$env:PATH"
 & .\build\vs2019-x64\examples\qt_panel_example\RelWithDebInfo\qar_qt_panel_example.exe --help
 ```
 ```text
-Usage: qar_qt_panel_example --sdk-bin DIR [--connect-only] [--seconds N]
-  --sdk-bin DIR   bin folder of the QarOS SDK (required)
-  --connect-only  open a QarOS session and exit; no window, no peer
-  --seconds N     otherwise: invite a Visualizer (it opens a window), show two panels, stop after N s (default 60)
+Usage: qar_qt_panel_example [--local | --hub HOST:PORT [--code CODE] | --forget]
+                            [--connect-only] [--seconds N]
+  --local         join the QAROS Hub of this PC (the default). QAROS asks once to allow
+                  this program, and again after each rebuild of it: click Allow in the
+                  QAROS window
+  --hub H:P       join the Hub of another PC at host H and onboarding port P (the port is
+                  shown with the pairing code in the Visualizer of that PC)
+  --code CODE     the pairing code that Hub shows; it works once and lives about 10 seconds.
+                  Only the first join needs it: the pairing is stored for the next start
+  --forget        erase the stored pairing with another PC's Hub and exit
+  --connect-only  join QAROS, print the runtime, the mode, this program's peer and the
+                  targets, and exit; no window, no panel
+  --seconds N     otherwise: show two panels, stop after N s (default 60)
 ```
+
+`--local`, the default, joins the Hub of this PC; `--hub HOST:PORT` with `--code CODE` pairs with the Hub of another PC, and `--forget` erases a stored pairing.
 
 ## Check the connection to QarOS without a window
 
-The option `--sdk-bin` is required: it names the `bin` folder of the QarOS SDK, the folder from which QarOS starts its own launcher and Visualizer. With `--connect-only` the example creates no application object and no window; it opens a QarOS session through the session factory of the component `render` of `qar_ogre_adapter`, checks that the session is ready, and exits. The code of that check is the first step of the example.
+The example needs no path to QAROS. With `--local`, the default, it joins the QAROS Hub of this PC as a source app: QAROS asks once to allow the program, so click Allow in the QAROS window, and it asks again after each rebuild of the program. With `--hub HOST:PORT --code CODE` it pairs with the Hub of another PC, and the pairing is stored for the next start. With `--connect-only` the example creates no application object and no window; it joins the Hub through a session owner of the component `session` of `qar_ogre_adapter`, prints what it found, and exits. The code of that check is the first step of the example.
 
 ```cpp
-qqa::QarCApiSenderFactory::Config config;
-config.runtime_binaries_folder_path = sdk_bin;  // QarOS starts its launcher and Visualizer from here
-config.log_severity = QAR_LOG_SEVERITY_WARN;
-config.enable_console_logging = false;
-auto session = std::make_shared<qqa::QarCApiSenderFactory>(config);  // blocks until the session is up
-if (!session->ready()) { std::printf("example: QarOS connect failed: %s\n", session->last_error().c_str()); return 1; }
-std::printf("example: connected to QarOS: ready=1\n");
+qqa::SessionOwnerConfig owner_config;
+owner_config.program_tag = kProgramTag;
+owner_config.display_name = std::string("Qt panel example on ") + host;
+owner_config.mode = (!hub_text.empty() || forget) ? qqa::HubMode::kRemote : qqa::HubMode::kLocal;
+owner_config.remote = hub;
+owner_config.log_severity = QAR_LOG_SEVERITY_WARN;
+owner_config.enable_console_logging = false;
+auto owner = std::make_shared<qqa::QarSessionOwner>(owner_config);  // starts its own thread
 ```
 
-The constructor of the factory runs the whole bootstrap and blocks until it is done, which is why the example calls it before any window is shown: a window that is already on the screen would stop repainting for as long as the call takes. The example sets the log severity of the QarOS library to `warn` and turns off the copy of the library log to the console; the file log stays on.
+Constructing the owner starts a thread of its own and does not wait for the Hub, so a window can be on the screen while the program joins; the example polls the owner until the session runs. The example sets the log severity of the QarOS library to `warn` and turns off the copy of the library log to the console; the file log stays on.
 
-Run it. The first line sets `PATH` as above, so that the program starts.
+Run it. The first line sets `PATH` as above, so that the program starts. The command starts the Hub of the installed QAROS when it is not running, so it is not run for this document and no output is shown.
 
 ```powershell
 $env:PATH = "$env:QAR_QT_ROOT\bin;$env:PATH"
-& .\build\vs2019-x64\examples\qt_panel_example\RelWithDebInfo\qar_qt_panel_example.exe --sdk-bin "$env:QAR_SDK_ROOT\bin" --connect-only
-```
-```text
-[qar-adapter] library logging: severity=warn console=off folder=C:\Users\<user>\AppData\Local\Temp\quaternar
-[qar-adapter] zenoh logging: off (QAR_ZENOH_LOG not set)
-example: connected to QarOS: ready=1
+& .\build\vs2019-x64\examples\qt_panel_example\RelWithDebInfo\qar_qt_panel_example.exe --local --connect-only
 ```
 
-The session factory loads `qar-streaming-c.dll` from the folder, initialises the library, creates a session and joins it; `ready` means that this bootstrap succeeded. The factory prints lines that start with `[qar-adapter]` about its own state, and QarOS writes its library log into the folder `quaternar` below your `TEMP` folder. When the program ends, the factory destroys the session, the runtime and the library again.
+The session owner loads `qar-streaming-c.dll`, initialises the library, creates the runtime and joins the Hub; the session is ready when the owner reports the state `kRunning`. The owner prints lines that start with `[qar-adapter]` and with `QAROS:` about its own state, and QarOS writes its library log into the folder `quaternar` below your `TEMP` folder. When the program ends, the owner destroys the session, the runtime and the library again.
 
-On success the example prints one line and exits with 0. The line has this form:
+On success the example prints a line that has this form, then the runtime, the mode, its peer and the targets, and exits with 0.
 
 ```text
 example: connected to QarOS: ready=1
 ```
 
-On a failure it prints a line that has this form, with the reason that the factory reports, and exits with 1. The reason for a folder that does not hold `qar-streaming-c.dll` starts with `qar_library_load failed for` and names the file that was tried.
+When the session does not run, it prints a line that has this form, with the state of the owner as a number, and exits with 1. A Hub that does not know the program makes it ask for `--hub HOST:PORT --code CODE`.
 
 ```text
-example: QarOS connect failed: %s
+example: QAROS connect failed
 ```
 
 ## Stream one widget into AR
 
-Without `--connect-only` the example creates the application object, connects as above with no window on the screen, and invites a QarOS Visualizer into the session; QarOS starts the Visualizer itself, from the SDK folder that you passed, and the Visualizer opens its own window. Then it builds the manager of the library and the two widgets, shows the counter window on the desktop, shows the second widget to Qt only, and ticks the manager from a timer until the time given by `--seconds` is up. The steps follow, each a region of the source of the example, which is compiled with the repository.
+Without `--connect-only` the example creates the application object, joins the Hub as above with no window on the screen, and builds the manager of the library and the two widgets, shows the counter window on the desktop, shows the second widget to Qt only, and ticks the manager from a timer until the time given by `--seconds` is up. The steps follow, each a region of the source of the example, which is compiled with the repository. A fresh Visualizer has no receiver: add one in the Visualizer with its "Add receiver" button, and the Hub lists a target for it.
 
-**1. The panel factory.** A GUI panel needs a QarOS session and a video sender that the same session owns, so the panel factory borrows the session of the session factory instead of opening a second one. The input source subscribes each new panel to the gestures that QarOS reports on it and cancels the subscription when the panel closes.
+**1. The panel factory.** A GUI panel needs a QarOS session and a video sender that the same session owns, so the panel factory borrows the session of the session owner instead of opening a second one. The input source subscribes each new panel to the gestures that QarOS reports on it and cancels the subscription when the panel closes.
 
 ```cpp
-auto input = std::make_shared<qqa::QarCApiPanelInputSource>(session->session());
-auto panel_factory = std::make_shared<qqa::QarCApiPanelSenderFactory>(session.get(), input);
+auto input = std::make_shared<qqa::QarCApiPanelInputSource>(owner->session());
+auto panel_factory = std::make_shared<qqa::QarCApiPanelSenderFactory>(owner.get(), input);
 ```
 
-**2. The manager.** `QtPanelStreamManager` is the coordinator: it owns one stream for each widget. Its configuration needs one thing, the panel factory, which is the only seam to QarOS; the constructor throws `std::invalid_argument` without it. The input source is optional: when it is set, the manager drains it for pointer samples. The diagnostics sink is optional as well; without one the manager keeps its counters and writes no lines, so the example sets a sink that prints each line. The close mode comes from the environment variable `QAR_PANEL_CLOSE_MODE`, parsed by a pure function that takes the raw text: an unset or empty value gives the default, `destroy`.
+**2. The manager.** `QtPanelStreamManager` is the coordinator: it owns one stream for each widget. Its configuration needs one thing, the panel factory, which is the only seam to QarOS; the constructor throws `std::invalid_argument` without it. The input source is optional: when it is set, the manager drains it for pointer samples. The diagnostics sink is optional as well; without one the manager keeps its counters and writes no lines, so the example sets a sink that prints each line. The close mode comes from the environment variable `QAR_PANEL_CLOSE_MODE`, parsed by a pure function that takes the raw text: the example uses `park` when the variable is unset or empty, so that nothing is closed while it runs. The name scope makes the common names of the panels, so that a panel that was hidden when the last session ended is found and shown again by the next start, and the resize mode comes from `QAR_PANEL_RESIZE`: by default a size change swaps the video sender of the same panel.
 
 ```cpp
 PrintSink sink;
@@ -107,7 +114,14 @@ streaming.panel_sender_factory = panel_factory;
 streaming.input_source = input;
 streaming.pump_input_in_tick = false;  // the timer below posts the input pump instead
 streaming.diagnostics = &sink;
-streaming.close_mode = qqs::parse_panel_close_mode(qgetenv(qqs::kPanelCloseModeEnv).constData()).mode;
+// Panels are hidden, never closed, when the program ends: the next start finds them by name.
+const auto close_choice =
+  qqs::parse_panel_close_mode(qgetenv(qqs::kPanelCloseModeEnv).constData());
+streaming.close_mode =
+  close_choice.explicitly_chosen ? close_choice.mode : qqs::PanelCloseMode::Park;
+streaming.name_scope = qar_ar_core::make_name_scope(kProgramTag, "", host);
+streaming.resize_mode =
+  qqs::parse_panel_resize_mode(qgetenv(qqs::kPanelResizeModeEnv).constData()).mode;
 auto manager = std::make_unique<qqs::QtPanelStreamManager>(streaming);
 ```
 
@@ -168,12 +182,18 @@ QObject::connect(&timer, &QTimer::timeout, [&] {
   // A posted event, never this handler: a modal dialog would stall the timer that runs the tick.
   QMetaObject::invokeMethod(app.get(), [&] { manager->pump_input(); }, Qt::QueuedConnection);
   manager->tick();
+  std::vector<qqa::SessionEvent> events;  // the owner's news: a lost Hub, a target that went
+  owner->poll(events);
+  print_events(events);
   if (!window.isVisible() && manager->has_panel("counter") && !manager->is_tombstoned("counter")) {
-    manager->close_panel("counter", "closed on the desktop");  // a closed window closes its AR panel
+    manager->close_panel("counter", "closed on the desktop");  // hides its AR panel
   }
 });
 timer.start(16);
-QTimer::singleShot(seconds * 1000, app.get(), &QCoreApplication::quit);
+QTimer deadline;
+deadline.setSingleShot(true);
+QObject::connect(&deadline, &QTimer::timeout, app.get(), &QCoreApplication::quit);
+deadline.start(seconds * 1000);
 app->exec();
 ```
 
@@ -182,13 +202,13 @@ Start the example and keep it running for the next three sections; they read its
 ```powershell
 $env:PATH = "$env:QAR_QT_ROOT\bin;$env:PATH"
 $env:QT_QPA_PLATFORM_PLUGIN_PATH = "$env:QAR_QT_ROOT\plugins\platforms"
-& .\build\vs2019-x64\examples\qt_panel_example\RelWithDebInfo\qar_qt_panel_example.exe --sdk-bin "$env:QAR_SDK_ROOT\bin" --seconds 120 2>&1 | Tee-Object -FilePath (Join-Path $env:TEMP 'qar_qt_panel_example.log')
+& .\build\vs2019-x64\examples\qt_panel_example\RelWithDebInfo\qar_qt_panel_example.exe --local --seconds 120 2>&1 | Tee-Object -FilePath (Join-Path $env:TEMP 'qar_qt_panel_example.log')
 ```
 
-The two panels are created on the first ticks. For each of them the adapter prints a line when the QarOS panel exists, with the time of day, the key of the panel, the identifiers that QarOS gave the panel and its stream, and the size of the buffer. The line has this form:
+The two panels are created on the first ticks. For each of them the adapter prints a line when the QarOS panel exists, with the time of day, the key of the panel, the word `created` or, for a panel that an earlier session left behind and that was found again by its common name, `reattached`, the identifiers that QarOS gave the panel and its stream, and the size of the buffer. The line has this form:
 
 ```text
-[qar-panel-adapter] %s panel '%s' created: id=%s stream=%s buffer=%ux%u px
+[qar-panel-adapter] %s panel '%s' %s: id=%s stream=%s buffer=%ux%u px
 ```
 
 A second line says that the runtime has accepted the subscription for AR input, with the size of the content that the positions of the gestures are normalised against. It has this form:
@@ -199,7 +219,7 @@ A second line says that the runtime has accepted the subscription for AR input, 
 
 The manager adds a line with the geometry of the panel whenever it has built a sender, that is at the creation of the panel and after a resize that the library adopted. The line begins with the key of the panel and goes on with the logical size of the widget, the pixel ratio of the display and the size of the buffer in pixels and of the panel in metres; the content scale that it reports is always 1.0, because QarOS reads it as a zoom and not as a resolution.
 
-The example stops by itself when the time is up. It then closes the panels that are still open, which the last section describes, and prints a last line that says that the example is done.
+The example stops by itself when the time is up. It then ends the session: in the mode `park`, which the example uses, the manager hides the panels that are still open and detaches their video senders instead of closing them, which the last section describes, and the example prints a last line that says that the example is done.
 
 ## Use AR input on the panel
 
@@ -266,15 +286,15 @@ To let a user choose the size of such a panel, pass the text that they typed to 
 
 ## Closing a panel
 
-A panel is closed through `close_panel(key, reason)`, the one door that every close initiated on the Qt side goes through. In the default mode, `destroy`, it cancels the pointers that are pressed on the panel, closes the AR panel, destroys its video sender and drops the stream; adding the same key again later is an ordinary new add. The call is safe from inside the click handler of the panel itself: a close that is asked for while a pointer action is still being delivered into the widget runs when that action has returned. The manager prints one summary line for each close, with the key, the reason, what each step did and how many frames the panel served.
+A panel is closed through `close_panel(key, reason)`, the one door that every close initiated on the Qt side goes through. In the mode `destroy`, which is the default of the library, it cancels the pointers that are pressed on the panel, closes the AR panel, destroys its video sender and drops the stream; adding the same key again later is an ordinary new add. The call is safe from inside the click handler of the panel itself: a close that is asked for while a pointer action is still being delivered into the widget runs when that action has returned. The manager prints one summary line for each close, with the key, the reason, what each step did and how many frames the panel served.
 
 The adapter closes a panel in three steps, in this order: it cancels the input subscriptions, closes the QarOS panel unless the operator closed it in AR, and destroys the video sender. QuaternAR states that the current runtime survives the destruction of a stream while other streams run, which is why the default destroys the sender.
 
-The example closes the counter panel when the counter window is no longer visible. A window that has been closed on the desktop is only hidden, and a hidden widget is not painted, so the panel would go on streaming a blank rectangle. The example does not quit when its last window closes, so that you can watch the panel close while the hidden panel goes on streaming.
+The example asks the manager to close the counter panel when the counter window is hidden; with its `park` mode the AR panel is hidden and kept instead of closed. A window that has been closed on the desktop is only hidden, and a hidden widget is not painted, so the panel would go on streaming a blank rectangle. The example does not quit when its last window closes, so that you can watch the panel close while the hidden panel goes on streaming.
 
 ```cpp
 if (!window.isVisible() && manager->has_panel("counter") && !manager->is_tombstoned("counter")) {
-  manager->close_panel("counter", "closed on the desktop");  // a closed window closes its AR panel
+  manager->close_panel("counter", "closed on the desktop");  // hides its AR panel
 }
 ```
 
@@ -302,7 +322,7 @@ The line that completes the close has this form at its start, and says whether t
 retired: id=%s stream=%s took=%lldms -- GUI panel %s,
 ```
 
-The line of the manager starts with `closed`, names the panel and the number of frames that it served, and ends with the teardown of the three steps and the remark that the stream entry is gone. When the time is up, the example closes the hidden panel on its way out; the manager reports that with a line that starts with `removed panel stream`.
+The line of the manager starts with `closed`, names the panel and the number of frames that it served, and ends with the teardown of the three steps and the remark that the stream entry is gone. When the time is up, the manager ends the session for the panels that are still open: in the mode `park` or `notice` it hides them and detaches their video senders, in the mode `destroy` it closes them, and it reports that with lines that start with `ended the session for` or `closed`.
 
 ```powershell
 Select-String -Path (Join-Path $env:TEMP 'qar_qt_panel_example.log') -Pattern "'counter' (closing|step|retired)|closed 'counter'|removed panel stream" | ForEach-Object { $_.Line }
@@ -316,7 +336,7 @@ The environment variable `QAR_PANEL_CLOSE_MODE` chooses what a close does. The v
 $env:PATH = "$env:QAR_QT_ROOT\bin;$env:PATH"
 $env:QT_QPA_PLATFORM_PLUGIN_PATH = "$env:QAR_QT_ROOT\plugins\platforms"
 $env:QAR_PANEL_CLOSE_MODE = 'notice'
-& .\build\vs2019-x64\examples\qt_panel_example\RelWithDebInfo\qar_qt_panel_example.exe --sdk-bin "$env:QAR_SDK_ROOT\bin" --seconds 90 2>&1 | Select-String -Pattern "'counter'|stays up" | ForEach-Object { $_.Line }
+& .\build\vs2019-x64\examples\qt_panel_example\RelWithDebInfo\qar_qt_panel_example.exe --local --seconds 90 2>&1 | Select-String -Pattern "'counter'|stays up" | ForEach-Object { $_.Line }
 ```
 
 The line that the manager prints in this mode says that the stream stays up and shows the panel-closed notice, and that the video sender is deliberately not destroyed.
@@ -326,14 +346,14 @@ The line that the manager prints in this mode says that the stream stays up and 
 The example is a short program, and the library asks the same of your application. Check these points in order.
 
 - **Create the application object first and keep the manager on the GUI thread.** Every method of `QtPanelStreamManager` has to be called on the Qt GUI thread, which is also the only thread that may paint a widget or receive input for it; the injector refuses a delivery from any other thread.
-- **Connect before you show a window, or on a worker thread.** The constructor of the session factory blocks while QarOS starts. `add_panel` itself makes no call into QarOS, but the first tick that finds the widget laid out creates its video sender and its panel, and a close destroys them, all as synchronous calls on the GUI thread, which handles no event while one of them runs.
+- **Make the session owner first and poll it on every tick.** The owner joins the Hub on a thread of its own, so constructing it and calling `connect()` do not wait for QAROS. `add_panel` itself makes no call into QarOS, and the video sender and the panel are made and destroyed by tasks on the thread that owns the session, so no QarOS call that can wait for the Hub runs on the GUI thread.
 - **Show a widget before you stream it.** `QWidget::render()` paints only the children that are visible, so a widget that was never shown gives its background and nothing else; the diagnostics of the stream report it as not visible.
 - **Tick from a timer, and never pump AR input inside the handler of that timer.** A delivered click can open a modal dialog, which spins a nested event loop inside `QDialog::exec()`; Qt does not re-enter a timer whose handler is still on the stack, so a tick that pumped input would stop for as long as the dialog is open. Set `pump_input_in_tick` to false and call `pump_input()` from a posted event, as the example does.
 - **Give every panel its own key.** `add_panel` refuses a key that is in use.
 - **Close a panel when its window goes away, and keep the widget alive until then.** The manager holds a borrowed pointer to each widget. Call `close_panel` before you delete a widget; it is safe from the click handler of the panel itself.
 - **Dialogs and popups need no code.** The lists of combo boxes and menus are painted into the picture of their panel. A dialog that a streamed panel opens becomes a panel of its own, placed beside its owner, and it closes with the dialog; while an application-modal dialog is open, the pointers that land on its owner panel reach nothing, as Qt blocks the window behind a modal dialog.
 - **Include the library headers before the Qt headers.** `panel_pointer_state.hpp` declares a method named `emit`, which the `emit` macro of Qt would break; compile with `QT_NO_KEYWORDS` to lift the rule.
-- **Shut down in order.** Destroy the manager first, while the widgets exist: it closes every panel that is still open and destroys its video sender. The factories and the session follow, because the session owns the senders.
+- **Shut down in order.** Destroy the manager first, while the widgets exist: it hides every panel that is still open and detaches its video sender. The factories and the session owner follow, because the session owns the senders.
 
 The includes, the link line and the shutdown of the example are regions of its source.
 
@@ -346,31 +366,38 @@ The includes, the link line and the shutdown of the example are regions of its s
 #include <QComboBox>
 #include <QLabel>
 #include <QPushButton>
+#include <QSysInfo>
 #include <QTimer>
 #include <QVBoxLayout>
 
+#include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
 #include <string>
+#include <thread>
+#include <vector>
 
+#include "qar_ar_core/common_name.hpp"
 #include "qar_ar_core/qar_streaming_c.hpp"
 #include "qar_qar_adapter/qar_capi_panel_sender_adapter.hpp"
-#include "qar_qar_adapter/qar_capi_render_sender_adapter.hpp"
+#include "qar_qar_adapter/qar_session_owner.hpp"
 ```
 
 ```cmake
 target_link_libraries(qar_qt_panel_example PRIVATE
   qar_qt_streaming::qar_qt_streaming
-  qar_ogre_adapter::render
+  qar_ogre_adapter::session
   qar_ogre_adapter::panels
   Qt5::Widgets
 )
 ```
 
 ```cpp
-manager.reset();  // closes the panels that are still open and destroys their video senders; the factories
-                  // and the session follow when main ends, in the reverse order of their declarations
+manager.reset();  // hides the panels that are still open and lets go of their video senders;
+                  // the factories and the session owner follow when main ends, in the reverse
+                  // order of their declarations
 ```
 
 A consumer of the installed package links the same targets; [API](API.md#linking-the-package) shows the `find_package` command.
