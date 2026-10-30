@@ -959,7 +959,8 @@ TEST(PanelPark, APanelClosedInArIsParkedWithoutAHideCallAndShowIsTriedOnRevival)
     EXPECT_TRUE(d.ar_hidden);
     EXPECT_EQ(d.visibility_failures, 1u);
 
-    // The session end closes it without a second close_panel.
+    // With a sender that cannot detach (the test sender's default), the session end closes
+    // it without a second close_panel.
     h.manager->clear();
     EXPECT_EQ(adapter->close_steps(), kSkippedClose);
   }
@@ -1263,7 +1264,8 @@ TEST(PanelParkResize, TheOldPanelIsHiddenAndKeptAndANewOneIsMadeWithoutAClose)
   EXPECT_EQ(h.diagnostics.count("changed size"), 2u);
   EXPECT_EQ(h.diagnostics.count("is hidden now"), 0u);
 
-  // The session ends: every panel is closed, the kept ones too, each exactly once.
+  // With a sender that cannot detach (the test sender's default), the session end closes
+  // every panel, the kept ones too, each exactly once.
   h.manager->clear();
   for (const auto & adapter : h.factory->created()) {
     EXPECT_EQ(adapter->close_calls(), 1u);
@@ -1465,6 +1467,7 @@ TEST(PanelParkResize, WhenTheLimitOfKeptPanelsIsReachedTheRebuildClosesAsBeforeA
   EXPECT_EQ(h.diagnostics.count("changed size"), 3u) << "one Info line and two Warnings";
   EXPECT_EQ(count_severity(h.diagnostics, DiagnosticSeverity::Warning), 2u);
 
+  // With a sender that cannot detach (the test sender's default), every panel is closed.
   h.manager->clear();
   for (const auto & adapter : h.factory->created()) {
     EXPECT_EQ(adapter->close_calls(), 1u) << "every panel is closed exactly once in all";
@@ -1687,7 +1690,8 @@ TEST(PanelParkResize, ARefusedHideIsAskedForThreeMoreTimesAtMostAndTheEndIsAWarn
   EXPECT_EQ(h.diagnostics.count("is hidden now"), 0u);
   EXPECT_EQ(count_severity(h.diagnostics, DiagnosticSeverity::Warning), 2u);
 
-  // Closed once, at the end of the session, as every kept panel is.
+  // With a sender that cannot detach (the test sender's default), closed once at the end of
+  // the session, as every kept panel is.
   h.manager->clear();
   EXPECT_EQ(old_panel->close_calls(), 1u);
   EXPECT_EQ(old_panel->close_steps(), kFullClose);

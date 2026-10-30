@@ -259,8 +259,8 @@ PanelPointerStateMachine::click_count_for(
   Pointer & p, const ResolvedPointerSample & s, const std::string & key, double x, double y)
 {
   if (s.tap_count == 0) {
-    // No native count: infer from the timestamps, as every source did before
-    // the 2026-09-21 SDK and as the app-volume path still does.
+    // No native count: infer from the timestamps, as the app-volume path does
+    // and as any source without a native count must.
     return detect_double_click(p, key, x, y, s.timestamp_s);
   }
   ++diagnostics_.native_tap_counts;

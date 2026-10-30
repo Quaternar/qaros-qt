@@ -6,7 +6,9 @@
 
 #include "qar_qt_streaming/clock.hpp"
 #include "qar_qt_streaming/panel_close_mode.hpp"
+#include "qar_qt_streaming/panel_resize_mode.hpp"
 #include "qar_qt_streaming/panel_hit_test.hpp"
+#include "qar_ar_core/common_name.hpp"
 #include "qar_ar_core/panel_input_source.hpp"
 #include "qar_qt_streaming/panel_pointer_state.hpp"
 #include "qar_ar_core/panel_types.hpp"
@@ -188,6 +190,18 @@ struct QtPanelStreamingConfig
   /// can change the mode while the manager runs (@ref QtPanelStreamManager::set_close_mode).
   PanelCloseMode close_mode = PanelCloseMode::Destroy;
 
+  /// @brief The part of every panel's QarOS common name that tells programs, instances and PCs
+  /// apart (qar_ar_core::make_panel_common_name). QarOS finds a panel again in the next session by
+  /// that name, so a panel that was hidden when the last session ended is found and shown again.
+  /// A scope with empty members is valid: the names are then built from the key and the
+  /// placeholder of an empty label alone.
+  qar_ar_core::NameScope name_scope{};
+
+  /// @brief What a size change of a window does to its QarOS panel (see @ref PanelResizeMode):
+  /// by default the panel stays and its video sender is swapped. The host reads
+  /// `QAR_PANEL_RESIZE` with @ref parse_panel_resize_mode.
+  PanelResizeMode resize_mode = PanelResizeMode::Swap;
+
   /// @brief How many tombstoned or parked panels this manager may hold at once. Only
   /// meaningful in @ref PanelCloseMode::Notice and @ref PanelCloseMode::Park: in the
   /// default Destroy mode nothing is ever tombstoned or parked, so nothing accumulates.
@@ -327,7 +341,7 @@ struct QtPanelStreamingConfig
 /// | Source widget destroyed, dock closed, dialog dismissed, @ref close_panel / @ref remove_panel, dialog sweep retiring a stale dialog | @ref tombstone_panel — the stream keeps running and shows the closed-source notice (panel_tombstone.hpp), naming the window | **kept** |
 /// | Operator closes the panel in AR (`qar_gui_panels_subscribe_updates` reports state closed) | @ref note_ar_panel_closed — capture stops, nothing more is submitted | **kept** |
 /// | Re-adding a tombstoned key | the slot is revived onto the new widget | **re-used** |
-/// | Session shutdown (@ref clear, destructor) | every panel is closed exactly once | **destroyed** |
+/// | Session shutdown (@ref clear, destructor) | every panel is hidden where QarOS can and left in place for the next session; a sender that cannot detach closes its panel | **destroyed** |
 ///
 /// The accumulation Notice trades for is bounded by slot reuse plus
 /// @ref QtPanelStreamingConfig::max_tombstoned_panels, and is visible through
@@ -338,9 +352,10 @@ struct QtPanelStreamingConfig
 /// second time.
 ///
 /// **Park (`QAR_PANEL_CLOSE_MODE=park`).** For a runtime on which CLOSING a panel mid-session
-/// is not safe, nothing is closed until the session ends. Every Qt-side close - the dialog
-/// sweep, the host's sweep for a destroyed widget, @ref close_panel, @ref remove_panel -
-/// PARKS the stream instead, and neither the QarOS panel nor the video sender is touched:
+/// is not safe, nothing is closed, while the session runs or when it ends. Every Qt-side
+/// close - the dialog sweep, the host's sweep for a destroyed widget, @ref close_panel,
+/// @ref remove_panel - PARKS the stream instead, and neither the QarOS panel nor the video
+/// sender is touched:
 ///
 /// | Event | What happens | QarOS panel and sender |
 /// |---|---|---|
@@ -348,7 +363,7 @@ struct QtPanelStreamingConfig
 /// | The same key is added again (@ref add_panel), or a parked panel whose window still exists is shown (@ref set_panel_ar_visible) | the stream is revived onto the window, and the next tick applies the pose given and shows the panel again (a Warning if QarOS refuses the show); a dialog key is free for reuse, so opening the dialog again revives its stream | **re-used** |
 /// | QarOS refuses the hide | the stream falls back to the closed-window notice, as in Notice mode, and a Warning names the key and the reason; it is never closed | **kept** |
 /// | The operator closed the panel in AR before the Qt close | parked without any hide call; a revival tries to show the panel again | **kept** |
-/// | Session shutdown (@ref clear, destructor) | every panel is closed exactly once, parked ones included | **destroyed** |
+/// | Session shutdown (@ref clear, destructor) | every panel, parked ones included, is hidden where QarOS can and left in place for the next session; a sender that cannot detach closes its panel | **destroyed** |
 ///
 /// Parked and notice panels count together against
 /// @ref QtPanelStreamingConfig::max_tombstoned_panels; reviving one is always allowed. A stream
@@ -365,14 +380,15 @@ struct QtPanelStreamingConfig
 /// close, and at the limit the old panel is closed as in the other modes and a Warning says
 /// that. When QarOS refuses the hide, the old panel stays visible and kept, a Warning says so,
 /// and the hide is asked for again on later ticks, three more times at most, a second apart; a
-/// late success is logged. The kept panels are closed once each, with their stream, at
-/// @ref clear or when the stream is closed in Destroy mode.
+/// late success is logged. At @ref clear the kept panels are hidden and left in place with
+/// the stream's own panel (a sender that cannot detach closes them); a stream closed in
+/// Destroy mode closes them with it.
 ///
 /// The residual risk of a kept panel that stayed visible: the input source keeps one
 /// subscription for each key, so the subscription that reports a close in AR goes with the
 /// panel when the new one is made. The operator closing a visible kept panel in AR is therefore
-/// not seen, and the end of the session closes it a second time. A kept panel that was hidden
-/// cannot be closed in AR.
+/// not seen, and the end of the session asks QarOS to hide it although the operator closed
+/// it. A kept panel that was hidden cannot be closed in AR.
 class QtPanelStreamManager
 {
 public:
@@ -623,8 +639,13 @@ public:
   /// parked, hidden in AR, closed in AR or showing its notice.
   bool request_scroll_census(const std::string & key, const std::string & reason);
 
-  /// @brief **SESSION SHUTDOWN.** Close every panel still held — destroying every
-  /// remaining video sender, exactly once — and forget them.
+  /// @brief **SESSION SHUTDOWN.** End every panel still held, exactly once, and forget them.
+  ///
+  /// In Destroy mode every panel is closed and every remaining video sender destroyed. In Notice
+  /// and Park mode a panel whose sender supports IQarPanelSenderAdapter::detach is NOT closed: it
+  /// is hidden in AR (`set_state(HIDDEN)`, unless it is hidden or closed already) and detached,
+  /// its video sender and subscriptions released, so the next session finds it under its common
+  /// name and shows it again. A sender that cannot detach is closed.
   ///
   /// A panel already closed through @ref close_panel (Destroy mode) has left the
   /// manager and is not touched again, so nothing is closed or destroyed twice. A
@@ -878,6 +899,12 @@ private:
 
   /// Say, in one Info line, that @p count kept QarOS panels of @p key were closed with it.
   void report_replaced_closed(const std::string & key, std::size_t count);
+
+  /// Say what the end of the session did with the QarOS panels of @p key: how many were left
+  /// hidden in place, and a Warning for a hide that QarOS refused. @p replaced_kept is the number
+  /// of kept panels the stream held; when nothing was left in place they were closed.
+  void report_session_end(
+    const std::string & key, std::size_t replaced_kept, const SessionEndReport & ended);
 
   /// Would creating a NEW stream exceed the tombstone cap? Emits the warning
   /// and counts the refusal when it would.

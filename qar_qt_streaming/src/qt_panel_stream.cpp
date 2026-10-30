@@ -308,6 +308,12 @@ QtPanelStream::apply_visibility_request()
     return;
   }
 
+  // Accepted: a sender that queues the call may still refuse it, and then the result undoes this.
+  StateAsk ask;
+  ask.changes_flag = true;
+  ask.previous_hidden = diagnostics_.ar_hidden;
+  ask.revival = revival_pending_;
+  note_state_ask(ask);
   ++diagnostics_.visibility_changes;
   diagnostics_.last_visibility_error.clear();
   diagnostics_.ar_hidden = !visible;
@@ -401,6 +407,11 @@ QtPanelStream::revive_parked(QWidget * widget)
 bool
 QtPanelStream::take_revival_refusal()
 {
+  if (late_revival_refusal_) {
+    late_revival_refusal_ = false;  // the sender accepted the show and refused it afterwards
+    revival_pending_ = false;
+    return true;
+  }
   if (!revival_pending_ || visibility_requested_) {
     return false;  // no revival waiting for its verdict, or the show is still to be carried out
   }
@@ -654,6 +665,110 @@ QtPanelStream::apply_pending_pose()
   pose_pending_ = false;
   if (!adapter_->set_placement(placement_)) {
     record_error(adapter_->last_error());
+  }
+}
+
+void
+QtPanelStream::note_state_ask(const StateAsk & ask)
+{
+  constexpr std::size_t kMaxOpenAsks = 32;
+  if (state_asks_.size() >= kMaxOpenAsks) {
+    state_asks_.pop_front();
+  }
+  state_asks_.push_back(ask);
+}
+
+void
+QtPanelStream::drain_adapter_results(double now_seconds)
+{
+  std::vector<qar_ar_core::PanelOpResult> results;
+  if (adapter_) {
+    adapter_->drain_results(results);
+  }
+  for (const qar_ar_core::PanelOpResult & result : results) {
+    if (!adapter_) {
+      break;  // the sender was dropped by an earlier result; the rest was about it
+    }
+    switch (result.op) {
+      case qar_ar_core::PanelOpResult::Op::Create:
+        if (result.ok) {
+          diagnostics_.stream_id = adapter_->stream_id_text();
+        } else {
+          // What a null sender from the factory does: the error is kept, the stream is inactive,
+          // and the next tick after a pause makes a sender again.
+          record_error(result.error.empty() ? std::string("panel sender creation failed")
+                                            : result.error);
+          diagnostics_.active = false;
+          adapter_.reset();
+          state_asks_.clear();
+          has_create_retry_ = true;
+          create_retry_at_seconds_ = now_seconds + kCreateRetrySeconds;
+        }
+        break;
+      case qar_ar_core::PanelOpResult::Op::Placement:
+        if (!result.ok) {
+          record_error(result.error.empty() ? std::string("set_placement was refused")
+                                            : result.error);
+        }
+        break;
+      case qar_ar_core::PanelOpResult::Op::State: {
+          StateAsk ask;
+          if (!state_asks_.empty()) {
+            ask = state_asks_.front();
+            state_asks_.pop_front();
+          }
+          if (result.ok) {
+            break;
+          }
+          record_visibility_failure(
+            result.error.empty() ? std::string("set_state was refused") : result.error);
+          if (ask.changes_flag) {
+            diagnostics_.ar_hidden = ask.previous_hidden;
+            if (diagnostics_.visibility_changes > 0) {
+              --diagnostics_.visibility_changes;
+            }
+          }
+          if (ask.revival) {
+            late_revival_refusal_ = true;
+          }
+          break;
+        }
+      default:
+        break;  // navigation and visibility lists belong to browser panels
+    }
+  }
+
+  // The panels that size rebuilds kept: a hide that was accepted and then refused is asked for
+  // again like one that was refused at once.
+  for (KeptPanel & kept : replaced_adapters_) {
+    results.clear();
+    kept.adapter->drain_results(results);
+    for (const qar_ar_core::PanelOpResult & result : results) {
+      if (result.op != qar_ar_core::PanelOpResult::Op::State || result.ok ||
+        result.state != QAR_GUI_PANEL_STATE_HIDDEN)
+      {
+        continue;
+      }
+      kept.hidden = false;
+      kept.retries_left =
+        kept.attempts <= kKeptHideRetries ? kKeptHideRetries + 1 - kept.attempts : 0;
+      kept.next_retry_seconds = now_seconds + kKeptHideRetrySeconds;
+      const std::string which =
+        "'" + key_ + "' the old QarOS panel" +
+        (kept.adapter->stream_id_text().empty() ? std::string() :
+        " (stream " + kept.adapter->stream_id_text() + ")") +
+        " that a size change replaced";
+      if (kept.retries_left == 0) {
+        say_warning(
+          which + " is still visible after " + std::to_string(kept.attempts) +
+          " attempts to hide it; it stays visible and is kept until the session ends");
+      } else {
+        say_note(
+          which + " could not be hidden (" +
+          (result.error.empty() ? std::string("no reason given") : result.error) +
+          "); it is asked again");
+      }
+    }
   }
 }
 
@@ -961,6 +1076,108 @@ QtPanelStream::set_replaced_panel_policy(std::function<bool()> may_keep)
   replaced_panel_policy_ = std::move(may_keep);
 }
 
+void
+QtPanelStream::set_swap_policy(std::function<bool()> swap_allowed)
+{
+  swap_policy_ = std::move(swap_allowed);
+}
+
+std::string
+QtPanelStream::common_name_for(std::uint32_t buffer_width, std::uint32_t buffer_height) const
+{
+  std::string name = qar_ar_core::make_panel_common_name(key_, options_.name_scope);
+  if (options_.resize_mode == PanelResizeMode::NewPanel) {
+    const std::string size =
+      "@" + std::to_string(buffer_width) + "x" + std::to_string(buffer_height);
+    if (name.size() + size.size() > qar_ar_core::kCommonNameMax) {
+      name.resize(qar_ar_core::kCommonNameMax - size.size());
+    }
+    name += size;
+  }
+  return name;
+}
+
+bool
+QtPanelStream::revive_kept_panel(const qar_ar_core::PanelDesc & desc)
+{
+  const auto kept = std::find_if(
+    replaced_adapters_.begin(), replaced_adapters_.end(), [&desc](const KeptPanel & panel) {
+      return !panel.common_name.empty() && panel.common_name == desc.common_name &&
+             panel.buffer_width == desc.buffer_width && panel.buffer_height == desc.buffer_height;
+    });
+  if (kept == replaced_adapters_.end()) {
+    return false;
+  }
+  adapter_ = std::move(kept->adapter);
+  const bool was_hidden = kept->hidden;
+  replaced_adapters_.erase(kept);
+  state_asks_.clear();  // the asks of this sender while it was kept are not ours to undo
+  // The kept panel took the pose it had when it was replaced; the panel is shown where the
+  // stream is now. A hide that the stream itself asked for stays in force.
+  if (!adapter_->set_placement(placement_)) {
+    record_error(adapter_->last_error());
+  }
+  if (was_hidden && !diagnostics_.ar_hidden) {
+    if (!adapter_->supports_state() || !adapter_->set_state(QAR_GUI_PANEL_STATE_VISIBLE)) {
+      record_visibility_failure(
+        adapter_->last_error().empty() ? std::string("the kept panel could not be shown again") :
+        adapter_->last_error());
+    } else {
+      note_state_ask(StateAsk{});
+    }
+  }
+  return true;
+}
+
+SessionEndReport
+QtPanelStream::end_session()
+{
+  SessionEndReport report;
+  if (injector_) {
+    injector_->reset();
+    sync_input_diagnostics();
+  }
+  // A hide that was accepted and then refused must be known before the panels are hidden or
+  // left: a flag set when the call was accepted would otherwise leave the panel visible.
+  drain_adapter_results(last_tick_seconds_);
+  // One panel: hidden where QarOS can and where it is not hidden or closed already, then
+  // detached; a sender that cannot detach is closed.
+  const auto end_panel = [&report](
+    const std::shared_ptr<qar_ar_core::IQarPanelSenderAdapter> & adapter, bool hidden,
+    bool closed_in_ar) {
+      ++report.panels;
+      if (!adapter->supports_detach()) {
+        adapter->close(closed_in_ar);
+        ++report.closed;
+        return;
+      }
+      if (!hidden && !closed_in_ar) {
+        const bool done = adapter->supports_state() &&
+          adapter->set_state(QAR_GUI_PANEL_STATE_HIDDEN);
+        if (!done) {
+          ++report.hide_failures;
+          if (report.hide_error.empty()) {
+            report.hide_error = adapter->last_error().empty() ?
+              std::string("the panel could not be hidden") : adapter->last_error();
+          }
+        }
+      }
+      adapter->detach();
+      ++report.left_in_place;
+    };
+  if (adapter_) {
+    end_panel(adapter_, diagnostics_.ar_hidden, diagnostics_.ar_panel_closed);
+    adapter_.reset();
+  }
+  for (const KeptPanel & kept : replaced_adapters_) {
+    end_panel(kept.adapter, kept.hidden, false);
+  }
+  replaced_adapters_.clear();
+  clear_pending_resize();
+  diagnostics_.active = false;
+  return report;
+}
+
 bool
 QtPanelStream::take_size_rebuild(SizeRebuildReport & report)
 {
@@ -976,7 +1193,16 @@ void
 QtPanelStream::retire_adapter_for_rebuild(double now_seconds)
 {
   SizeRebuildReport report;
-  if (replaced_panel_policy_ && replaced_panel_policy_()) {
+  if (options_.resize_mode == PanelResizeMode::Swap && adapter_->supports_detach() &&
+    (!swap_policy_ || swap_policy_()))
+  {
+    // The QarOS panel stays and keeps its common name. Detaching comes FIRST: it releases the old
+    // sender and the click/hover subscription of this key, so the sender made next finds the panel
+    // with nothing else attached to it, and the old sender is not kept next to the new one (both
+    // would point at one QarOS panel).
+    adapter_->detach();
+    report.fate = ReplacedPanelFate::Swapped;
+  } else if (replaced_panel_policy_ && replaced_panel_policy_()) {
     // Hidden and kept, never closed: a close of a QarOS panel while the session runs is what the
     // policy exists to avoid. The hide is asked for here, on the tick that makes the new panel,
     // like every other QarOS call. A refusal changes nothing about keeping it: the old panel
@@ -994,6 +1220,7 @@ QtPanelStream::retire_adapter_for_rebuild(double now_seconds)
         adapter_->last_error();
     }
     kept.hidden = refusal.empty();
+    kept.attempts = 1;
     if (refused_by_qaros) {
       kept.retries_left = kKeptHideRetries;
       kept.next_retry_seconds = now_seconds + kKeptHideRetrySeconds;
@@ -1001,8 +1228,12 @@ QtPanelStream::retire_adapter_for_rebuild(double now_seconds)
     report.fate =
       refusal.empty() ? ReplacedPanelFate::HiddenKept : ReplacedPanelFate::VisibleKept;
     report.hide_error = std::move(refusal);
+    kept.common_name = adapter_common_name_;
+    kept.buffer_width = adapter_buffer_width_;
+    kept.buffer_height = adapter_buffer_height_;
     kept.adapter = std::move(adapter_);
     replaced_adapters_.push_back(std::move(kept));
+    state_asks_.clear();
   } else {
     // Fully CLOSED before the replacement is asked for, never overlapped: close() retires the
     // click/hover subscription first (so no callback can arrive naming a panel that is going
@@ -1024,7 +1255,7 @@ QtPanelStream::retry_kept_hides(double now_seconds)
     --kept.retries_left;
     kept.next_retry_seconds = now_seconds + kKeptHideRetrySeconds;
     // 2 for the first retry: the attempt that made the rebuild was the first.
-    const std::uint32_t attempt = kKeptHideRetries - kept.retries_left + 1;
+    const std::uint32_t attempt = ++kept.attempts;
     const std::string which =
       "'" + key_ + "' the old QarOS panel" +
       (kept.adapter->stream_id_text().empty() ? std::string() :
@@ -1064,6 +1295,10 @@ QtPanelStream::ensure_adapter(double now_seconds)
     record_error("no panel sender factory");
     return false;
   }
+  if (!adapter_ && has_create_retry_ && now_seconds < create_retry_at_seconds_) {
+    return false;  // the last creation failed; asked again once the time has come
+  }
+  has_create_retry_ = false;
 
   qar_ar_core::PanelDesc desc;
   desc.key = key_;
@@ -1073,14 +1308,20 @@ QtPanelStream::ensure_adapter(double now_seconds)
   desc.content_width = geometry_.content_width;
   desc.content_height = geometry_.content_height;
   desc.placement = placement_;
+  desc.common_name = common_name_for(geometry_.buffer_width, geometry_.buffer_height);
 
-  adapter_ = factory_->create_panel_sender(desc);
+  // A kept panel with this name is this panel: it is shown again, not made a second time.
+  if (!revive_kept_panel(desc)) {
+    adapter_ = factory_->create_panel_sender(desc);
+  }
   if (!adapter_) {
     record_error(factory_->last_error().empty() ? "panel sender creation failed"
                                                 : factory_->last_error());
     diagnostics_.active = false;
     return false;
   }
+  adapter_common_name_ = desc.common_name;
+  state_asks_.clear();
   adapter_buffer_width_ = geometry_.buffer_width;
   adapter_buffer_height_ = geometry_.buffer_height;
   pose_pending_ = false;  // the sender was built with the current placement
@@ -1116,6 +1357,9 @@ QtPanelStream::ensure_adapter(double now_seconds)
 bool
 QtPanelStream::tick(double now_seconds)
 {
+  // What the senders only queued has an outcome by now, perhaps: it comes before anything acts.
+  drain_adapter_results(now_seconds);
+
   // The kept panels whose hide QarOS refused are asked again when their time has come, before
   // anything can skip this tick: they belong to the stream, not to the panel it shows now.
   retry_kept_hides(now_seconds);
@@ -1241,6 +1485,14 @@ QtPanelStream::tick(double now_seconds)
     ++diagnostics_.frames_skipped_hidden;
     return false;
   }
+  // The sender and its QarOS panel are still being made on the session's thread. Nothing is
+  // captured or sent yet, and the wait is not a silence of the receiver: the clock of the
+  // unserved panel does not run. The pacing is released so that the first capture follows at once.
+  if (adapter_->pending()) {
+    trace.sink = nullptr;
+    has_ticked_ = false;
+    return false;
+  }
 
   // From here a sender exists, so the "we owe QarOS a frame and have not paid"
   // clock is running. It is started here and not at the first not-ready, so it
@@ -1294,6 +1546,14 @@ QtPanelStream::tick(double now_seconds)
     return false;
   }
   if (!ready) {
+    const qar_ar_core::PanelNotReadyCause cause = adapter_->not_ready_cause();
+    if (cause == qar_ar_core::PanelNotReadyCause::Creating) {
+      // Not yet, and not a fault: counted nowhere, and the clock of the unserved panel stays off.
+      trace.sink = nullptr;
+      has_unserved_since_ = false;
+      diagnostics_.unserved_seconds = 0.0;
+      return false;
+    }
     ++diagnostics_.frames_skipped_not_ready;
     // A streak, not just a total: "nothing has been attached to this panel's
     // stream since it was built" and "the receiver blinked once an hour ago"
@@ -1301,7 +1561,9 @@ QtPanelStream::tick(double now_seconds)
     ++diagnostics_.not_ready_streak;
     // ... and by the cause the sender gives: nothing reserved, nothing attached, or a receiver
     // that lost the stream and is reconnecting.
-    switch (adapter_->not_ready_cause()) {
+    switch (cause) {
+      case qar_ar_core::PanelNotReadyCause::Creating:
+        break;  // returned above
       case qar_ar_core::PanelNotReadyCause::NoDestination:
         ++diagnostics_.not_ready_streak_no_destination;
         break;
@@ -1310,6 +1572,13 @@ QtPanelStream::tick(double now_seconds)
         break;
       case qar_ar_core::PanelNotReadyCause::Reconnecting:
         ++diagnostics_.not_ready_streak_reconnecting;
+        break;
+      case qar_ar_core::PanelNotReadyCause::Paused:
+        // The receiver paused the stream on purpose (its display is not visible): not a fault, so
+        // the wait for a first frame does not run. The tick stays in the streak totals above, which
+        // the burst after a long streak reads; the split of the three faulty causes is unchanged.
+        has_unserved_since_ = false;
+        diagnostics_.unserved_seconds = 0.0;
         break;
     }
     if (trace.sink != nullptr) {

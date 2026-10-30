@@ -9,8 +9,8 @@
 // The local frame here IS QarOS panel space, because PanelPlacement::pose is
 // handed verbatim to QarGuiPanelInit::pose: origin at the TOP-EDGE midpoint,
 // +X to the VIEWER'S LEFT, -Z the front normal. A centred, +X-is-right frame
-// would mirror every hit and put it half a panel height too low. The SDK
-// documents QarOS panel space from the 2026-09-21 drop on.
+// would mirror every hit and put it half a panel height too low. The installed
+// header documents QarOS panel space.
 
 #include <gtest/gtest.h>
 
@@ -127,7 +127,7 @@ TEST(PanelHitTest, RoundTripsThroughPanelUvToRoomPoint)
 
 TEST(PanelHitTest, TheFrontOfThePanelIsAtNegativeLocalZ)
 {
-  // -Z is the front-face normal (2026-09-21 SDK header), so a viewer
+  // -Z is the front-face normal (installed header), so a viewer
   // standing in front of the panel reads a NEGATIVE signed distance. Nothing in
   // the pickers branches on it (they compare magnitudes) -- this pins the
   // convention so that stays deliberate.

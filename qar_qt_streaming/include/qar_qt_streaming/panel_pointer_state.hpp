@@ -19,7 +19,7 @@
 ///   * **Hover** — Enter / Move / Leave as a free pointer crosses panels.
 ///   * **Press / Drag / Release / Click** — a click that reports STARTED /
 ///     UPDATED / ENDED phases, or an INSTANT one that collapses all three.
-///     Since the 2026-09-21 SDK the per-panel path produces BOTH: a
+///     The per-panel path produces BOTH: a
 ///     `QAR_GUI_PANEL_GESTURE_KIND_DRAG` lifecycle is the phased form and a
 ///     `..._TAP` is the instant one, so a QSlider handle can be dragged in AR
 ///     through the same transitions.

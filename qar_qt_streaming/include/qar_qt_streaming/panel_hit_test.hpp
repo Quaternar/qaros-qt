@@ -39,7 +39,7 @@
 /// content y = 0 at panel-space 0. Hence `u = 0.5 - x/w` and `v = -y/h`, not
 /// a centred, unmirrored pair, which would mirror every spatial hit
 /// horizontally and put it half a panel height too low. The SDK documents this
-/// frame (top-centre origin, front normal -Z) from the 2026-09-21 drop on.
+/// frame (top-centre origin, front normal -Z).
 ///
 /// @ref PanelHit::distance_m stays SIGNED along local +Z rather than being
 /// folded into a front/back test. With -Z the front normal, a viewer in front

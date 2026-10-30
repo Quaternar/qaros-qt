@@ -28,7 +28,7 @@ The library calls no QarOS function. A program that streams to QarOS also needs 
 ```cmake
 target_link_libraries(qar_qt_panel_example PRIVATE
   qar_qt_streaming::qar_qt_streaming
-  qar_ogre_adapter::render
+  qar_ogre_adapter::session
   qar_ogre_adapter::panels
   Qt5::Widgets
 )
@@ -491,7 +491,7 @@ manager->clear_panel_region_sources("dock");           // stop painting video ov
 
 | Call | Thread | Blocking | Failure is reported as |
 |---|---|---|---|
-| every method of `QtPanelStreamManager` and `QtPanelStream` | the Qt GUI thread | `tick()` captures every panel that passes its gate, and the tick that creates a panel and `close_panel` call the C API synchronously; `add_panel` never calls it | a `qar_ar_core::Result`, a `bool`, or a line to the diagnostics sink |
+| every method of `QtPanelStreamManager` and `QtPanelStream` | the Qt GUI thread | `tick()` captures every panel that passes its gate, and the tick that creates a panel and `close_panel` queue their QarOS calls for the thread that owns the session; `add_panel` never calls it | a `qar_ar_core::Result`, a `bool`, or a line to the diagnostics sink |
 | `QtPanelInputInjector::deliver`, `reset` | the Qt GUI thread; another thread is refused | none | `false`, with the reason in `stats()` |
 | `QtWidgetCapture::capture` | the Qt GUI thread | a full repaint of the widget | `false`, with the reason in `last_error()` |
 | `show_offscreen`, `install_offscreen_popup_guard`, `remove_offscreen_popup_guard`, `VideoPanelWidget::sync_to_frame` | the Qt GUI thread | none | `false` |
@@ -511,6 +511,7 @@ Get-ChildItem -Recurse -File "$env:QAR_PREFIX" | Where-Object { $_.FullName -lik
 include\qar_qt_streaming\ar_readability.hpp
 include\qar_qt_streaming\capture_gate.hpp
 include\qar_qt_streaming\clock.hpp
+include\qar_qt_streaming\frame_luminance.hpp
 include\qar_qt_streaming\latest_video_frame.hpp
 include\qar_qt_streaming\offscreen_panel.hpp
 include\qar_qt_streaming\offscreen_popup_guard.hpp
@@ -518,11 +519,13 @@ include\qar_qt_streaming\panel_close_mode.hpp
 include\qar_qt_streaming\panel_geometry.hpp
 include\qar_qt_streaming\panel_hit_test.hpp
 include\qar_qt_streaming\panel_pointer_state.hpp
+include\qar_qt_streaming\panel_resize_mode.hpp
 include\qar_qt_streaming\panel_tombstone.hpp
 include\qar_qt_streaming\qt_panel_input_injector.hpp
 include\qar_qt_streaming\qt_panel_stream.hpp
 include\qar_qt_streaming\qt_panel_stream_manager.hpp
 include\qar_qt_streaming\qt_widget_capture.hpp
+include\qar_qt_streaming\scroll_census.hpp
 include\qar_qt_streaming\video_frame.hpp
 include\qar_qt_streaming\video_panel_widget.hpp
 lib\qar_qt_streaming.lib

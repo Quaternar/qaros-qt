@@ -119,8 +119,8 @@ click_at(PointerPhase phase, const QarVector3 & point, std::uint32_t pointer_id 
 /// Room-space point at a panel's visual CENTRE.
 ///
 /// `PanelPlacement::pose` is QarOS panel space, where the origin is the
-/// midpoint of the TOP EDGE and the surface hangs below it (as the SDK documents
-/// it from the 2026-09-21 drop on).
+/// midpoint of the TOP EDGE and the surface hangs below it (as the installed
+/// header documents it).
 /// The frame of the managers of these tests is the same above and below the video, so "the middle
 /// of the panel" is half the height of the panel BELOW the pose (half of the frame, the widget,
 /// half of the frame), and the height is only known after a tick has derived it from the widget.

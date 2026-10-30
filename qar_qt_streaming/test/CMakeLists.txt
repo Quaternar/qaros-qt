@@ -25,6 +25,8 @@ add_executable(qar_qt_streaming_tests
   panel_close_tests.cpp
   qt_panel_visibility_tests.cpp
   qt_panel_park_tests.cpp
+  panel_swap_tests.cpp
+  panel_async_tests.cpp
   offscreen_panel_tests.cpp
   offscreen_popup_guard_tests.cpp
   ar_readability_tests.cpp

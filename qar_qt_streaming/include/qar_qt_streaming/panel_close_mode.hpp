@@ -42,7 +42,9 @@ enum class PanelCloseMode
   /// panel is hidden (`qar_gui_panels_set_state`), capture stops and input is dropped, and
   /// the QarOS panel, the video sender and the subscriptions are kept, with no notice shown.
   /// Adding the same key again revives the parked stream onto its window and shows it, so
-  /// no second QarOS panel is created. Everything is closed once, at session end.
+  /// no second QarOS panel is created. At session end nothing is closed either: each QarOS
+  /// panel is hidden and left in place under its name, its video sender is released, and the
+  /// next session finds it; only a sender that cannot detach is closed.
   /// Selected with `QAR_PANEL_CLOSE_MODE=park` for a runtime on which closing a panel
   /// mid-session is not safe.
   Park
