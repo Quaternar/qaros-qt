@@ -63,7 +63,7 @@ format_seconds(double seconds)
 /// stream half is omitted rather than printed empty when the backend has no
 /// stream identity (the test double in a unit test, a sender that failed to bootstrap).
 std::string
-describe_stream(const qar_ar_core::PanelStreamDiagnostics & d)
+describe_stream(const seam::PanelStreamDiagnostics & d)
 {
   std::string out = "'" + d.key + "'";
   if (!d.stream_id.empty()) {
@@ -178,12 +178,12 @@ QtPanelStreamManager::~QtPanelStreamManager()
 
 void
 QtPanelStreamManager::emit_diagnostic(
-  qar_ar_core::DiagnosticSeverity severity,
+  seam::DiagnosticSeverity severity,
   const std::string & category,
   const std::string & message,
   const std::string & panel_key)
 {
-  if (severity == qar_ar_core::DiagnosticSeverity::Error) {
+  if (severity == seam::DiagnosticSeverity::Error) {
     last_error_ = message;
   }
   if (config_.diagnostics != nullptr) {
@@ -191,15 +191,15 @@ QtPanelStreamManager::emit_diagnostic(
   }
 }
 
-qar_ar_core::Result
+seam::Result
 QtPanelStreamManager::add_panel(
   const std::string & key, QWidget * widget, const PanelStreamOptions & options)
 {
   if (key.empty()) {
-    return qar_ar_core::Result::error(qar_ar_core::Status::InvalidArgument, "panel key must not be empty");
+    return seam::Result::error(seam::Status::InvalidArgument, "panel key must not be empty");
   }
   if (widget == nullptr) {
-    return qar_ar_core::Result::error(qar_ar_core::Status::InvalidArgument, "widget must not be null");
+    return seam::Result::error(seam::Status::InvalidArgument, "widget must not be null");
   }
   const auto existing = streams_.find(key);
   if (existing != streams_.end()) {
@@ -209,7 +209,7 @@ QtPanelStreamManager::add_panel(
       return revive_parked_panel(key, widget, &options.placement.pose);
     }
     if (!existing->second->tombstoned()) {
-      return qar_ar_core::Result::error(qar_ar_core::Status::AlreadyExists, "a panel is already streaming for key " + key);
+      return seam::Result::error(seam::Status::AlreadyExists, "a panel is already streaming for key " + key);
     }
     // A retired slot, re-adopted. This is the bound on tombstone growth: the
     // sender and the QarOS panel that are already standing behind this key are
@@ -218,8 +218,8 @@ QtPanelStreamManager::add_panel(
     // fixed at creation and therefore stays whatever it was; the pose is the
     // new caller's.
     if (!existing->second->revive(widget)) {
-      return qar_ar_core::Result::error(
-        qar_ar_core::Status::InvalidState, "could not revive the retired panel slot for key " + key);
+      return seam::Result::error(
+        seam::Status::InvalidState, "could not revive the retired panel slot for key " + key);
     }
     existing->second->set_pose(options.placement.pose);
     ++tombstones_revived_;
@@ -227,15 +227,15 @@ QtPanelStreamManager::add_panel(
     refused_dialogs_.clear();         // ...and the dialogs that were refused are tried again
     PanelOverlayAttribution::instance().register_panel(widget);
     emit_diagnostic(
-      qar_ar_core::DiagnosticSeverity::Info, "panel",
+      seam::DiagnosticSeverity::Info, "panel",
       "re-used the retired panel slot for this key, so no second video sender was "
       "created (the QarOS panel and its stream are the ones that were already there)",
       key);
-    return qar_ar_core::Result::success();
+    return seam::Result::success();
   }
 
   if (refuse_for_tombstone_cap(key)) {
-    return qar_ar_core::Result::error(qar_ar_core::Status::InvalidState, kTombstoneCapRefusal);
+    return seam::Result::error(seam::Status::InvalidState, kTombstoneCapRefusal);
   }
 
   // The frame of QarOS is the manager's to state, once, for every panel it makes; the panel of a
@@ -258,8 +258,8 @@ QtPanelStreamManager::add_panel(
   // An input-enabled panel's injector registers it too; the call is idempotent,
   // and doing it here covers a display-only panel, which has no injector.
   PanelOverlayAttribution::instance().register_panel(widget);
-  emit_diagnostic(qar_ar_core::DiagnosticSeverity::Info, "panel", "added panel stream", key);
-  return qar_ar_core::Result::success();
+  emit_diagnostic(seam::DiagnosticSeverity::Info, "panel", "added panel stream", key);
+  return seam::Result::success();
 }
 
 float
@@ -271,7 +271,7 @@ QtPanelStreamManager::ar_panel_height_m(
   return qar_qt_streaming::ar_panel_height_m(widget, stream_options);
 }
 
-qar_ar_core::Result
+seam::Result
 QtPanelStreamManager::remove_panel(const std::string & key)
 {
   // "This widget is finished". What that means is the close mode's to say:
@@ -279,18 +279,18 @@ QtPanelStreamManager::remove_panel(const std::string & key)
   return close_panel(key, std::string());
 }
 
-qar_ar_core::Result
+seam::Result
 QtPanelStreamManager::close_panel(
   const std::string & key, const std::string & reason, const std::string & notice_reason)
 {
   const auto it = streams_.find(key);
   if (it == streams_.end()) {
-    return qar_ar_core::Result::error(qar_ar_core::Status::NotFound, "no panel stream for key " + key);
+    return seam::Result::error(seam::Status::NotFound, "no panel stream for key " + key);
   }
   // Already on its way out — a handler run by the pointer release below asked
   // again, say. Closed once is closed.
   if (std::find(closing_keys_.begin(), closing_keys_.end(), key) != closing_keys_.end()) {
-    return qar_ar_core::Result::success();
+    return seam::Result::success();
   }
 
   if (it->second->delivering()) {
@@ -305,23 +305,23 @@ QtPanelStreamManager::close_panel(
     // view it has.
     for (const DeferredClose & pending : deferred_closes_) {
       if (pending.key == key) {
-        return qar_ar_core::Result::success();  // already queued
+        return seam::Result::success();  // already queued
       }
     }
     ++closes_deferred_;
     deferred_closes_.push_back(DeferredClose{key, reason, notice_reason});
     emit_diagnostic(
-      qar_ar_core::DiagnosticSeverity::Info, "panel",
+      seam::DiagnosticSeverity::Info, "panel",
       "closing " + describe_stream(it->second->diagnostics()) +
       " was asked for from inside a pointer action still being delivered into its own "
       "widget; the close runs as soon as that action has returned",
       key);
-    return qar_ar_core::Result::success();
+    return seam::Result::success();
   }
   return close_now(key, reason, notice_reason);
 }
 
-qar_ar_core::Result
+seam::Result
 QtPanelStreamManager::close_now(
   const std::string & key, const std::string & reason, const std::string & notice_reason)
 {
@@ -337,7 +337,7 @@ QtPanelStreamManager::close_now(
   return destroy_panel(key, reason);
 }
 
-qar_ar_core::Result
+seam::Result
 QtPanelStreamManager::destroy_panel(const std::string & requested_key, const std::string & reason)
 {
   // A copy, because the caller's reference may be to storage this very call
@@ -345,7 +345,7 @@ QtPanelStreamManager::destroy_panel(const std::string & requested_key, const std
   const std::string key = requested_key;
   auto it = streams_.find(key);
   if (it == streams_.end()) {
-    return qar_ar_core::Result::error(qar_ar_core::Status::NotFound, "no panel stream for key " + key);
+    return seam::Result::error(seam::Status::NotFound, "no panel stream for key " + key);
   }
 
   // Marked closing for the whole teardown: releasing a pressed pointer below
@@ -377,7 +377,7 @@ QtPanelStreamManager::destroy_panel(const std::string & requested_key, const std
   // Whatever those events ran may have changed the map; look again.
   it = streams_.find(key);
   if (it == streams_.end()) {
-    return qar_ar_core::Result::success();
+    return seam::Result::success();
   }
 
   // The source widget stops being a panel the moment it stops being streamed — a
@@ -385,14 +385,14 @@ QtPanelStreamManager::destroy_panel(const std::string & requested_key, const std
   // while widget() is still the real window.
   PanelOverlayAttribution::instance().unregister_panel(it->second->widget());
 
-  const qar_ar_core::PanelStreamDiagnostics before = it->second->diagnostics();
+  const seam::PanelStreamDiagnostics before = it->second->diagnostics();
 
   // THE sequence, in the adapter: input subscriptions, then the QarOS panel
   // (skipped if the operator closed it), then the video sender. The stream passes
   // it what the manager knows of the AR side. The panels that size changes replaced and kept
   // (Park mode) go with it.
   const std::size_t replaced_kept = it->second->replaced_panel_count();
-  const qar_ar_core::PanelCloseReport report = it->second->close();
+  const seam::PanelCloseReport report = it->second->close();
   report_replaced_closed(key, replaced_kept);
 
   // Anything the runtime reported between the drain above and the adapter
@@ -411,13 +411,13 @@ QtPanelStreamManager::destroy_panel(const std::string & requested_key, const std
     dialog_panels_.end());
 
   ++panels_closed_;
-  if (report.panel == qar_ar_core::PanelCloseOutcome::AlreadyClosedInAr) {
+  if (report.panel == seam::PanelCloseOutcome::AlreadyClosedInAr) {
     ++close_panel_skipped_;
-  } else if (report.panel == qar_ar_core::PanelCloseOutcome::Failed) {
+  } else if (report.panel == seam::PanelCloseOutcome::Failed) {
     ++close_panel_failures_;
   }
   report_closed(before, report, reason);
-  return qar_ar_core::Result::success();
+  return seam::Result::success();
 }
 
 void
@@ -444,7 +444,7 @@ QtPanelStreamManager::run_deferred_closes()
   }
 }
 
-qar_ar_core::Result
+seam::Result
 QtPanelStreamManager::park_panel(
   const std::string & requested_key, const std::string & reason, const std::string & notice_reason)
 {
@@ -452,11 +452,11 @@ QtPanelStreamManager::park_panel(
   const std::string key = requested_key;
   auto it = streams_.find(key);
   if (it == streams_.end()) {
-    return qar_ar_core::Result::error(
-      qar_ar_core::Status::NotFound, "no panel stream for key " + key);
+    return seam::Result::error(
+      seam::Status::NotFound, "no panel stream for key " + key);
   }
   if (it->second->parked() || it->second->tombstoned()) {
-    return qar_ar_core::Result::success();  // already out of use; the first reason stands
+    return seam::Result::success();  // already out of use; the first reason stands
   }
 
   // Marked closing for the whole park, for the reason destroy_panel gives: letting go of a
@@ -482,7 +482,7 @@ QtPanelStreamManager::park_panel(
   // Whatever those events ran may have changed the map; look again.
   it = streams_.find(key);
   if (it == streams_.end()) {
-    return qar_ar_core::Result::success();
+    return seam::Result::success();
   }
 
   // The window stops being a panel the moment it stops being streamed - a dialog parented into
@@ -499,18 +499,18 @@ QtPanelStreamManager::park_panel(
     // Nothing was ever created for this panel, so there is no QarOS panel or sender to keep, and
     // a parked slot would be occupied for a stream that never existed. The usual retirement line
     // still names it.
-    const qar_ar_core::PanelStreamDiagnostics retired = it->second->diagnostics();
+    const seam::PanelStreamDiagnostics retired = it->second->diagnostics();
     it->second->close();
     streams_.erase(it);
     report_retired(retired);
-    return qar_ar_core::Result::success();
+    return seam::Result::success();
   }
 
   it->second->park(notice_reason.empty() ? reason : notice_reason);
   ++parks_;
   const std::string why = reason.empty() ? std::string("none given") : reason;
   emit_diagnostic(
-    qar_ar_core::DiagnosticSeverity::Info, "panel",
+    seam::DiagnosticSeverity::Info, "panel",
     "parked '" + key + "' (reason: " + why + "): hidden in AR; its sender and QarOS panel are "
     "kept until the session ends",
     key);
@@ -519,22 +519,22 @@ QtPanelStreamManager::park_panel(
   if (config_.max_tombstoned_panels > 0 && retained_count() >= config_.max_tombstoned_panels) {
     warn_cap_reached(key);
   }
-  return qar_ar_core::Result::success();
+  return seam::Result::success();
 }
 
-qar_ar_core::Result
+seam::Result
 QtPanelStreamManager::revive_parked_panel(
-  const std::string & requested_key, QWidget * widget, const QarPose * pose)
+  const std::string & requested_key, QWidget * widget, const seam::Pose * pose)
 {
   const std::string key = requested_key;
   const auto it = streams_.find(key);
   if (it == streams_.end()) {
-    return qar_ar_core::Result::error(
-      qar_ar_core::Status::NotFound, "no panel stream for key " + key);
+    return seam::Result::error(
+      seam::Status::NotFound, "no panel stream for key " + key);
   }
   if (!it->second->revive_parked(widget)) {
-    return qar_ar_core::Result::error(
-      qar_ar_core::Status::InvalidState,
+    return seam::Result::error(
+      seam::Status::InvalidState,
       "the parked panel for key " + key + " has no window to show; add the window again");
   }
   if (pose != nullptr) {
@@ -549,9 +549,9 @@ QtPanelStreamManager::revive_parked_panel(
   // Asked, not done: the next tick carries the show out, and a Warning follows if QarOS
   // refuses it.
   emit_diagnostic(
-    qar_ar_core::DiagnosticSeverity::Info, "panel",
+    seam::DiagnosticSeverity::Info, "panel",
     "revived parked '" + key + "': QarOS is asked to show it again (no new QarOS panel)", key);
-  return qar_ar_core::Result::success();
+  return seam::Result::success();
 }
 
 void
@@ -565,7 +565,7 @@ QtPanelStreamManager::fall_back_to_notice(const std::string & requested_key)
   const std::string why = it->second->diagnostics().last_visibility_error;
   const std::string notice = it->second->park_notice_reason();
   emit_diagnostic(
-    qar_ar_core::DiagnosticSeverity::Warning, "panel",
+    seam::DiagnosticSeverity::Warning, "panel",
     "could not hide '" + key + "' in AR (" + (why.empty() ? std::string("no reason given") : why) +
     "), so it shows the closed-window notice instead of being parked; its sender and QarOS "
     "panel are kept until the session ends",
@@ -581,7 +581,7 @@ QtPanelStreamManager::fall_back_to_notice(const std::string & requested_key)
 
 void
 QtPanelStreamManager::report_closed(
-  const qar_ar_core::PanelStreamDiagnostics & before, const qar_ar_core::PanelCloseReport & report,
+  const seam::PanelStreamDiagnostics & before, const seam::PanelCloseReport & report,
   const std::string & reason)
 {
   // What each step did, in the order it ran — the thing a crash dump has to be
@@ -592,7 +592,7 @@ QtPanelStreamManager::report_closed(
     (report.input_unsubscribed ? "subscriptions cancelled" : "had no subscription") +
     ", close_panel " + to_string(report.panel) + ", video sender " +
     (report.sender_destroyed ? "destroyed" :
-    report.panel == qar_ar_core::PanelCloseOutcome::Queued ? "to be destroyed" : "none to destroy");
+    report.panel == seam::PanelCloseOutcome::Queued ? "to be destroyed" : "none to destroy");
   const std::string why = reason.empty() ? std::string("none given") : reason;
   const std::string tail =
     " Teardown: " + teardown + ". The stream entry is gone (no closed-window notice); "
@@ -604,25 +604,25 @@ QtPanelStreamManager::report_closed(
     // went looking for it, and the window closed without one frame ever landing.
     // Phrased the same way so one grep finds both.
     emit_diagnostic(
-      qar_ar_core::DiagnosticSeverity::Warning, "panel",
+      seam::DiagnosticSeverity::Warning, "panel",
       "closed " + describe_stream(before) + " having served it NO frames after " +
       format_seconds(before.unserved_seconds) + " (reason: " + why +
       "). QarOS was told this stream exists and never got a frame on it." + tail,
       before.key);
   } else {
     emit_diagnostic(
-      qar_ar_core::DiagnosticSeverity::Info, "panel",
+      seam::DiagnosticSeverity::Info, "panel",
       "closed " + describe_stream(before) + " after " +
       std::to_string(static_cast<unsigned long long>(before.frames_submitted)) +
       " frame(s) (reason: " + why + ")." + tail,
       before.key);
   }
-  if (report.panel == qar_ar_core::PanelCloseOutcome::Failed) {
+  if (report.panel == seam::PanelCloseOutcome::Failed) {
     // Reported, never hidden and never turned back into a notice: the caller wants
     // the panel gone, and a failure to remove it from QarOS is something to know
     // about, not something to paper over by keeping a stream alive.
     emit_diagnostic(
-      qar_ar_core::DiagnosticSeverity::Warning, "panel",
+      seam::DiagnosticSeverity::Warning, "panel",
       "the AR panel for " + describe_stream(before) + " could not be closed: " +
       report.panel_message + ". The video sender was destroyed and the stream entry "
       "dropped regardless, so nothing of it remains on this side, but QarOS may still "
@@ -631,15 +631,15 @@ QtPanelStreamManager::report_closed(
   }
 }
 
-qar_ar_core::Result
+seam::Result
 QtPanelStreamManager::tombstone_panel(const std::string & key, const std::string & reason)
 {
   const auto it = streams_.find(key);
   if (it == streams_.end()) {
-    return qar_ar_core::Result::error(qar_ar_core::Status::NotFound, "no panel stream for key " + key);
+    return seam::Result::error(seam::Status::NotFound, "no panel stream for key " + key);
   }
   if (it->second->tombstoned()) {
-    return qar_ar_core::Result::success();  // already a notice; the first reason stands
+    return seam::Result::success();  // already a notice; the first reason stands
   }
 
   // Cancel/leave through the state machine FIRST, while the stream can still
@@ -665,31 +665,31 @@ QtPanelStreamManager::tombstone_panel(const std::string & key, const std::string
     // and a notice would be a permanently occupied slot showing a message about
     // a stream that never existed. Erase it outright — the usual retirement
     // line still names it, so the sequence is still traceable.
-    const qar_ar_core::PanelStreamDiagnostics retired = it->second->diagnostics();
+    const seam::PanelStreamDiagnostics retired = it->second->diagnostics();
     it->second->close();
     streams_.erase(it);
     report_retired(retired);
-    return qar_ar_core::Result::success();
+    return seam::Result::success();
   }
 
   PanelTombstoneText text;
   // The window's name, which is what lets an operator with four rectangles in
   // the room tell which one died: the display name when the panel has one (a
   // dialog's title), otherwise the key.
-  const qar_ar_core::PanelStreamDiagnostics & before = it->second->diagnostics();
+  const seam::PanelStreamDiagnostics & before = it->second->diagnostics();
   text.panel_name = before.display_name.empty() ? key : before.display_name;
   text.reason = reason;
   it->second->tombstone(text);
   ++tombstones_created_;
 
-  const qar_ar_core::PanelStreamDiagnostics & after = it->second->diagnostics();
+  const seam::PanelStreamDiagnostics & after = it->second->diagnostics();
   if (after.frames_submitted == 0 && !after.stream_id.empty()) {
     // The same bad shape report_retired warns about, and it does not stop being
     // worth a Warning because the stream now lives on: we announced a stream to
     // QarOS, it went looking for it, and the window closed without one frame
     // ever landing on it. Phrased identically so one grep still finds both.
     emit_diagnostic(
-      qar_ar_core::DiagnosticSeverity::Warning, "panel",
+      seam::DiagnosticSeverity::Warning, "panel",
       "the source window for " + describe_stream(after) +
       " has closed having served it NO frames after " +
       format_seconds(after.unserved_seconds) +
@@ -700,7 +700,7 @@ QtPanelStreamManager::tombstone_panel(const std::string & key, const std::string
       key);
   } else {
     emit_diagnostic(
-      qar_ar_core::DiagnosticSeverity::Info, "panel",
+      seam::DiagnosticSeverity::Info, "panel",
       "the source window for " + describe_stream(after) + " has closed after " +
       std::to_string(static_cast<unsigned long long>(after.frames_submitted)) +
       " frame(s); the stream stays up and now shows the panel-closed notice. The "
@@ -711,7 +711,7 @@ QtPanelStreamManager::tombstone_panel(const std::string & key, const std::string
   }
   if (after.tombstone_clipped) {
     emit_diagnostic(
-      qar_ar_core::DiagnosticSeverity::Warning, "panel",
+      seam::DiagnosticSeverity::Warning, "panel",
       "the panel is too narrow to show its own name in the closed-source notice; "
       "the operator will see it cut off",
       key);
@@ -722,7 +722,7 @@ QtPanelStreamManager::tombstone_panel(const std::string & key, const std::string
   if (config_.max_tombstoned_panels > 0 && tombstones >= config_.max_tombstoned_panels) {
     refuse_for_tombstone_cap(key);
   }
-  return qar_ar_core::Result::success();
+  return seam::Result::success();
 }
 
 bool
@@ -748,21 +748,21 @@ QtPanelStreamManager::note_ar_panel_closed(const std::string & key)
   it->second->suspend_capture();
   if (config_.close_mode == PanelCloseMode::Notice) {
     emit_diagnostic(
-      qar_ar_core::DiagnosticSeverity::Info, "panel",
+      seam::DiagnosticSeverity::Info, "panel",
       "the operator closed this panel in AR; capture has stopped. The video sender "
       "stays alive until session shutdown, because close mode 'notice' is for a "
       "QarOS runtime that does not survive destroying a sender mid-session.",
       key);
   } else if (config_.close_mode == PanelCloseMode::Park) {
     emit_diagnostic(
-      qar_ar_core::DiagnosticSeverity::Info, "panel",
+      seam::DiagnosticSeverity::Info, "panel",
       "the operator closed this panel in AR; capture has stopped. Closing its Qt window "
       "parks it (the video sender stays alive until session shutdown), and "
       "qar_gui_panels_close_panel will not be called for it again.",
       key);
   } else {
     emit_diagnostic(
-      qar_ar_core::DiagnosticSeverity::Info, "panel",
+      seam::DiagnosticSeverity::Info, "panel",
       "the operator closed this panel in AR; capture has stopped. The video sender is "
       "destroyed when its Qt window closes (or at session shutdown), and "
       "qar_gui_panels_close_panel will not be called for it again.",
@@ -771,25 +771,25 @@ QtPanelStreamManager::note_ar_panel_closed(const std::string & key)
   return true;
 }
 
-qar_ar_core::Result
+seam::Result
 QtPanelStreamManager::set_panel_ar_visible(const std::string & key, bool visible)
 {
   auto it = streams_.find(key);
   if (it == streams_.end()) {
-    return qar_ar_core::Result::error(
-      qar_ar_core::Status::NotFound, "no panel stream for key " + key);
+    return seam::Result::error(
+      seam::Status::NotFound, "no panel stream for key " + key);
   }
   if (it->second->parked()) {
     // A parked panel is hidden (or being hidden) already. Showing it brings it back onto the
     // window it was parked with, if that still exists; otherwise the window has to be added.
     if (!visible) {
-      return qar_ar_core::Result::success();
+      return seam::Result::success();
     }
     return revive_parked_panel(key, nullptr, nullptr);
   }
   if (it->second->tombstoned()) {
-    return qar_ar_core::Result::error(
-      qar_ar_core::Status::InvalidState,
+    return seam::Result::error(
+      seam::Status::InvalidState,
       "the panel for key " + key + " shows the closed-window notice; it cannot be hidden or shown");
   }
   if (!visible) {
@@ -811,12 +811,12 @@ QtPanelStreamManager::set_panel_ar_visible(const std::string & key, bool visible
     --input_depth_;
     it = streams_.find(held_key);
     if (it == streams_.end()) {
-      return qar_ar_core::Result::error(
-        qar_ar_core::Status::NotFound, "no panel stream for key " + held_key);
+      return seam::Result::error(
+        seam::Status::NotFound, "no panel stream for key " + held_key);
     }
   }
   it->second->request_ar_visible(visible);
-  return qar_ar_core::Result::success();
+  return seam::Result::success();
 }
 
 bool
@@ -905,7 +905,7 @@ QtPanelStreamManager::report_replaced_closed(const std::string & key, std::size_
     return;
   }
   emit_diagnostic(
-    qar_ar_core::DiagnosticSeverity::Info, "panel",
+    seam::DiagnosticSeverity::Info, "panel",
     "closed the " + std::to_string(static_cast<unsigned long long>(count)) +
     " earlier QarOS panel(s) of '" + key + "' that size changes had replaced and kept",
     key);
@@ -920,7 +920,7 @@ QtPanelStreamManager::report_session_end(
     return;
   }
   emit_diagnostic(
-    qar_ar_core::DiagnosticSeverity::Info, "panel",
+    seam::DiagnosticSeverity::Info, "panel",
     "ended the session for '" + key + "': " +
     std::to_string(static_cast<unsigned long long>(ended.left_in_place)) +
     " QarOS panel(s) left hidden in place, not closed; the next session finds them by name" +
@@ -930,7 +930,7 @@ QtPanelStreamManager::report_session_end(
     key);
   if (ended.hide_failures > 0) {
     emit_diagnostic(
-      qar_ar_core::DiagnosticSeverity::Warning, "panel",
+      seam::DiagnosticSeverity::Warning, "panel",
       "could not hide " + std::to_string(static_cast<unsigned long long>(ended.hide_failures)) +
       " QarOS panel(s) of '" + key + "' before the session ended (" + ended.hide_error +
       "); they stay visible in AR until QarOS removes them",
@@ -960,7 +960,7 @@ QtPanelStreamManager::warn_cap_reached(const std::string & key)
   }
   tombstone_cap_reported_ = true;
   emit_diagnostic(
-    qar_ar_core::DiagnosticSeverity::Warning, "panel",
+    seam::DiagnosticSeverity::Warning, "panel",
     "this session is holding " + std::to_string(static_cast<unsigned long long>(
       config_.max_tombstoned_panels)) +
     " panels whose source windows have closed. Their video senders are not "
@@ -973,7 +973,7 @@ QtPanelStreamManager::warn_cap_reached(const std::string & key)
 }
 
 void
-QtPanelStreamManager::report_retired(const qar_ar_core::PanelStreamDiagnostics & retired)
+QtPanelStreamManager::report_retired(const seam::PanelStreamDiagnostics & retired)
 {
   if (retired.frames_submitted == 0 && !retired.stream_id.empty()) {
     // The bad shape, and worth a Warning rather than the usual Info: we
@@ -981,7 +981,7 @@ QtPanelStreamManager::report_retired(const qar_ar_core::PanelStreamDiagnostics &
     // without ever putting a frame on it. From the headset's side that is
     // indistinguishable from a producer that hung.
     emit_diagnostic(
-      qar_ar_core::DiagnosticSeverity::Warning, "panel",
+      seam::DiagnosticSeverity::Warning, "panel",
       "removed panel stream " + describe_stream(retired) +
       " having served it NO frames after " + format_seconds(retired.unserved_seconds) +
       ". QarOS was told this stream exists and never got a frame on it.",
@@ -989,7 +989,7 @@ QtPanelStreamManager::report_retired(const qar_ar_core::PanelStreamDiagnostics &
     return;
   }
   emit_diagnostic(
-    qar_ar_core::DiagnosticSeverity::Info, "panel",
+    seam::DiagnosticSeverity::Info, "panel",
     "removed panel stream " + describe_stream(retired) + " after " +
     std::to_string(static_cast<unsigned long long>(retired.frames_submitted)) + " frame(s)",
     retired.key);
@@ -1111,38 +1111,38 @@ QtPanelStreamManager::dialog_panel_keys() const
   return keys;
 }
 
-qar_ar_core::Result
-QtPanelStreamManager::set_panel_pose(const std::string & key, const QarPose & pose)
+seam::Result
+QtPanelStreamManager::set_panel_pose(const std::string & key, const seam::Pose & pose)
 {
   const auto it = streams_.find(key);
   if (it == streams_.end()) {
-    return qar_ar_core::Result::error(qar_ar_core::Status::NotFound, "no panel stream for key " + key);
+    return seam::Result::error(seam::Status::NotFound, "no panel stream for key " + key);
   }
   it->second->set_pose(pose);
-  return qar_ar_core::Result::success();
+  return seam::Result::success();
 }
 
-qar_ar_core::Result
+seam::Result
 QtPanelStreamManager::set_panel_region_source(
   const std::string & key, QWidget * region, std::shared_ptr<LatestVideoFrame> source)
 {
   const auto it = streams_.find(key);
   if (it == streams_.end()) {
-    return qar_ar_core::Result::error(qar_ar_core::Status::NotFound, "no panel stream for key " + key);
+    return seam::Result::error(seam::Status::NotFound, "no panel stream for key " + key);
   }
   it->second->set_region_source(region, std::move(source));
-  return qar_ar_core::Result::success();
+  return seam::Result::success();
 }
 
-qar_ar_core::Result
+seam::Result
 QtPanelStreamManager::clear_panel_region_sources(const std::string & key)
 {
   const auto it = streams_.find(key);
   if (it == streams_.end()) {
-    return qar_ar_core::Result::error(qar_ar_core::Status::NotFound, "no panel stream for key " + key);
+    return seam::Result::error(seam::Status::NotFound, "no panel stream for key " + key);
   }
   it->second->clear_region_sources();
-  return qar_ar_core::Result::success();
+  return seam::Result::success();
 }
 
 std::uint32_t
@@ -1197,12 +1197,12 @@ QtPanelStreamManager::tick()
     const bool ok = entry.second->tick(now);
     if (entry.second->has_notes()) {
       for (const std::string & note : entry.second->take_notes()) {
-        emit_diagnostic(qar_ar_core::DiagnosticSeverity::Info, "panel", note, entry.first);
+        emit_diagnostic(seam::DiagnosticSeverity::Info, "panel", note, entry.first);
       }
     }
     if (entry.second->has_warnings()) {
       for (const std::string & warning : entry.second->take_warnings()) {
-        emit_diagnostic(qar_ar_core::DiagnosticSeverity::Warning, "panel", warning, entry.first);
+        emit_diagnostic(seam::DiagnosticSeverity::Warning, "panel", warning, entry.first);
       }
     }
     if (entry.second->park_hide_refused()) {
@@ -1213,7 +1213,7 @@ QtPanelStreamManager::tick()
     if (entry.second->take_revival_refusal()) {
       const std::string & why = entry.second->diagnostics().last_visibility_error;
       emit_diagnostic(
-        qar_ar_core::DiagnosticSeverity::Warning, "panel",
+        seam::DiagnosticSeverity::Warning, "panel",
         "could not show the revived panel '" + entry.first + "' in AR (" +
         (why.empty() ? std::string("no reason given") : why) + ")",
         entry.first);
@@ -1223,21 +1223,21 @@ QtPanelStreamManager::tick()
     const std::uint32_t popups = entry.second->owned_popup_count();
     if (previous_popups == 0 && popups > 0) {
       emit_diagnostic(
-        qar_ar_core::DiagnosticSeverity::Info, "panel",
+        seam::DiagnosticSeverity::Info, "panel",
         "popup open over this panel: " + entry.second->popup_summary() +
         (entry.second->offscreen_popup_count() > 0 ?
         "; kept off the desktop, drawn only into the AR panel" :
         "; a desktop window, drawn into the AR panel too"),
         entry.first);
     } else if (previous_popups > 0 && popups == 0) {
-      emit_diagnostic(qar_ar_core::DiagnosticSeverity::Info, "panel", "popup closed", entry.first);
+      emit_diagnostic(seam::DiagnosticSeverity::Info, "panel", "popup closed", entry.first);
     }
     // A changed adapter_rebuilds count means a panel sender was just built (at
     // creation, or after a settled resize): log its full geometry exactly
     // once, the same "diff the diagnostics" idiom the error case below uses.
     if (entry.second->diagnostics().adapter_rebuilds != previous_rebuilds) {
       emit_diagnostic(
-        qar_ar_core::DiagnosticSeverity::Info, "panel", entry.second->diagnostics().last_geometry_summary,
+        seam::DiagnosticSeverity::Info, "panel", entry.second->diagnostics().last_geometry_summary,
         entry.first);
       SizeRebuildReport rebuild;
       if (entry.second->take_size_rebuild(rebuild)) {
@@ -1260,20 +1260,20 @@ QtPanelStreamManager::tick()
           // The usual case with the real sender: the QarOS panel keeps its name and its place,
           // only its video sender is exchanged. Nothing is hidden, kept or closed.
           emit_diagnostic(
-            qar_ar_core::DiagnosticSeverity::Info, "panel",
+            seam::DiagnosticSeverity::Info, "panel",
             key_text + "its QarOS panel stays and gets a new video sender (no new panel, no close)",
             entry.first);
         } else if (rebuild.fate == ReplacedPanelFate::HiddenKept) {
           emit_diagnostic(
-            last_slot ? qar_ar_core::DiagnosticSeverity::Warning :
-            qar_ar_core::DiagnosticSeverity::Info,
+            last_slot ? seam::DiagnosticSeverity::Warning :
+            seam::DiagnosticSeverity::Info,
             "panel",
             key_text + "its old QarOS panel is hidden and kept until the session ends, a new "
             "one is made (no close)" + next_close,
             entry.first);
         } else if (rebuild.fate == ReplacedPanelFate::VisibleKept) {
           emit_diagnostic(
-            qar_ar_core::DiagnosticSeverity::Warning, "panel",
+            seam::DiagnosticSeverity::Warning, "panel",
             key_text + "its old QarOS panel could not be hidden (" +
             (rebuild.hide_error.empty() ? std::string("no reason given") : rebuild.hide_error) +
             "), so it stays visible and is kept until the session ends; a new one is made "
@@ -1281,7 +1281,7 @@ QtPanelStreamManager::tick()
             entry.first);
         } else if (config_.close_mode == PanelCloseMode::Park) {
           emit_diagnostic(
-            qar_ar_core::DiagnosticSeverity::Warning, "panel",
+            seam::DiagnosticSeverity::Warning, "panel",
             key_text + "its QarOS panel is rebuilt (closed and created again); in park mode "
             "that close may crash the desktop Visualizer. The old panel was not kept hidden: "
             "this session already keeps " +
@@ -1299,7 +1299,7 @@ QtPanelStreamManager::tick()
     // Only surface a CHANGED error, otherwise a persistently unlaid-out widget
     // would spam the sink at the tick rate.
     if (!error.empty() && error != previous_error) {
-      emit_diagnostic(qar_ar_core::DiagnosticSeverity::Warning, "panel", error, entry.first);
+      emit_diagnostic(seam::DiagnosticSeverity::Warning, "panel", error, entry.first);
     }
   }
 
@@ -1321,7 +1321,7 @@ QtPanelStreamManager::report_unserved(QtPanelStream & stream)
   if (config_.unserved_warn_seconds <= 0.0) {
     return;
   }
-  const qar_ar_core::PanelStreamDiagnostics & d = stream.diagnostics();
+  const seam::PanelStreamDiagnostics & d = stream.diagnostics();
   // A panel the operator closed in AR is not capturing any more, so it will
   // never submit and there is nobody left waiting on it. Nagging about it every
   // heartbeat for the rest of the session would be noise. A parked panel is out of use: its
@@ -1336,7 +1336,7 @@ QtPanelStreamManager::report_unserved(QtPanelStream & stream)
   }
   stream.mark_unserved_reported();
   emit_diagnostic(
-    qar_ar_core::DiagnosticSeverity::Warning, "panel",
+    seam::DiagnosticSeverity::Warning, "panel",
     "QarOS has a panel from us it is not being served: " +
     describe_stream(d) + " has had a sender for " +
     format_seconds(d.unserved_seconds) + " and has submitted no frame (" +
@@ -1357,15 +1357,15 @@ QtPanelStreamManager::pump_input()
   // runs while this frame is still on the stack. Borrow the shared scratch only
   // at the top level; deeper frames pay one small allocation to stay disjoint.
   ++input_depth_;
-  std::vector<qar_ar_core::PanelPointerSample> nested;
-  std::vector<qar_ar_core::PanelPointerSample> & batch = input_depth_ > 1 ? nested : sample_scratch_;
+  std::vector<seam::PanelPointerSample> nested;
+  std::vector<seam::PanelPointerSample> & batch = input_depth_ > 1 ? nested : sample_scratch_;
   batch.clear();
   config_.input_source->drain(batch);
   // Indexed, not range-for: handle_sample() re-enters the event loop for a modal
   // dialog, and an inner pump can append to this very vector if it is the shared
   // scratch. Indexing keeps the walk valid where an iterator would dangle.
   for (std::size_t i = 0; i < batch.size(); ++i) {
-    const qar_ar_core::PanelPointerSample sample = batch[i];
+    const seam::PanelPointerSample sample = batch[i];
     handle_sample(sample);
   }
   const auto processed = static_cast<std::uint32_t>(batch.size());
@@ -1410,7 +1410,7 @@ QtPanelStreamManager::dismiss_owned_dialogs(const std::string & key)
   }
   if (closed > 0) {
     emit_diagnostic(
-      qar_ar_core::DiagnosticSeverity::Info, "panel", "closed " + std::to_string(closed) +
+      seam::DiagnosticSeverity::Info, "panel", "closed " + std::to_string(closed) +
       " dialog(s) owned by this panel", key);
   }
   return closed;
@@ -1569,7 +1569,7 @@ QtPanelStreamManager::add_dialog_panel(const std::string & owner_key, QWidget * 
   // does not ask again on every tick. Reviving a slot that is there is always allowed.
   if (streams_.find(key) == streams_.end() && refuse_for_tombstone_cap(key)) {
     emit_diagnostic(
-      qar_ar_core::DiagnosticSeverity::Warning, "panel",
+      seam::DiagnosticSeverity::Warning, "panel",
       std::string("could not give the dialog a panel of its own: ") + kTombstoneCapRefusal, key);
     refused_dialogs_.emplace_back(dialog);
     return;
@@ -1651,10 +1651,10 @@ QtPanelStreamManager::add_dialog_stream(
       options.placement.pose, ar_panel_height_m(*dialog, options));
   }
 
-  const qar_ar_core::Result added = add_panel(key, dialog, options);
+  const seam::Result added = add_panel(key, dialog, options);
   if (!added.ok()) {
     emit_diagnostic(
-      qar_ar_core::DiagnosticSeverity::Warning, "panel",
+      seam::DiagnosticSeverity::Warning, "panel",
       "could not give the dialog a panel of its own: " + added.message, key);
     refused_dialogs_.emplace_back(dialog);
     return false;
@@ -1666,7 +1666,7 @@ QtPanelStreamManager::add_dialog_stream(
   entry.dialog = dialog;
   dialog_panels_.push_back(std::move(entry));
   emit_diagnostic(
-    qar_ar_core::DiagnosticSeverity::Info, "panel",
+    seam::DiagnosticSeverity::Info, "panel",
     "dialog opened from '" + owner_key + "' is streaming as a panel of its own", key);
   return true;
 }
@@ -1717,7 +1717,7 @@ QtPanelStreamManager::advance_dialog_fits(double now_seconds)
       // Closed or destroyed while it was being fitted, or its owner stopped streaming: nothing
       // was made for it, so there is nothing to undo.
       emit_diagnostic(
-        qar_ar_core::DiagnosticSeverity::Info, "panel",
+        seam::DiagnosticSeverity::Info, "panel",
         "the dialog opened from '" + fitting_dialogs_[i].owner_key + "' went away after " +
         std::to_string(fitting_dialogs_[i].round) + " round(s) of being fitted (hidden, "
         "destroyed, or its owner stopped streaming), so it got no panel of its own",
@@ -1766,7 +1766,7 @@ QtPanelStreamManager::finish_dialog_fit(const FittingDialog & fitting, const std
   // remembered like one refused at first sight. Reviving a slot that is there is always allowed.
   if (streams_.find(key) == streams_.end() && refuse_for_tombstone_cap(key)) {
     emit_diagnostic(
-      qar_ar_core::DiagnosticSeverity::Warning, "panel",
+      seam::DiagnosticSeverity::Warning, "panel",
       std::string("could not give the dialog a panel of its own: ") + kTombstoneCapRefusal, key);
     refused_dialogs_.emplace_back(dialog);
     return;
@@ -1775,7 +1775,7 @@ QtPanelStreamManager::finish_dialog_fit(const FittingDialog & fitting, const std
     return;
   }
   emit_diagnostic(
-    qar_ar_core::DiagnosticSeverity::Info, "panel",
+    seam::DiagnosticSeverity::Info, "panel",
     "'" + key + "' fitted to " + std::to_string(dialog->width()) + "x" +
     std::to_string(dialog->height()) + " px in " + std::to_string(fitting.round) + " round(s)" +
     (note.empty() ? std::string() : ": " + note),
@@ -1975,7 +1975,7 @@ QtPanelStreamManager::hit_candidates() const
 
 bool
 QtPanelStreamManager::resolve_sample(
-  const qar_ar_core::PanelPointerSample & sample, ResolvedPointerSample & out, PanelHit & out_hit) const
+  const seam::PanelPointerSample & sample, ResolvedPointerSample & out, PanelHit & out_hit) const
 {
   out = ResolvedPointerSample{};
   out.pointer_id = sample.pointer_id;
@@ -1998,7 +1998,7 @@ QtPanelStreamManager::resolve_sample(
     const QtPanelStream & stream = *it->second;
     // The hit placement, not the one sent to QarOS: the frame around the video maps onto no pixel
     // of the widget (QtPanelStream::hit_placement).
-    const qar_ar_core::PanelPlacement grabbed = stream.hit_placement();
+    const seam::PanelPlacement grabbed = stream.hit_placement();
     PanelHit hit;
     if (sample.has_room_point) {
       hit = hit_test_panel_point(grabbed, sample.room_point);
@@ -2012,7 +2012,7 @@ QtPanelStreamManager::resolve_sample(
         // space so the grabbed panel sees it in its own frame.
         const auto other = find_live(sample.panel_key);
         if (other != streams_.end()) {
-          const QarVector3 point =
+          const seam::Vector3 point =
             panel_uv_to_room_point(other->second->hit_placement(), sample.u, sample.v);
           hit = hit_test_panel_point(grabbed, point);
         }
@@ -2110,7 +2110,7 @@ QtPanelStreamManager::dispatch_actions(
 }
 
 bool
-QtPanelStreamManager::handle_sample(const qar_ar_core::PanelPointerSample & sample)
+QtPanelStreamManager::handle_sample(const seam::PanelPointerSample & sample)
 {
   ResolvedPointerSample resolved;
   PanelHit hit;
@@ -2149,12 +2149,12 @@ QtPanelStreamManager::handle_sample(const qar_ar_core::PanelPointerSample & samp
 
 bool
 QtPanelStreamManager::route_room_point(
-  const QarVector3 & point_room, PanelPointerEvent::Kind kind)
+  const seam::Vector3 & point_room, PanelPointerEvent::Kind kind)
 {
-  qar_ar_core::PanelPointerSample sample;
+  seam::PanelPointerSample sample;
   sample.pointer_id = kImplicitPointerId;
-  sample.gesture = kind == PanelPointerEvent::Kind::Click ? qar_ar_core::PointerGesture::Click : qar_ar_core::PointerGesture::Hover;
-  sample.phase = kind == PanelPointerEvent::Kind::Click ? qar_ar_core::PointerPhase::Instant : qar_ar_core::PointerPhase::Updated;
+  sample.gesture = kind == PanelPointerEvent::Kind::Click ? seam::PointerGesture::Click : seam::PointerGesture::Hover;
+  sample.phase = kind == PanelPointerEvent::Kind::Click ? seam::PointerPhase::Instant : seam::PointerPhase::Updated;
   sample.timestamp_s = clock_->now_seconds();
   sample.has_room_point = true;
   sample.room_point = point_room;
@@ -2163,12 +2163,12 @@ QtPanelStreamManager::route_room_point(
 
 bool
 QtPanelStreamManager::route_room_ray(
-  const QarVector3 & origin, const QarVector3 & direction, PanelPointerEvent::Kind kind)
+  const seam::Vector3 & origin, const seam::Vector3 & direction, PanelPointerEvent::Kind kind)
 {
-  qar_ar_core::PanelPointerSample sample;
+  seam::PanelPointerSample sample;
   sample.pointer_id = kImplicitPointerId;
-  sample.gesture = kind == PanelPointerEvent::Kind::Click ? qar_ar_core::PointerGesture::Click : qar_ar_core::PointerGesture::Hover;
-  sample.phase = kind == PanelPointerEvent::Kind::Click ? qar_ar_core::PointerPhase::Instant : qar_ar_core::PointerPhase::Updated;
+  sample.gesture = kind == PanelPointerEvent::Kind::Click ? seam::PointerGesture::Click : seam::PointerGesture::Hover;
+  sample.phase = kind == PanelPointerEvent::Kind::Click ? seam::PointerPhase::Instant : seam::PointerPhase::Updated;
   sample.timestamp_s = clock_->now_seconds();
   sample.has_room_ray = true;
   sample.ray_origin = origin;
@@ -2176,10 +2176,10 @@ QtPanelStreamManager::route_room_ray(
   return handle_sample(sample);
 }
 
-qar_ar_core::PanelDiagnosticsSnapshot
+seam::PanelDiagnosticsSnapshot
 QtPanelStreamManager::diagnostics() const
 {
-  qar_ar_core::PanelDiagnosticsSnapshot snapshot;
+  seam::PanelDiagnosticsSnapshot snapshot;
   snapshot.panel_count = static_cast<std::uint32_t>(streams_.size());
   snapshot.ticks = ticks_;
   snapshot.last_error = last_error_;
@@ -2199,7 +2199,7 @@ QtPanelStreamManager::diagnostics() const
   snapshot.closes_deferred = closes_deferred_;
   snapshot.panels.reserve(streams_.size());
   for (const auto & entry : streams_) {
-    const qar_ar_core::PanelStreamDiagnostics & d = entry.second->diagnostics();
+    const seam::PanelStreamDiagnostics & d = entry.second->diagnostics();
     snapshot.panels.push_back(d);
     snapshot.streaming_active = snapshot.streaming_active || d.active;
     if (d.tombstoned) {

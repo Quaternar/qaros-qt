@@ -29,17 +29,19 @@
 #include <utility>
 #include <vector>
 
+namespace seam = qar_qt_streaming::seam;
+
 using qar_qt_streaming::apply_readability;
 using qar_qt_streaming::PanelFrame;
 using qar_qt_streaming::PanelPointerEvent;
-using qar_ar_core::PanelPointerSample;
+using qar_qt_streaming::seam::PanelPointerSample;
 using qar_qt_streaming::PanelStreamOptions;
-using qar_ar_core::PointerGesture;
-using qar_ar_core::PointerPhase;
+using qar_qt_streaming::seam::PointerGesture;
+using qar_qt_streaming::seam::PointerPhase;
 using qar_qt_streaming::QtPanelStream;
 using qar_qt_streaming::QtPanelStreamingConfig;
 using qar_qt_streaming::QtPanelStreamManager;
-using qar_ar_core::QueuedPanelInputSource;
+using qar_qt_streaming::seam::QueuedPanelInputSource;
 using qar_qt_streaming::ReadabilityRecommendation;
 using qar_qt_streaming::test_support::ManualClock;
 using qar_qt_streaming::test_support::MockQarPanelSenderFactory;
@@ -86,8 +88,8 @@ options_at(float z = 0.0f)
   PanelStreamOptions options;
   options.max_fps = 0;
   options.keepalive_seconds = 0.0;
-  options.placement.pose.orientation = QarQuaternion{0.0f, 0.0f, 0.0f, 1.0f};
-  options.placement.pose.position = QarVector3{0.0f, 0.0f, z};
+  options.placement.pose.orientation = seam::Quaternion{0.0f, 0.0f, 0.0f, 1.0f};
+  options.placement.pose.position = seam::Vector3{0.0f, 0.0f, z};
   return options;
 }
 
@@ -104,7 +106,8 @@ make_config(std::shared_ptr<MockQarPanelSenderFactory> factory)
 }
 
 PanelPointerSample
-click_at(PointerPhase phase, const QarVector3 & point, std::uint32_t pointer_id = 1, double t = 0.0)
+click_at(
+  PointerPhase phase, const seam::Vector3 & point, std::uint32_t pointer_id = 1, double t = 0.0)
 {
   PanelPointerSample sample;
   sample.pointer_id = pointer_id;
@@ -124,16 +127,16 @@ click_at(PointerPhase phase, const QarVector3 & point, std::uint32_t pointer_id 
 /// The frame of the managers of these tests is the same above and below the video, so "the middle
 /// of the panel" is half the height of the panel BELOW the pose (half of the frame, the widget,
 /// half of the frame), and the height is only known after a tick has derived it from the widget.
-QarVector3
+seam::Vector3
 panel_centre(const QtPanelStreamManager & manager, const std::string & key, float z = 0.0f)
 {
   for (const auto & panel : manager.diagnostics().panels) {
     if (panel.key == key) {
-      return QarVector3{0.0f, -0.5f * panel.height_meters, z};
+      return seam::Vector3{0.0f, -0.5f * panel.height_meters, z};
     }
   }
   ADD_FAILURE() << "no panel named " << key << " in the diagnostics";
-  return QarVector3{0.0f, 0.0f, z};
+  return seam::Vector3{0.0f, 0.0f, z};
 }
 
 /// A QarOS contact on the per-panel path: the position in content space, already normalised to
@@ -215,7 +218,7 @@ route_the_same_contacts(
     for (const float u : us) {
       std::size_t before = sink.events().size();
       // +X runs to the viewer's left, so the left edge of the panel is at +width / 2.
-      const QarVector3 point{
+      const seam::Vector3 point{
         0.5f * width_m - (left_m + u * video_w_m), -(top_m + v * video_h_m), 0.0f};
       manager.handle_sample(click_at(PointerPhase::Instant, point, id++));
       out.room_points.push_back(last_pixel_after(before));
@@ -236,15 +239,15 @@ route_the_same_contacts(
     0.5f * width_m - (left_m + video_w_m + (strip_m > 0.0f ? 0.5f * strip_m : 0.05f));
   std::size_t before = sink.events().size();
   out.top_band_routed = manager.handle_sample(
-    click_at(PointerPhase::Instant, QarVector3{0.0f, above_m, 0.0f}, id++));
+    click_at(PointerPhase::Instant, seam::Vector3{0.0f, above_m, 0.0f}, id++));
   EXPECT_EQ(sink.events().size(), before);
   before = sink.events().size();
   out.bottom_band_routed = manager.handle_sample(
-    click_at(PointerPhase::Instant, QarVector3{0.0f, below_m, 0.0f}, id++));
+    click_at(PointerPhase::Instant, seam::Vector3{0.0f, below_m, 0.0f}, id++));
   EXPECT_EQ(sink.events().size(), before);
   before = sink.events().size();
   out.strip_routed = manager.handle_sample(
-    click_at(PointerPhase::Instant, QarVector3{right_of_m, mid_y_m, 0.0f}, id++));
+    click_at(PointerPhase::Instant, seam::Vector3{right_of_m, mid_y_m, 0.0f}, id++));
   EXPECT_EQ(sink.events().size(), before);
 }
 
@@ -378,11 +381,11 @@ namespace
 /// above its top edge (both in metres, as the local frame of a QarOS panel has them), as a point of
 /// the room for a panel whose pose is @p position turned by @p orientation about the room's Z axis:
 /// a quarter turn makes local (x, y) the room offset (-y, x).
-QarVector3
-panel_point(const QarVector3 & position, bool quarter_turn, float x, float y)
+seam::Vector3
+panel_point(const seam::Vector3 & position, bool quarter_turn, float x, float y)
 {
-  return quarter_turn ? QarVector3{position.x - y, position.y + x, position.z} :
-         QarVector3{position.x + x, position.y + y, position.z};
+  return quarter_turn ? seam::Vector3{position.x - y, position.y + x, position.z} :
+         seam::Vector3{position.x + x, position.y + y, position.z};
 }
 
 /// What one probe of the video's corners does: the pixel it lands on, or none.
@@ -414,11 +417,11 @@ probe_the_corners(bool quarter_turn)
   config.ar_frame = PanelFrame{};
   QtPanelStreamManager manager(config);
   PanelStreamOptions options = options_at();
-  const QarVector3 position{1.0f, 2.0f, 3.0f};
+  const seam::Vector3 position{1.0f, 2.0f, 3.0f};
   options.placement.pose.position = position;
   if (quarter_turn) {
     const float half_sqrt = 0.70710678f;
-    options.placement.pose.orientation = QarQuaternion{0.0f, 0.0f, half_sqrt, half_sqrt};
+    options.placement.pose.orientation = seam::Quaternion{0.0f, 0.0f, half_sqrt, half_sqrt};
   }
   ASSERT_TRUE(manager.add_panel("p", panel.widget(), options).ok());
   manager.tick();
@@ -516,7 +519,7 @@ TEST(PanelStreamInput, AVideoShorterThanTheAreaIsCentredUnderTheTitleBar)
   for (const Probe & probe : probes) {
     const std::size_t before = sink.events().size();
     const bool routed = manager.handle_sample(
-      click_at(PointerPhase::Instant, QarVector3{x, -probe.below_top_m, 0.0f}, id++));
+      click_at(PointerPhase::Instant, seam::Vector3{x, -probe.below_top_m, 0.0f}, id++));
     EXPECT_EQ(routed, probe.hit) << probe.name;
     if (probe.hit) {
       ASSERT_EQ(sink.events().size(), before + 1) << probe.name;
@@ -536,13 +539,13 @@ TEST(PanelStreamInput, PressDragOffThePanelReleaseIsNotAClick)
   ASSERT_TRUE(manager.add_panel("p", panel.widget(), options_at()).ok());
   manager.tick();
 
-  const QarVector3 centre = panel_centre(manager, "p");
+  const seam::Vector3 centre = panel_centre(manager, "p");
   EXPECT_TRUE(manager.handle_sample(click_at(PointerPhase::Started, centre)));
   EXPECT_TRUE(panel.button()->isDown());
   EXPECT_TRUE(manager.pointer_state().is_pressed(1));
 
   // 5 m to the side: far off a 0.16 m panel, yet still resolved onto it.
-  const QarVector3 far_off{centre.x + 5.0f, centre.y, centre.z};
+  const seam::Vector3 far_off{centre.x + 5.0f, centre.y, centre.z};
   EXPECT_TRUE(manager.handle_sample(click_at(PointerPhase::Updated, far_off)))
     << "a grabbed pointer is projected onto its panel wherever it is";
   EXPECT_TRUE(manager.handle_sample(click_at(PointerPhase::Ended, far_off)));
@@ -564,8 +567,8 @@ TEST(PanelStreamInput, APressedPointerStaysWithItsPanelEvenOverAnother)
 
   // Press on A's plane, then move to a point ON B's plane. Without the grab the
   // nearest-plane pick would choose B; with it, A keeps the pointer.
-  const QarVector3 on_a = panel_centre(manager, "a", 0.0f);
-  const QarVector3 on_b = panel_centre(manager, "b", 1.0f);
+  const seam::Vector3 on_a = panel_centre(manager, "a", 0.0f);
+  const seam::Vector3 on_b = panel_centre(manager, "b", 1.0f);
   manager.handle_sample(click_at(PointerPhase::Started, on_a));
   manager.handle_sample(click_at(PointerPhase::Updated, on_b));
   EXPECT_EQ(manager.pointer_state().grabbed_panel(1), "a");
@@ -676,7 +679,7 @@ TEST(PanelStreamInput, InputCanBeDisabledPerPanel)
 // render tick, the dialog's nested loop runs inside that timer's handler and
 // kills it. Enter the same loop from a POSTED event and the timer is not on the
 // stack, so it keeps firing — which is the fix, pinned by the second test and
-// wired up by the RViz plugin's QarStreamingPanel::scheduleArPanelInputPump().
+// wired up by a host that posts the pump of its input (pump_input_in_tick = false).
 //
 // The nested loops here are bounded by a singleShot quit, so nothing can hang
 // the runner. QDialog::exec() itself is never called: it returns only when a
@@ -761,7 +764,7 @@ TEST(NestedEventLoop, ATimerKeepsFiringWhenTheLoopIsEnteredFromAPostedEvent)
   QObject::connect(&timer, &QTimer::timeout, [&ticks]() { ++ticks; });
   timer.start();
 
-  // The shape the RViz plugin's scheduleArPanelInputPump() gives its panel: the
+  // The shape a host that posts its input pump gives its panel: the
   // work that may spin a nested loop is POSTED, so the timer handler has
   // already returned by the time the loop starts.
   QMetaObject::invokeMethod(
@@ -786,7 +789,7 @@ TEST(PanelStreamInput, TickDoesNotDrainTheSourceWhenTheHostOwnsThePump)
   auto source = std::make_shared<QueuedPanelInputSource>();
   QtPanelStreamingConfig config = make_config(factory);
   config.input_source = source;
-  // What the RViz plugin's QarStreamingPanel sets, because its tick IS a QTimer
+  // What a host sets whose tick IS a QTimer
   // handler.
   config.pump_input_in_tick = false;
   QtPanelStreamManager manager(config);
@@ -1079,7 +1082,7 @@ TEST(DialogPanels, ADestroyedDialogClosesItsPanelBeforeAnythingPaints)
   const auto adapter = adapter_for(*factory, "dialog:Add");
   ASSERT_NE(adapter, nullptr);
 
-  // Deleted outright, the way RViz disposes of a one-shot dialog. The sweep runs
+  // Deleted outright, the way a host disposes of a one-shot dialog. The sweep runs
   // before any capture, so nothing ever paints through the dangling pointer.
   delete dialog;
   QCoreApplication::processEvents();

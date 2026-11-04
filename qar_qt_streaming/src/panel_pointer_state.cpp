@@ -50,10 +50,10 @@ PanelPointerStateMachine::PanelPointerStateMachine(PointerStateConfig config)
 }
 
 void
-PanelPointerStateMachine::emit(
+PanelPointerStateMachine::append_action(
   std::vector<PointerAction> & out, PointerActionKind kind, std::uint32_t id,
   const std::string & key, double x, double y, bool inside, double t, std::uint32_t click_count,
-  qar_ar_core::PointerHand hand)
+  seam::PointerHand hand)
 {
   PointerAction action;
   action.kind = kind;
@@ -84,39 +84,39 @@ PanelPointerStateMachine::process(
   Pointer & p = pointers_[sample.pointer_id];
 
   switch (sample.gesture) {
-    case qar_ar_core::PointerGesture::Hover:
+    case seam::PointerGesture::Hover:
       switch (sample.phase) {
-        case qar_ar_core::PointerPhase::Started:
-        case qar_ar_core::PointerPhase::Updated:
-        case qar_ar_core::PointerPhase::Instant:
+        case seam::PointerPhase::Started:
+        case seam::PointerPhase::Updated:
+        case seam::PointerPhase::Instant:
           move(p, sample, out);
           break;
-        case qar_ar_core::PointerPhase::Ended:
-        case qar_ar_core::PointerPhase::Canceled:
+        case seam::PointerPhase::Ended:
+        case seam::PointerPhase::Canceled:
           hover_end(p, sample, out);
           break;
       }
       break;
-    case qar_ar_core::PointerGesture::Click:
+    case seam::PointerGesture::Click:
       switch (sample.phase) {
-        case qar_ar_core::PointerPhase::Started:
+        case seam::PointerPhase::Started:
           press(p, sample, out);
           break;
-        case qar_ar_core::PointerPhase::Updated:
+        case seam::PointerPhase::Updated:
           move(p, sample, out);
           break;
-        case qar_ar_core::PointerPhase::Ended:
+        case seam::PointerPhase::Ended:
           release(p, sample, false, out);
           break;
-        case qar_ar_core::PointerPhase::Canceled:
+        case seam::PointerPhase::Canceled:
           release(p, sample, true, out);
           break;
-        case qar_ar_core::PointerPhase::Instant:
+        case seam::PointerPhase::Instant:
           instant(p, sample, out);
           break;
       }
       break;
-    case qar_ar_core::PointerGesture::LongPress:
+    case seam::PointerGesture::LongPress:
       // Counted and carried no further, on purpose. See
       // PointerStateDiagnostics::long_presses: the contact that produced it
       // stays live and may still become a drag, which arrives separately as a
@@ -135,14 +135,14 @@ PanelPointerStateMachine::set_hover(
     return;
   }
   if (!p.hover_key.empty()) {
-    emit(out, PointerActionKind::Leave, id, p.hover_key, p.x, p.y, false, t);
+    append_action(out, PointerActionKind::Leave, id, p.hover_key, p.x, p.y, false, t);
   }
   p.hover_key = key;
   if (!key.empty()) {
     p.x = x;
     p.y = y;
     p.inside = true;
-    emit(out, PointerActionKind::Enter, id, key, x, y, true, t);
+    append_action(out, PointerActionKind::Enter, id, key, x, y, true, t);
   }
 }
 
@@ -172,7 +172,7 @@ PanelPointerStateMachine::abandon_press(
   Pointer & p, std::uint32_t id, double t, std::vector<PointerAction> & out)
 {
   if (p.pressed && p.press_on_panel) {
-    emit(out, PointerActionKind::Cancel, id, p.grab_key, p.x, p.y, p.inside, t);
+    append_action(out, PointerActionKind::Cancel, id, p.grab_key, p.x, p.y, p.inside, t);
   }
   p.pressed = false;
   p.press_on_panel = false;
@@ -198,7 +198,8 @@ PanelPointerStateMachine::move(
       // pointer is off it, wherever it is. Keep the last known position.
       p.inside = false;
     }
-    emit(out, PointerActionKind::Drag, s.pointer_id, p.grab_key, p.x, p.y, p.inside, s.timestamp_s);
+    append_action(
+      out, PointerActionKind::Drag, s.pointer_id, p.grab_key, p.x, p.y, p.inside, s.timestamp_s);
     return;
   }
 
@@ -211,7 +212,7 @@ PanelPointerStateMachine::move(
   p.x = t.x;
   p.y = t.y;
   p.inside = true;
-  emit(out, PointerActionKind::Move, s.pointer_id, key, t.x, t.y, true, s.timestamp_s);
+  append_action(out, PointerActionKind::Move, s.pointer_id, key, t.x, t.y, true, s.timestamp_s);
 }
 
 void
@@ -249,7 +250,7 @@ PanelPointerStateMachine::press(
   p.pressed = true;
   p.press_on_panel = true;
   p.grab_key = t.panel_key;
-  emit(
+  append_action(
     out, PointerActionKind::Press, s.pointer_id, t.panel_key, t.x, t.y, true, s.timestamp_s,
     p.click_count, s.hand);
 }
@@ -309,11 +310,14 @@ PanelPointerStateMachine::release(
   p.grab_key.clear();
 
   if (canceled) {
-    emit(out, PointerActionKind::Cancel, s.pointer_id, key, p.x, p.y, p.inside, s.timestamp_s);
+    append_action(
+      out, PointerActionKind::Cancel, s.pointer_id, key, p.x, p.y, p.inside, s.timestamp_s);
   } else {
-    emit(out, PointerActionKind::Release, s.pointer_id, key, p.x, p.y, p.inside, s.timestamp_s);
+    append_action(
+      out, PointerActionKind::Release, s.pointer_id, key, p.x, p.y, p.inside, s.timestamp_s);
     if (p.inside) {
-      emit(out, PointerActionKind::Click, s.pointer_id, key, p.x, p.y, true, s.timestamp_s, clicks);
+      append_action(
+        out, PointerActionKind::Click, s.pointer_id, key, p.x, p.y, true, s.timestamp_s, clicks);
     }
   }
 
@@ -343,13 +347,13 @@ PanelPointerStateMachine::instant(
   p.y = t.y;
   p.inside = true;
   const std::uint32_t clicks = click_count_for(p, s, t.panel_key, t.x, t.y);
-  emit(
+  append_action(
     out, PointerActionKind::Press, s.pointer_id, t.panel_key, t.x, t.y, true, s.timestamp_s,
     clicks, s.hand);
-  emit(
+  append_action(
     out, PointerActionKind::Release, s.pointer_id, t.panel_key, t.x, t.y, true, s.timestamp_s, 1,
     s.hand);
-  emit(
+  append_action(
     out, PointerActionKind::Click, s.pointer_id, t.panel_key, t.x, t.y, true, s.timestamp_s,
     clicks, s.hand);
 }

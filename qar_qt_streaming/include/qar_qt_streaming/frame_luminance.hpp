@@ -13,7 +13,7 @@
 /// apart in one number, without copying the frame or keeping it. @ref frame_brightness adds the
 /// luminance of the top rows and of the rest, and the alpha, from the same sparse sample.
 
-#include "qar_ar_core/panel_types.hpp"
+#include "qar_qt_streaming/seam/panel_types.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -32,7 +32,7 @@ constexpr std::uint32_t kLuminanceSampleStep = 8;
 ///
 /// @return 0 for a frame without data or with a zero dimension, or with @p step 0.
 inline double
-mean_luminance(const qar_ar_core::PanelPixels & pixels, std::uint32_t step = kLuminanceSampleStep)
+mean_luminance(const seam::PanelPixels & pixels, std::uint32_t step = kLuminanceSampleStep)
 {
   if (pixels.data == nullptr || pixels.width == 0 || pixels.height == 0 || step == 0) {
     return 0.0;
@@ -81,7 +81,7 @@ struct FrameBrightness
 /// dimension, or with @p step 0; in @c rest when no sampled row lies below the top rows.
 inline FrameBrightness
 frame_brightness(
-  const qar_ar_core::PanelPixels & pixels, double top_fraction = kBrightnessTopFraction,
+  const seam::PanelPixels & pixels, double top_fraction = kBrightnessTopFraction,
   std::uint32_t step = kLuminanceSampleStep)
 {
   FrameBrightness out;

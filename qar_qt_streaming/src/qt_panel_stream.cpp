@@ -52,16 +52,16 @@ constexpr int kTimingOutcomeColumn = 13;
 /// the capture finished, whether QarOS was ready, when it was submitted, and how it ended.
 struct TickTiming
 {
-  qar_ar_core::TimingSink * sink = nullptr;
+  seam::TimingSink * sink = nullptr;
   VideoFrameTrace frame{};
   std::uint64_t decode_seq = 0;
-  std::int64_t tick_us = qar_ar_core::kTimingBlank;
-  std::int64_t capture_us = qar_ar_core::kTimingBlank;
-  std::int64_t ready_us = qar_ar_core::kTimingBlank;
-  std::int64_t not_ready_start_us = qar_ar_core::kTimingBlank;
-  std::int64_t not_ready_end_us = qar_ar_core::kTimingBlank;
-  std::int64_t not_ready_count = qar_ar_core::kTimingBlank;
-  std::int64_t submit_us = qar_ar_core::kTimingBlank;
+  std::int64_t tick_us = seam::kTimingBlank;
+  std::int64_t capture_us = seam::kTimingBlank;
+  std::int64_t ready_us = seam::kTimingBlank;
+  std::int64_t not_ready_start_us = seam::kTimingBlank;
+  std::int64_t not_ready_end_us = seam::kTimingBlank;
+  std::int64_t not_ready_count = seam::kTimingBlank;
+  std::int64_t submit_us = seam::kTimingBlank;
   std::int64_t outcome = kOutcomeAdapterError;
 
   TickTiming() = default;
@@ -75,11 +75,11 @@ struct TickTiming
     }
     const bool known = frame.valid;
     sink->append({
-        known ? static_cast<std::int64_t>(frame.seq) : qar_ar_core::kTimingBlank,
-        known ? frame.header_stamp_us : qar_ar_core::kTimingBlank,
-        known ? frame.arrival_us : qar_ar_core::kTimingBlank,
-        known ? frame.decode_done_us : qar_ar_core::kTimingBlank,
-        known ? frame.mailbox_us : qar_ar_core::kTimingBlank,
+        known ? static_cast<std::int64_t>(frame.seq) : seam::kTimingBlank,
+        known ? frame.header_stamp_us : seam::kTimingBlank,
+        known ? frame.arrival_us : seam::kTimingBlank,
+        known ? frame.decode_done_us : seam::kTimingBlank,
+        known ? frame.mailbox_us : seam::kTimingBlank,
         static_cast<std::int64_t>(decode_seq),
         tick_us, capture_us, ready_us, not_ready_start_us, not_ready_end_us, not_ready_count,
         submit_us, outcome});
@@ -161,7 +161,7 @@ QtPanelStream::QtPanelStream(
   std::string key,
   QWidget * widget,
   PanelStreamOptions options,
-  std::shared_ptr<qar_ar_core::IQarPanelSenderFactory> factory)
+  std::shared_ptr<seam::IPanelSenderFactory> factory)
 : key_(std::move(key)),
   widget_(widget),
   options_(std::move(options)),
@@ -301,7 +301,7 @@ QtPanelStream::apply_visibility_request()
     record_visibility_failure("the panel sender cannot change the state of a panel");
     return;
   }
-  if (!adapter_->set_state(visible ? QAR_GUI_PANEL_STATE_VISIBLE : QAR_GUI_PANEL_STATE_HIDDEN)) {
+  if (!adapter_->set_state(visible ? seam::PanelState::Visible : seam::PanelState::Hidden)) {
     record_visibility_failure(
       adapter_->last_error().empty() ? std::string("set_state was refused") :
       adapter_->last_error());
@@ -603,10 +603,10 @@ QtPanelStream::revive(QWidget * widget)
   return true;
 }
 
-qar_ar_core::PanelCloseReport
+seam::PanelCloseReport
 QtPanelStream::close()
 {
-  qar_ar_core::PanelCloseReport report;
+  seam::PanelCloseReport report;
   if (injector_) {
     // The panel is going away under any pointer still pressed on it; release
     // the widgets before the QarOS side, so nothing stays stuck down.
@@ -639,7 +639,7 @@ QtPanelStream::close()
 }
 
 void
-QtPanelStream::set_pose(const QarPose & pose)
+QtPanelStream::set_pose(const seam::Pose & pose)
 {
   placement_.pose = pose;
   options_.placement.pose = pose;
@@ -649,7 +649,7 @@ QtPanelStream::set_pose(const QarPose & pose)
 }
 
 void
-QtPanelStream::set_pose_on_next_tick(const QarPose & pose)
+QtPanelStream::set_pose_on_next_tick(const seam::Pose & pose)
 {
   placement_.pose = pose;
   options_.placement.pose = pose;
@@ -681,16 +681,16 @@ QtPanelStream::note_state_ask(const StateAsk & ask)
 void
 QtPanelStream::drain_adapter_results(double now_seconds)
 {
-  std::vector<qar_ar_core::PanelOpResult> results;
+  std::vector<seam::PanelOpResult> results;
   if (adapter_) {
     adapter_->drain_results(results);
   }
-  for (const qar_ar_core::PanelOpResult & result : results) {
+  for (const seam::PanelOpResult & result : results) {
     if (!adapter_) {
       break;  // the sender was dropped by an earlier result; the rest was about it
     }
     switch (result.op) {
-      case qar_ar_core::PanelOpResult::Op::Create:
+      case seam::PanelOpResult::Op::Create:
         if (result.ok) {
           diagnostics_.stream_id = adapter_->stream_id_text();
         } else {
@@ -705,13 +705,13 @@ QtPanelStream::drain_adapter_results(double now_seconds)
           create_retry_at_seconds_ = now_seconds + kCreateRetrySeconds;
         }
         break;
-      case qar_ar_core::PanelOpResult::Op::Placement:
+      case seam::PanelOpResult::Op::Placement:
         if (!result.ok) {
           record_error(result.error.empty() ? std::string("set_placement was refused")
                                             : result.error);
         }
         break;
-      case qar_ar_core::PanelOpResult::Op::State: {
+      case seam::PanelOpResult::Op::State: {
           StateAsk ask;
           if (!state_asks_.empty()) {
             ask = state_asks_.front();
@@ -743,9 +743,9 @@ QtPanelStream::drain_adapter_results(double now_seconds)
   for (KeptPanel & kept : replaced_adapters_) {
     results.clear();
     kept.adapter->drain_results(results);
-    for (const qar_ar_core::PanelOpResult & result : results) {
-      if (result.op != qar_ar_core::PanelOpResult::Op::State || result.ok ||
-        result.state != QAR_GUI_PANEL_STATE_HIDDEN)
+    for (const seam::PanelOpResult & result : results) {
+      if (result.op != seam::PanelOpResult::Op::State || result.ok ||
+        result.state != seam::PanelState::Hidden)
       {
         continue;
       }
@@ -855,14 +855,14 @@ QtPanelStream::newest_frame_trace() const
   return best;
 }
 
-qar_ar_core::TimingSink *
+seam::TimingSink *
 QtPanelStream::timing_sink()
 {
   if (!timing_probed_) {
     timing_probed_ = true;
-    qar_ar_core::TimingLog & log = qar_ar_core::TimingLog::instance();
+    seam::TimingLog & log = seam::TimingLog::instance();
     if (log.enabled()) {
-      std::string stem = qar_ar_core::TimingLog::sanitize_name(key_);
+      std::string stem = seam::TimingLog::sanitize_name(key_);
       if (stem.rfind("video_", 0) != 0) {
         stem = "video_" + stem;  // an AR video panel's key is already "video:<topic>"
       }
@@ -1031,7 +1031,7 @@ QtPanelStream::refresh_geometry(double now_seconds)
   return true;
 }
 
-qar_ar_core::PanelPlacement
+seam::PanelPlacement
 QtPanelStream::hit_placement() const
 {
   // Not the panel that is sent. QarOS draws the video, the whole BUFFER, inside its frame: at the
@@ -1043,7 +1043,7 @@ QtPanelStream::hit_placement() const
   // the area under it (the fit margin when the panel has the size its own frame asks for) below
   // the top edge of the panel, where the pose is. What the video does not cover maps onto no
   // pixel. geometry_ is the one the sent size was adopted for.
-  qar_ar_core::PanelPlacement placement = placement_;
+  seam::PanelPlacement placement = placement_;
   const double sent_width = placement_.size.width_meters;
   const double sent_height = placement_.size.height_meters;
   const double video_width = geometry_.video_width_meters;
@@ -1085,12 +1085,12 @@ QtPanelStream::set_swap_policy(std::function<bool()> swap_allowed)
 std::string
 QtPanelStream::common_name_for(std::uint32_t buffer_width, std::uint32_t buffer_height) const
 {
-  std::string name = qar_ar_core::make_panel_common_name(key_, options_.name_scope);
+  std::string name = seam::make_panel_common_name(key_, options_.name_scope);
   if (options_.resize_mode == PanelResizeMode::NewPanel) {
     const std::string size =
       "@" + std::to_string(buffer_width) + "x" + std::to_string(buffer_height);
-    if (name.size() + size.size() > qar_ar_core::kCommonNameMax) {
-      name.resize(qar_ar_core::kCommonNameMax - size.size());
+    if (name.size() + size.size() > seam::kCommonNameMax) {
+      name.resize(seam::kCommonNameMax - size.size());
     }
     name += size;
   }
@@ -1098,7 +1098,7 @@ QtPanelStream::common_name_for(std::uint32_t buffer_width, std::uint32_t buffer_
 }
 
 bool
-QtPanelStream::revive_kept_panel(const qar_ar_core::PanelDesc & desc)
+QtPanelStream::revive_kept_panel(const seam::PanelDesc & desc)
 {
   const auto kept = std::find_if(
     replaced_adapters_.begin(), replaced_adapters_.end(), [&desc](const KeptPanel & panel) {
@@ -1118,7 +1118,7 @@ QtPanelStream::revive_kept_panel(const qar_ar_core::PanelDesc & desc)
     record_error(adapter_->last_error());
   }
   if (was_hidden && !diagnostics_.ar_hidden) {
-    if (!adapter_->supports_state() || !adapter_->set_state(QAR_GUI_PANEL_STATE_VISIBLE)) {
+    if (!adapter_->supports_state() || !adapter_->set_state(seam::PanelState::Visible)) {
       record_visibility_failure(
         adapter_->last_error().empty() ? std::string("the kept panel could not be shown again") :
         adapter_->last_error());
@@ -1143,7 +1143,7 @@ QtPanelStream::end_session()
   // One panel: hidden where QarOS can and where it is not hidden or closed already, then
   // detached; a sender that cannot detach is closed.
   const auto end_panel = [&report](
-    const std::shared_ptr<qar_ar_core::IQarPanelSenderAdapter> & adapter, bool hidden,
+    const std::shared_ptr<seam::IPanelSender> & adapter, bool hidden,
     bool closed_in_ar) {
       ++report.panels;
       if (!adapter->supports_detach()) {
@@ -1153,7 +1153,7 @@ QtPanelStream::end_session()
       }
       if (!hidden && !closed_in_ar) {
         const bool done = adapter->supports_state() &&
-          adapter->set_state(QAR_GUI_PANEL_STATE_HIDDEN);
+          adapter->set_state(seam::PanelState::Hidden);
         if (!done) {
           ++report.hide_failures;
           if (report.hide_error.empty()) {
@@ -1214,7 +1214,7 @@ QtPanelStream::retire_adapter_for_rebuild(double now_seconds)
     bool refused_by_qaros = false;
     if (!adapter_->supports_state()) {
       refusal = "the panel sender cannot change the state of a panel";
-    } else if (!adapter_->set_state(QAR_GUI_PANEL_STATE_HIDDEN)) {
+    } else if (!adapter_->set_state(seam::PanelState::Hidden)) {
       refused_by_qaros = true;
       refusal = adapter_->last_error().empty() ? std::string("set_state was refused") :
         adapter_->last_error();
@@ -1261,7 +1261,7 @@ QtPanelStream::retry_kept_hides(double now_seconds)
       (kept.adapter->stream_id_text().empty() ? std::string() :
       " (stream " + kept.adapter->stream_id_text() + ")") +
       " that a size change replaced";
-    if (kept.adapter->supports_state() && kept.adapter->set_state(QAR_GUI_PANEL_STATE_HIDDEN)) {
+    if (kept.adapter->supports_state() && kept.adapter->set_state(seam::PanelState::Hidden)) {
       kept.hidden = true;
       kept.retries_left = 0;
       notes_.push_back(
@@ -1300,7 +1300,7 @@ QtPanelStream::ensure_adapter(double now_seconds)
   }
   has_create_retry_ = false;
 
-  qar_ar_core::PanelDesc desc;
+  seam::PanelDesc desc;
   desc.key = key_;
   desc.display_name = diagnostics_.display_name;
   desc.buffer_width = geometry_.buffer_width;
@@ -1458,7 +1458,7 @@ QtPanelStream::tick(double now_seconds)
   TickTiming trace;
   trace.sink = frame_driven ? timing_sink() : nullptr;
   if (trace.sink != nullptr) {
-    trace.tick_us = qar_ar_core::timing_epoch_us();
+    trace.tick_us = seam::timing_epoch_us();
     trace.decode_seq = frame_seq;
     trace.frame = newest_frame_trace();
   }
@@ -1518,7 +1518,7 @@ QtPanelStream::tick(double now_seconds)
     return false;
   }
   if (trace.sink != nullptr) {
-    trace.capture_us = qar_ar_core::timing_epoch_us();
+    trace.capture_us = seam::timing_epoch_us();
   }
   ++diagnostics_.frames_captured;
   diagnostics_.widget_visible = capture_.widget_visible();
@@ -1546,8 +1546,8 @@ QtPanelStream::tick(double now_seconds)
     return false;
   }
   if (!ready) {
-    const qar_ar_core::PanelNotReadyCause cause = adapter_->not_ready_cause();
-    if (cause == qar_ar_core::PanelNotReadyCause::Creating) {
+    const seam::PanelNotReadyCause cause = adapter_->not_ready_cause();
+    if (cause == seam::PanelNotReadyCause::Creating) {
       // Not yet, and not a fault: counted nowhere, and the clock of the unserved panel stays off.
       trace.sink = nullptr;
       has_unserved_since_ = false;
@@ -1562,18 +1562,18 @@ QtPanelStream::tick(double now_seconds)
     // ... and by the cause the sender gives: nothing reserved, nothing attached, or a receiver
     // that lost the stream and is reconnecting.
     switch (cause) {
-      case qar_ar_core::PanelNotReadyCause::Creating:
+      case seam::PanelNotReadyCause::Creating:
         break;  // returned above
-      case qar_ar_core::PanelNotReadyCause::NoDestination:
+      case seam::PanelNotReadyCause::NoDestination:
         ++diagnostics_.not_ready_streak_no_destination;
         break;
-      case qar_ar_core::PanelNotReadyCause::NoActiveTransfers:
+      case seam::PanelNotReadyCause::NoActiveTransfers:
         ++diagnostics_.not_ready_streak_no_transfers;
         break;
-      case qar_ar_core::PanelNotReadyCause::Reconnecting:
+      case seam::PanelNotReadyCause::Reconnecting:
         ++diagnostics_.not_ready_streak_reconnecting;
         break;
-      case qar_ar_core::PanelNotReadyCause::Paused:
+      case seam::PanelNotReadyCause::Paused:
         // The receiver paused the stream on purpose (its display is not visible): not a fault, so
         // the wait for a first frame does not run. The tick stays in the streak totals above, which
         // the burst after a long streak reads; the split of the three faulty causes is unchanged.
@@ -1585,7 +1585,7 @@ QtPanelStream::tick(double now_seconds)
       // The run of ticks in which QarOS offered no destination: this row carries its
       // start, "now" (the latest tick of it so far) and its length.
       trace.outcome = kOutcomeNotReady;
-      const std::int64_t now_us = qar_ar_core::timing_epoch_us();
+      const std::int64_t now_us = seam::timing_epoch_us();
       if (not_ready_run_count_ == 0) {
         not_ready_run_start_us_ = now_us;
       }
@@ -1597,7 +1597,7 @@ QtPanelStream::tick(double now_seconds)
     return false;
   }
   if (trace.sink != nullptr) {
-    trace.ready_us = qar_ar_core::timing_epoch_us();
+    trace.ready_us = seam::timing_epoch_us();
     if (not_ready_run_count_ > 0) {
       // Closed by this tick: the run lasted from its first tick to the one that found QarOS ready.
       trace.not_ready_start_us = not_ready_run_start_us_;
@@ -1614,7 +1614,7 @@ QtPanelStream::tick(double now_seconds)
     return false;
   }
   if (trace.sink != nullptr) {
-    trace.submit_us = qar_ar_core::timing_epoch_us();
+    trace.submit_us = seam::timing_epoch_us();
     trace.outcome = kOutcomeSubmitted;
   }
   ++diagnostics_.frames_submitted;

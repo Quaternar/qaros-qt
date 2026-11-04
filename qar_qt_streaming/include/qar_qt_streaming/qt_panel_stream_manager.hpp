@@ -8,14 +8,11 @@
 #include "qar_qt_streaming/panel_close_mode.hpp"
 #include "qar_qt_streaming/panel_resize_mode.hpp"
 #include "qar_qt_streaming/panel_hit_test.hpp"
-#include "qar_ar_core/common_name.hpp"
-#include "qar_ar_core/panel_input_source.hpp"
+#include "qar_qt_streaming/seam/common_name.hpp"
+#include "qar_qt_streaming/seam/pointer_input.hpp"
 #include "qar_qt_streaming/panel_pointer_state.hpp"
-#include "qar_ar_core/panel_types.hpp"
-#include "qar_ar_core/qar_panel_sender.hpp"
-// qt_panel_stream.hpp pulls in latest_video_frame.hpp (and real Qt headers)
-// transitively, AFTER panel_pointer_state.hpp above — see the ordering note
-// in qt_panel_stream.hpp for why that order matters (`emit` as a method name).
+#include "qar_qt_streaming/seam/panel_types.hpp"
+#include "qar_qt_streaming/seam/panel_sender.hpp"
 #include "qar_qt_streaming/qt_panel_stream.hpp"
 
 #include <QPointer>
@@ -74,10 +71,10 @@ public:
 struct QtPanelStreamingConfig
 {
   /// The only seam to QarOS. Required.
-  std::shared_ptr<qar_ar_core::IQarPanelSenderFactory> panel_sender_factory;
+  std::shared_ptr<seam::IPanelSenderFactory> panel_sender_factory;
 
   /// Optional; null => diagnostics are accumulated but not logged.
-  qar_ar_core::PanelDiagnosticsSink * diagnostics = nullptr;
+  seam::PanelDiagnosticsSink * diagnostics = nullptr;
 
   /// Optional; null => a default SteadyClock. Tests inject a fake clock.
   std::shared_ptr<IClock> clock;
@@ -88,7 +85,7 @@ struct QtPanelStreamingConfig
 
   /// Optional; drained on every tick() (and on pump_input()). Null => the
   /// host feeds samples through handle_sample() / route_room_point() itself.
-  std::shared_ptr<qar_ar_core::IQarPanelInputSource> input_source;
+  std::shared_ptr<seam::IPanelInputSource> input_source;
 
   /// Should tick() drain @ref input_source itself? (default yes)
   ///
@@ -191,11 +188,11 @@ struct QtPanelStreamingConfig
   PanelCloseMode close_mode = PanelCloseMode::Destroy;
 
   /// @brief The part of every panel's QarOS common name that tells programs, instances and PCs
-  /// apart (qar_ar_core::make_panel_common_name). QarOS finds a panel again in the next session by
+  /// apart (seam::make_panel_common_name). QarOS finds a panel again in the next session by
   /// that name, so a panel that was hidden when the last session ended is found and shown again.
   /// A scope with empty members is valid: the names are then built from the key and the
   /// placeholder of an empty label alone.
-  qar_ar_core::NameScope name_scope{};
+  seam::NameScope name_scope{};
 
   /// @brief What a size change of a window does to its QarOS panel (see @ref PanelResizeMode):
   /// by default the panel stays and its video sender is swapped. The host reads
@@ -315,7 +312,7 @@ struct QtPanelStreamingConfig
 ///     so the consumer goes first;
 ///  4. drop the stream entry.
 ///
-/// Steps 1-3 are the adapter's (IQarPanelSenderAdapter::close); the manager owns
+/// Steps 1-3 are the adapter's (IPanelSender::close); the manager owns
 /// the rest and logs every close: key, reason, what each step did, frames served.
 /// Re-opening the same window later is an ordinary fresh add.
 ///
@@ -421,7 +418,7 @@ public:
   /// Refused with @c Status::InvalidState when the tombstone cap is already
   /// reached and this would be a NEW stream; reviving is always allowed,
   /// because it creates nothing.
-  qar_ar_core::Result add_panel(const std::string & key, QWidget * widget, const PanelStreamOptions & options);
+  seam::Result add_panel(const std::string & key, QWidget * widget, const PanelStreamOptions & options);
 
   /// @brief The source window for @p key is gone (or its streaming was stopped):
   /// close its AR panel the way QtPanelStreamingConfig::close_mode says.
@@ -459,7 +456,7 @@ public:
   /// @param notice_reason What the closed-source notice says in Notice mode
   ///        (a full sentence is fine there). Empty reuses @p reason.
   /// @return NotFound if @p key is not streaming.
-  qar_ar_core::Result close_panel(
+  seam::Result close_panel(
     const std::string & key, const std::string & reason,
     const std::string & notice_reason = std::string());
 
@@ -481,14 +478,14 @@ public:
   ///
   /// @param reason One short phrase for the notice and the status line, e.g.
   ///        "the window was closed". Empty takes the default.
-  qar_ar_core::Result tombstone_panel(const std::string & key, const std::string & reason);
+  seam::Result tombstone_panel(const std::string & key, const std::string & reason);
 
   /// @brief Stop streaming @p key's widget: @ref close_panel with no reason.
   ///
   /// Every caller means the same thing by it ("this widget is finished"). What
   /// it does is the close mode's answer — destroy by default, a notice under
   /// `QAR_PANEL_CLOSE_MODE=notice`.
-  qar_ar_core::Result remove_panel(const std::string & key);
+  seam::Result remove_panel(const std::string & key);
 
   /// @brief The operator closed @p key's panel in AR: stop capturing it.
   ///
@@ -517,7 +514,7 @@ public:
   /// Showing also tries to bring back a panel the operator closed in AR.
   /// @return NotFound if @p key is not streaming, InvalidState if it shows the closed-window
   ///         notice (a notice has no window to hide).
-  qar_ar_core::Result set_panel_ar_visible(const std::string & key, bool visible);
+  seam::Result set_panel_ar_visible(const std::string & key, bool visible);
 
   /// @brief Is @p key's panel hidden in AR? The state QarOS accepted, so a request made since
   /// the last @ref tick is not in it yet. False for an unknown key.
@@ -557,7 +554,8 @@ public:
   /// for a new dialog panel and for a revived one - goes through it before the panel takes it;
   /// the owner's pose stepped sideways is the argument. An empty function leaves the poses as
   /// they are (the default).
-  using DialogPoseAdjuster = std::function<QarPose(const QarPose & top_centre, float height_m)>;
+  using DialogPoseAdjuster =
+    std::function<seam::Pose(const seam::Pose & top_centre, float height_m)>;
   void set_dialog_pose_adjuster(DialogPoseAdjuster adjuster)
   {
     dialog_pose_adjuster_ = std::move(adjuster);
@@ -642,7 +640,7 @@ public:
   /// @brief **SESSION SHUTDOWN.** End every panel still held, exactly once, and forget them.
   ///
   /// In Destroy mode every panel is closed and every remaining video sender destroyed. In Notice
-  /// and Park mode a panel whose sender supports IQarPanelSenderAdapter::detach is NOT closed: it
+  /// and Park mode a panel whose sender supports IPanelSender::detach is NOT closed: it
   /// is hidden in AR (`set_state(HIDDEN)`, unless it is hidden or closed already) and detached,
   /// its video sender and subscriptions released, so the next session finds it under its common
   /// name and shows it again. A sender that cannot detach is closed.
@@ -677,22 +675,22 @@ public:
   std::vector<std::string> dialog_panel_keys() const;
 
   /// @brief Move one panel in the room.
-  qar_ar_core::Result set_panel_pose(const std::string & key, const QarPose & pose);
+  seam::Result set_panel_pose(const std::string & key, const seam::Pose & pose);
 
   /// @brief Show @p source's live video in place of @p region's own captured
   /// pixels, for @p key's panel — see
   /// @ref QtWidgetCapture::set_region_source for the full contract (region
   /// ownership, tombstone/revive behaviour) and its class file comment for
   /// why this exists at all (a native window embedded in a widget, as the image
-  /// displays of a host such as an RViz plugin do, is something
+  /// displays of a host application do, is something
   /// `QWidget::render()` cannot paint).
   /// @return Status::NotFound if @p key names no panel stream.
-  qar_ar_core::Result set_panel_region_source(
+  seam::Result set_panel_region_source(
     const std::string & key, QWidget * region, std::shared_ptr<LatestVideoFrame> source);
 
   /// @brief Stop substituting every region registered on @p key's panel.
   /// @return Status::NotFound if @p key names no panel stream.
-  qar_ar_core::Result clear_panel_region_sources(const std::string & key);
+  seam::Result clear_panel_region_sources(const std::string & key);
 
   /// @brief Drain pending input, then run one capture/submit cycle across
   /// every panel. Input goes first so a click's visual response is captured
@@ -732,24 +730,24 @@ public:
   /// (honouring the pointer's grab), run the state machine, inject the
   /// resulting actions and notify the sink.
   /// @return true if the sample resolved onto a panel.
-  bool handle_sample(const qar_ar_core::PanelPointerSample & sample);
+  bool handle_sample(const seam::PanelPointerSample & sample);
 
   /// @brief Route a room-space point (e.g. QarAppVolumeGestureEvent::action_point)
   /// to whichever panel it lands on, nearest first. Sugar over
   /// @ref handle_sample for one implicit pointer: a Hover is a hover move, a
   /// Click is an INSTANT tap.
   /// @return true if a panel was hit.
-  bool route_room_point(const QarVector3 & point_room, PanelPointerEvent::Kind kind);
+  bool route_room_point(const seam::Vector3 & point_room, PanelPointerEvent::Kind kind);
 
   /// @brief Route a room-space ray (a hand-ray source) the same way.
   bool route_room_ray(
-    const QarVector3 & origin,
-    const QarVector3 & direction,
+    const seam::Vector3 & origin,
+    const seam::Vector3 & direction,
     PanelPointerEvent::Kind kind);
 
   const PanelPointerStateMachine & pointer_state() const { return pointer_state_; }
 
-  qar_ar_core::PanelDiagnosticsSnapshot diagnostics() const;
+  seam::PanelDiagnosticsSnapshot diagnostics() const;
 
   /// @brief Start a new window for every panel's
   /// PanelStreamDiagnostics::submit_gap_* statistics. A host that logs them
@@ -788,24 +786,24 @@ private:
   /// The Destroy-mode body of @ref close_panel (also what a deferred close runs):
   /// pointers released, adapter closed (input, panel, sender), entry dropped, one
   /// summary line logged.
-  qar_ar_core::Result destroy_panel(const std::string & key, const std::string & reason);
+  seam::Result destroy_panel(const std::string & key, const std::string & reason);
 
   /// The Park-mode body of @ref close_panel (also what a deferred close runs): pointers
   /// released, the stream parked (hide asked for, nothing closed), one Info line logged. A
   /// stream without a sender is dropped instead.
-  qar_ar_core::Result park_panel(
+  seam::Result park_panel(
     const std::string & key, const std::string & reason, const std::string & notice_reason);
 
   /// What a close of @p key does in the current close mode when it is carried out: the body of
   /// @ref close_panel after its deferral check, and what a deferred close runs.
-  qar_ar_core::Result close_now(
+  seam::Result close_now(
     const std::string & key, const std::string & reason, const std::string & notice_reason);
 
   /// Show a window on the parked stream @p key again: the stream takes @p widget (null: the
   /// window it was parked with) and, when @p pose is given, that pose; the pointer state and
   /// the dialog attribution learn the window; the revival is counted and logged.
-  qar_ar_core::Result revive_parked_panel(
-    const std::string & key, QWidget * widget, const QarPose * pose);
+  seam::Result revive_parked_panel(
+    const std::string & key, QWidget * widget, const seam::Pose * pose);
 
   /// The hide a park asked for was refused: turn the parked stream of @p key into the
   /// closed-window notice and say why in a Warning. Never closes anything.
@@ -821,7 +819,7 @@ private:
   /// they stood just before the close, so the frame count and stream id are the
   /// ones that were live.
   void report_closed(
-    const qar_ar_core::PanelStreamDiagnostics & before, const qar_ar_core::PanelCloseReport & report,
+    const seam::PanelStreamDiagnostics & before, const seam::PanelCloseReport & report,
     const std::string & reason);
 
   /// Retire dead dialog panels, then promote newly visible owned dialogs.
@@ -924,13 +922,13 @@ private:
   /// Geometry: place a sample on a panel, keeping a grabbed pointer on the
   /// panel it pressed. Returns whether the target is a panel at all.
   bool resolve_sample(
-    const qar_ar_core::PanelPointerSample & sample, ResolvedPointerSample & out, PanelHit & out_hit) const;
+    const seam::PanelPointerSample & sample, ResolvedPointerSample & out, PanelHit & out_hit) const;
 
   /// Deliver actions to the panels' injectors and the sink.
   void dispatch_actions(const std::vector<PointerAction> & actions, const PanelHit & hit);
 
   void emit_diagnostic(
-    qar_ar_core::DiagnosticSeverity severity,
+    seam::DiagnosticSeverity severity,
     const std::string & category,
     const std::string & message,
     const std::string & panel_key);
@@ -954,7 +952,7 @@ private:
   /// lets a reader recognise it with one search instead of reconstructing it
   /// from UUIDs. See qar_ogre_adapter docs/QAROS_INTEGRATION_NOTES.md,
   /// "Known SDK limitations".
-  void report_retired(const qar_ar_core::PanelStreamDiagnostics & retired);
+  void report_retired(const seam::PanelStreamDiagnostics & retired);
 
   QtPanelStreamingConfig config_;
   std::shared_ptr<IClock> clock_;
@@ -971,7 +969,7 @@ private:
   /// destroyed, and the list is emptied when a slot is free again.
   std::vector<QPointer<QWidget>> refused_dialogs_;
   PanelPointerStateMachine pointer_state_;
-  std::vector<qar_ar_core::PanelPointerSample> sample_scratch_;
+  std::vector<seam::PanelPointerSample> sample_scratch_;
   std::vector<PointerAction> action_scratch_;
   /// How many pump_input()/handle_sample() frames are live on this stack; > 1
   /// means a nested event loop re-entered us and the scratch is already in use.

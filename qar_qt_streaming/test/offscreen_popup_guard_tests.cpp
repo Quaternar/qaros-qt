@@ -17,14 +17,13 @@
 
 #include <gtest/gtest.h>
 
-// Project headers before any Qt header: panel_pointer_state.hpp declares a member named
-// emit(), which Qt's `emit` keyword macro breaks if it is seen first. The guard header comes
-// before the manager's on purpose: it must be usable in that position.
+// The guard header comes before the manager's on purpose: it must be usable in that position.
 #include "qar_qt_streaming/offscreen_panel.hpp"
 #include "qar_qt_streaming/offscreen_popup_guard.hpp"
 #include "qar_qt_streaming/qt_panel_stream_manager.hpp"
 #include "qar_qt_streaming/qt_widget_capture.hpp"
 #include "qar_qt_streaming/test_support/mock_panel_sender.hpp"
+#include "qar_qt_streaming/qt_compat.hpp"
 
 #include <QAbstractItemView>
 #include <QAction>
@@ -34,16 +33,20 @@
 #include <QCoreApplication>
 #include <QDialog>
 #include <QElapsedTimer>
+#include <QEvent>
 #include <QEventLoop>
+#include <QGraphicsEffect>
 #include <QGuiApplication>
 #include <QLineEdit>
 #include <QMenu>
+#include <QObject>
 #include <QPalette>
 #include <QPoint>
 #include <QPushButton>
 #include <QRect>
 #include <QStringList>
 #include <QStyle>
+#include <QStyleFactory>
 #include <QStyleOptionComboBox>
 #include <QStyledItemDelegate>
 #include <QTreeWidget>
@@ -58,9 +61,13 @@
 #include <thread>
 #include <vector>
 
-using qar_ar_core::PanelPointerSample;
-using qar_ar_core::PointerGesture;
-using qar_ar_core::PointerPhase;
+namespace seam = qar_qt_streaming::seam;
+
+namespace qt_compat = qar_qt_streaming::qt_compat;
+using qar_qt_streaming::seam::PanelPointerSample;
+using qar_qt_streaming::seam::PointerGesture;
+using qar_qt_streaming::seam::PointerPhase;
+using qar_qt_streaming::active_popup_widget;
 using qar_qt_streaming::install_offscreen_popup_guard;
 using qar_qt_streaming::is_offscreen_popup;
 using qar_qt_streaming::offscreen_popup_guard_installed;
@@ -90,8 +97,8 @@ options_at()
   PanelStreamOptions options;
   options.max_fps = 0;
   options.keepalive_seconds = 0.0;
-  options.placement.pose.orientation = QarQuaternion{0.0f, 0.0f, 0.0f, 1.0f};
-  options.placement.pose.position = QarVector3{0.0f, 0.0f, 0.0f};
+  options.placement.pose.orientation = seam::Quaternion{0.0f, 0.0f, 0.0f, 1.0f};
+  options.placement.pose.position = seam::Vector3{0.0f, 0.0f, 0.0f};
   return options;
 }
 
@@ -206,6 +213,93 @@ visible_top_level_inheriting(const char * class_name)
   }
   return nullptr;
 }
+
+/// How many pixels of @p area are opaque magenta in @p frame.
+int
+count_magenta(const RecordedPanelFrame & frame, const QRect & area)
+{
+  int count = 0;
+  for (int y = area.top(); y <= area.bottom(); ++y) {
+    for (int x = area.left(); x <= area.right(); ++x) {
+      if (is_magenta(frame, x, y)) {
+        ++count;
+      }
+    }
+  }
+  return count;
+}
+
+/// How many pixels of @p area are anything but opaque black in @p frame.
+int
+count_not_black(const RecordedPanelFrame & frame, const QRect & area)
+{
+  int count = 0;
+  for (int y = area.top(); y <= area.bottom(); ++y) {
+    for (int x = area.left(); x <= area.right(); ++x) {
+      if (!is_black(frame, x, y)) {
+        ++count;
+      }
+    }
+  }
+  return count;
+}
+
+/// The rectangle of the popup @p popup in the frame of @p panel.
+QRect
+popup_rect_in_panel(QWidget * popup, QWidget * panel)
+{
+  return QRect(panel->mapFromGlobal(popup_global_origin(popup)), popup->size());
+}
+
+/// Gives @p widget the drop shadow effect that Qt's windows11 style puts on combo lists and
+/// menus. QWidget::render() of a window that carries one draws nothing.
+void
+give_drop_shadow(QWidget * widget)
+{
+  widget->setGraphicsEffect(new QGraphicsDropShadowEffect());
+}
+
+/// The application style switched to @p key for one scope; the previous style is restored
+/// afterwards, so one test cannot change what the next one sees.
+class AppStyle
+{
+public:
+  explicit AppStyle(const QString & key)
+  : previous_(QApplication::style() != nullptr ? QApplication::style()->objectName() : QString())
+  {
+    if (previous_.isEmpty()) {
+      previous_ = "Fusion";
+    }
+    QApplication::setStyle(QStyleFactory::create(key));
+  }
+
+  ~AppStyle() { QApplication::setStyle(QStyleFactory::create(previous_)); }
+
+  AppStyle(const AppStyle &) = delete;
+  AppStyle & operator=(const AppStyle &) = delete;
+
+private:
+  QString previous_;
+};
+
+/// Counts the paint events that reach a watched widget.
+class PaintCounter : public QObject
+{
+public:
+  bool eventFilter(QObject *, QEvent * event) override
+  {
+    if (event->type() == QEvent::Paint) {
+      ++count_;
+    }
+    return false;
+  }
+
+  int count() const { return count_; }
+  void reset() { count_ = 0; }
+
+private:
+  int count_ = 0;
+};
 
 /// The menu animation switched on or off for one scope; the process-wide setting is
 /// restored afterwards, so one test cannot change what the next one sees.
@@ -418,6 +512,60 @@ private:
   QAction * triggered_ = nullptr;
 };
 
+/// Opens the combo list of a panel by an AR tap and checks that it reaches the stream image
+/// although it carries a graphics effect: given by hand when @p effect_by_hand, else the one the
+/// style installed. The effect must still be enabled afterwards, and an unchanged second tick
+/// must not send another frame.
+void
+check_a_combo_list_with_an_effect_is_drawn(bool offscreen, bool effect_by_hand)
+{
+  ComboPanel panel(offscreen);
+  ArStream stream(panel.widget(), "fx");
+  const std::size_t closed_frames = stream.frames().size();
+  ASSERT_EQ(closed_frames, 1u);
+
+  ASSERT_TRUE(stream.tap_at(panel.combo_center()));
+  QWidget * list = active_popup_widget();
+  ASSERT_NE(list, nullptr) << "the AR tap did not open the combo's list";
+  ASSERT_EQ(is_offscreen_popup(list), offscreen);
+  if (effect_by_hand) {
+    give_drop_shadow(list);
+  }
+  ASSERT_NE(list->graphicsEffect(), nullptr) << "the list carries no graphics effect";
+  ASSERT_TRUE(list->graphicsEffect()->isEnabled());
+  paint_magenta(list);
+  paint_magenta(panel.combo()->view());
+  pump();
+
+  stream.manager().tick();
+  ASSERT_GT(stream.frames().size(), closed_frames) << "the open list never reached the stream";
+  const RecordedPanelFrame & open = stream.frames().back();
+  const QRect area = popup_rect_in_panel(list, panel.widget());
+  const int pixels = count_magenta(open, area);
+  EXPECT_GT(pixels, area.width() * area.height() / 2)
+    << "the list is drawn empty: " << pixels << " magenta pixels in " << area.width() << "x"
+    << area.height();
+
+  ASSERT_NE(list->graphicsEffect(), nullptr);
+  EXPECT_TRUE(list->graphicsEffect()->isEnabled()) << "the effect was left disabled";
+
+  // Suspending the effect for the render must not make the popup repaint itself afterwards.
+  pump(100);
+  PaintCounter paints;
+  list->installEventFilter(&paints);
+  const std::size_t sent = stream.frames().size();
+  stream.manager().tick();
+  paints.reset();  // render() paints the popup itself; only what follows counts
+  pump(100);
+  list->removeEventFilter(&paints);
+  EXPECT_EQ(stream.frames().size(), sent) << "an unchanged tick sent a frame again";
+  EXPECT_TRUE(list->graphicsEffect()->isEnabled());
+  EXPECT_EQ(paints.count(), 0) << "the popup repainted itself after the capture";
+
+  panel.combo()->hidePopup();
+  pump(100);
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -426,20 +574,22 @@ private:
 
 TEST(OffscreenPopupGuard, ShowOffscreenInstallsTheGuardExactlyOnce)
 {
+  // Taken before the panel exists: Qt 6.8 and later polish a combo's list while the combo is
+  // built, Qt 5 and 6.5 when it is first shown; either way the list is kept off exactly once.
+  const auto before = offscreen_popup_guard_stats();
   ComboPanel panel;  // show_offscreen installs the guard
   EXPECT_TRUE(offscreen_popup_guard_installed());
   EXPECT_TRUE(install_offscreen_popup_guard()) << "a repeated install still succeeds";
   EXPECT_TRUE(offscreen_popup_guard_installed());
 
   // One filter per application: installing again must not add a second object to it.
-  const int objects = QCoreApplication::instance()->children().size();
+  const int objects = qt_compat::qt_size(QCoreApplication::instance()->children());
   EXPECT_TRUE(install_offscreen_popup_guard());
-  EXPECT_EQ(QCoreApplication::instance()->children().size(), objects);
+  EXPECT_EQ(qt_compat::qt_size(QCoreApplication::instance()->children()), objects);
 
-  const auto before = offscreen_popup_guard_stats();
   panel.combo()->showPopup();
   pump();
-  ASSERT_NE(QApplication::activePopupWidget(), nullptr);
+  ASSERT_NE(active_popup_widget(), nullptr);
   const auto after = offscreen_popup_guard_stats();
   EXPECT_EQ(after.kept_popups - before.kept_popups, 1u) << "one list is kept off once";
 }
@@ -449,7 +599,7 @@ TEST(OffscreenPopupGuard, RemovingTheGuardDeletesItAndShowOffscreenInstallsItAga
   // What an unload of the module that holds the guard's code does: the guard leaves the
   // application, so no later event of the application reaches that code.
   ASSERT_TRUE(install_offscreen_popup_guard());
-  const int objects = QCoreApplication::instance()->children().size();
+  const int objects = qt_compat::qt_size(QCoreApplication::instance()->children());
 
   bool removed_off_thread = true;
   std::thread worker(
@@ -465,24 +615,26 @@ TEST(OffscreenPopupGuard, RemovingTheGuardDeletesItAndShowOffscreenInstallsItAga
   EXPECT_FALSE(remove_offscreen_popup_guard()) << "nothing is left to remove";
   pump();  // events still flow through the application without the guard
 
+  // Taken before the panel exists: Qt 6.8 and later polish a combo's list while the combo is
+  // built, Qt 5 and 6.5 when it is first shown; either way the list is kept off exactly once.
+  const auto before = offscreen_popup_guard_stats();
   ComboPanel panel;  // show_offscreen installs a new guard
   EXPECT_TRUE(offscreen_popup_guard_installed());
-  const auto before = offscreen_popup_guard_stats();
   panel.combo()->showPopup();
   pump();
-  ASSERT_NE(QApplication::activePopupWidget(), nullptr);
-  EXPECT_FALSE(native_window_visible(QApplication::activePopupWidget()));
+  ASSERT_NE(active_popup_widget(), nullptr);
+  EXPECT_FALSE(native_window_visible(active_popup_widget()));
   EXPECT_EQ(offscreen_popup_guard_stats().kept_popups - before.kept_popups, 1u);
 }
 
 TEST(OffscreenPopupGuard, AnArTapOpensAComboListThatNeverBecomesADesktopWindow)
 {
+  const auto before = offscreen_popup_guard_stats();  // see the first test
   ComboPanel panel;
   ArStream stream(panel.widget(), "off");
-  const auto before = offscreen_popup_guard_stats();
 
   ASSERT_TRUE(stream.tap_at(panel.combo_center()));
-  QWidget * list = QApplication::activePopupWidget();
+  QWidget * list = active_popup_widget();
   ASSERT_NE(list, nullptr) << "the AR tap did not open the combo's list";
 
   EXPECT_TRUE(is_offscreen_popup(list));
@@ -503,7 +655,7 @@ TEST(OffscreenPopupGuard, TheListIsCompositedWhereQtPlacedItAndAnArTapSelectsARo
   ASSERT_EQ(closed_frames, 1u) << "the closed combo, sent once";
 
   ASSERT_TRUE(stream.tap_at(panel.combo_center()));
-  QWidget * list = QApplication::activePopupWidget();
+  QWidget * list = active_popup_widget();
   ASSERT_NE(list, nullptr);
   ASSERT_TRUE(is_offscreen_popup(list));
   // This host rasterizes no glyphs, so the list is given a known colour to be found.
@@ -530,7 +682,7 @@ TEST(OffscreenPopupGuard, TheListIsCompositedWhereQtPlacedItAndAnArTapSelectsARo
   ASSERT_TRUE(stream.tap_at(row2));
   pump(150);  // hidePopup's flash runs a short nested loop
   EXPECT_EQ(panel.combo()->currentIndex(), 2) << "the AR tap on row 2 did not select it";
-  EXPECT_EQ(QApplication::activePopupWidget(), nullptr) << "a selection closes the list";
+  EXPECT_EQ(active_popup_widget(), nullptr) << "a selection closes the list";
   EXPECT_FALSE(list->isVisible());
 }
 
@@ -540,17 +692,17 @@ TEST(OffscreenPopupGuard, AListReopenedElsewhereIsDrawnThereAndATapBesideItClose
   ArStream stream(panel.widget(), "off");
 
   ASSERT_TRUE(stream.tap_at(panel.combo_center()));
-  QWidget * list = QApplication::activePopupWidget();
+  QWidget * list = active_popup_widget();
   ASSERT_NE(list, nullptr);
   const QPoint first_origin = popup_global_origin(list);
   panel.combo()->hidePopup();
   pump(100);
-  ASSERT_EQ(QApplication::activePopupWidget(), nullptr);
+  ASSERT_EQ(active_popup_widget(), nullptr);
 
   panel.combo()->move(100, 150);
   pump();
   ASSERT_TRUE(stream.tap_at(panel.combo_center()));
-  list = QApplication::activePopupWidget();
+  list = active_popup_widget();
   ASSERT_NE(list, nullptr) << "the list did not open again";
   ASSERT_TRUE(is_offscreen_popup(list));
 
@@ -575,7 +727,7 @@ TEST(OffscreenPopupGuard, AListReopenedElsewhereIsDrawnThereAndATapBesideItClose
   wait_for_combo_release_block();
   ASSERT_TRUE(stream.tap_at(QPoint(5, 295)));
   pump(50);
-  EXPECT_EQ(QApplication::activePopupWidget(), nullptr);
+  EXPECT_EQ(active_popup_widget(), nullptr);
   EXPECT_EQ(panel.combo()->currentIndex(), 0) << "a tap beside the list selected a row";
 }
 
@@ -622,7 +774,7 @@ TEST(OffscreenPopupGuard, TheRvizCaseAPropertyTreeComboEditorOpensFromItsArrowAn
   const QRect arrow =
     editor->style()->subControlRect(QStyle::CC_ComboBox, &option, QStyle::SC_ComboBoxArrow, editor);
   ASSERT_TRUE(stream.tap_at(editor->mapTo(panel.get(), arrow.center())));
-  QWidget * list = QApplication::activePopupWidget();
+  QWidget * list = active_popup_widget();
   ASSERT_NE(list, nullptr) << "the AR tap on the arrow did not open the drop-down";
   EXPECT_TRUE(is_offscreen_popup(list));
   EXPECT_FALSE(native_window_visible(list)) << "the drop-down became a desktop window";
@@ -639,7 +791,7 @@ TEST(OffscreenPopupGuard, TheRvizCaseAPropertyTreeComboEditorOpensFromItsArrowAn
   ASSERT_TRUE(stream.tap_at(combo_row_in_panel(editor, list, panel.get(), 1)));
   pump(150);
   EXPECT_EQ(editor->currentText(), QStringLiteral("odom"));
-  EXPECT_EQ(QApplication::activePopupWidget(), nullptr);
+  EXPECT_EQ(active_popup_widget(), nullptr);
 }
 
 TEST(OffscreenPopupGuard, AMenuIsKeptOffNotClampedToTheDesktopAndTriggeredFromAr)
@@ -651,7 +803,7 @@ TEST(OffscreenPopupGuard, AMenuIsKeptOffNotClampedToTheDesktopAndTriggeredFromAr
   const QPoint requested = panel.requested_position();
   panel.menu()->popup(requested);
   pump();
-  ASSERT_EQ(QApplication::activePopupWidget(), panel.menu()) << "the menu did not open";
+  ASSERT_EQ(active_popup_widget(), panel.menu()) << "the menu did not open";
   EXPECT_TRUE(is_offscreen_popup(panel.menu()));
   EXPECT_FALSE(native_window_visible(panel.menu())) << "the menu became a desktop window";
   EXPECT_EQ(panel.menu()->geometry().topLeft(), requested) << "the menu was clamped to the desktop";
@@ -665,7 +817,7 @@ TEST(OffscreenPopupGuard, AMenuIsKeptOffNotClampedToTheDesktopAndTriggeredFromAr
   ASSERT_TRUE(stream.tap_at(action_in_panel));
   pump(100);
   EXPECT_EQ(panel.triggered(), panel.second()) << "the AR tap did not trigger the second action";
-  EXPECT_EQ(QApplication::activePopupWidget(), nullptr) << "triggering an action closes the menu";
+  EXPECT_EQ(active_popup_widget(), nullptr) << "triggering an action closes the menu";
 }
 
 TEST(OffscreenPopupGuard, AMenuPolishedBeforeItWasOwnedIsKeptOffWhenShown)
@@ -688,7 +840,7 @@ TEST(OffscreenPopupGuard, AMenuPolishedBeforeItWasOwnedIsKeptOffWhenShown)
   menu->setParent(anchor, Qt::Popup);
   menu->popup(anchor->mapToGlobal(QPoint(0, 20)));
   pump();
-  ASSERT_EQ(QApplication::activePopupWidget(), menu);
+  ASSERT_EQ(active_popup_widget(), menu);
   EXPECT_TRUE(is_offscreen_popup(menu));
   ASSERT_NE(menu->windowHandle(), nullptr);
   EXPECT_FALSE(menu->windowHandle()->isVisible()) << "the menu was mapped before it was kept off";
@@ -716,11 +868,11 @@ TEST(OffscreenPopupGuard, TheMenuAnimationWindowIsKeptOffToo)
   // When the animation ends the real menu is shown, and it is kept off as well.
   QElapsedTimer timer;
   timer.start();
-  while (QApplication::activePopupWidget() != panel.menu() && timer.elapsed() < 2000) {
+  while (active_popup_widget() != panel.menu() && timer.elapsed() < 2000) {
     QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
   }
   pump(50);
-  ASSERT_EQ(QApplication::activePopupWidget(), panel.menu()) << "the menu never opened";
+  ASSERT_EQ(active_popup_widget(), panel.menu()) << "the menu never opened";
   EXPECT_TRUE(is_offscreen_popup(panel.menu()));
   EXPECT_FALSE(native_window_visible(panel.menu()));
 }
@@ -763,15 +915,213 @@ TEST(OffscreenPopupGuard, StoppingTheStreamClosesItsOffscreenPopups)
   ArStream stream(panel.widget(), "off");
 
   ASSERT_TRUE(stream.tap_at(panel.combo_center()));
-  QWidget * list = QApplication::activePopupWidget();
+  QWidget * list = active_popup_widget();
   ASSERT_NE(list, nullptr);
   ASSERT_TRUE(is_offscreen_popup(list));
 
   ASSERT_TRUE(stream.manager().close_panel("off", "stopped").ok());
   pump();
-  EXPECT_EQ(QApplication::activePopupWidget(), nullptr)
+  EXPECT_EQ(active_popup_widget(), nullptr)
     << "an invisible list must not keep the application in popup mode";
   EXPECT_FALSE(list->isVisible());
+}
+
+/// What active_popup_widget() answers when Qt names a popup itself (Qt 5 and Qt 6.5, which
+/// register the popup of a widget that carries Qt::WA_DontShowOnScreen): Qt's answer, else
+/// @p fallback, the popup the guard remembers.
+QWidget *
+qt_or(QWidget * fallback)
+{
+  QWidget * qt_popup = QApplication::activePopupWidget();
+  return qt_popup != nullptr ? qt_popup : fallback;
+}
+
+TEST(OffscreenPopupGuard, TwoPanelsPopupsShownInTheOrderABAAreAnsweredWithTheOneShownLast)
+{
+  std::unique_ptr<QWidget> panel_a(make_black_panel());
+  std::unique_ptr<QWidget> panel_b(make_black_panel());
+  ASSERT_TRUE(show_offscreen(panel_a.get(), 200, 200));
+  ASSERT_TRUE(show_offscreen(panel_b.get(), 200, 200));
+  auto * popup_a = new QWidget(panel_a.get(), Qt::Popup);
+  auto * popup_b = new QWidget(panel_b.get(), Qt::Popup);
+  popup_a->resize(80, 40);
+  popup_b->resize(80, 40);
+
+  popup_a->show();
+  pump();
+  popup_b->show();
+  pump();
+  ASSERT_TRUE(is_offscreen_popup(popup_a));
+  ASSERT_TRUE(is_offscreen_popup(popup_b));
+  EXPECT_EQ(active_popup_widget(), qt_or(popup_b)) << "B was shown after A";
+
+  // A is marked first and shown last: the answer follows the order of showing.
+  popup_a->hide();
+  pump();
+  EXPECT_EQ(active_popup_widget(), qt_or(popup_b)) << "only B is open";
+  popup_a->show();
+  pump();
+  ASSERT_TRUE(popup_a->isVisible());
+  ASSERT_TRUE(popup_b->isVisible());
+  EXPECT_EQ(active_popup_widget(), qt_or(popup_a)) << "A was shown again, after B";
+
+  popup_a->hide();
+  popup_b->hide();
+  pump();
+  EXPECT_EQ(active_popup_widget(), nullptr);
+}
+
+TEST(OffscreenPopupGuard, AVisibleTooltipWindowIsNeverNamedAsTheActivePopup)
+{
+  std::unique_ptr<QWidget> panel(make_black_panel());
+  ASSERT_TRUE(show_offscreen(panel.get(), 200, 200));
+  auto * popup = new QWidget(panel.get(), Qt::Popup);
+  auto * tip = new QWidget(panel.get(), Qt::ToolTip);
+  popup->resize(80, 40);
+  tip->resize(80, 20);
+
+  popup->show();
+  pump();
+  tip->show();
+  pump();
+  ASSERT_TRUE(is_offscreen_popup(popup));
+  ASSERT_TRUE(is_offscreen_popup(tip)) << "the tooltip window is kept off the desktop too";
+  EXPECT_EQ(active_popup_widget(), qt_or(popup)) << "the tooltip was shown later and is skipped";
+
+  popup->hide();
+  pump();
+  ASSERT_TRUE(tip->isVisible());
+  EXPECT_EQ(active_popup_widget(), nullptr) << "a tooltip window is no popup in popup mode";
+  tip->hide();
+  pump();
+}
+
+// ---------------------------------------------------------------------------
+// A popup with a graphics effect
+// ---------------------------------------------------------------------------
+
+TEST(OffscreenPopupGuard, AKeptListWithAGraphicsEffectIsStillDrawnIntoThePanelImage)
+{
+  check_a_combo_list_with_an_effect_is_drawn(true, true);
+}
+
+TEST(OffscreenPopupGuard, AVisiblePanelsListWithAGraphicsEffectIsStillDrawnIntoThePanelImage)
+{
+  check_a_combo_list_with_an_effect_is_drawn(false, true);
+}
+
+TEST(OffscreenPopupGuard, AMenuWithAGraphicsEffectIsStillDrawnIntoThePanelImage)
+{
+  const MenuAnimation animation(false);
+  MenuPanel panel;
+  ArStream stream(panel.widget(), "menu");
+  const std::size_t closed_frames = stream.frames().size();
+
+  panel.menu()->popup(panel.requested_position());
+  pump();
+  ASSERT_EQ(active_popup_widget(), panel.menu()) << "the menu did not open";
+  give_drop_shadow(panel.menu());
+  ASSERT_TRUE(panel.menu()->graphicsEffect()->isEnabled());
+  paint_magenta(panel.menu());
+  pump();
+
+  // The panel behind it is black and the style shades the menu's own colour, so "drawn" means
+  // "not black".
+  stream.manager().tick();
+  ASSERT_GT(stream.frames().size(), closed_frames) << "the open menu never reached the stream";
+  const QRect area = popup_rect_in_panel(panel.menu(), panel.widget());
+  const int pixels = count_not_black(stream.frames().back(), area);
+  EXPECT_GT(pixels, area.width() * area.height() / 2)
+    << "the menu is drawn empty: " << pixels << " non-black pixels in " << area.width() << "x"
+    << area.height();
+  EXPECT_TRUE(panel.menu()->graphicsEffect()->isEnabled()) << "the effect was left disabled";
+
+  pump(100);
+  const std::size_t sent = stream.frames().size();
+  stream.manager().tick();
+  EXPECT_EQ(stream.frames().size(), sent) << "an unchanged tick sent a frame again";
+
+  panel.menu()->close();
+  pump();
+}
+
+TEST(OffscreenPopupGuard, AListWithoutAGraphicsEffectIsDrawnWithoutOneBeingAdded)
+{
+  ComboPanel panel;
+  ArStream stream(panel.widget(), "plain");
+  ASSERT_TRUE(stream.tap_at(panel.combo_center()));
+  QWidget * list = active_popup_widget();
+  ASSERT_NE(list, nullptr);
+  list->setGraphicsEffect(nullptr);
+  paint_magenta(list);
+  paint_magenta(panel.combo()->view());
+  pump();
+  stream.manager().tick();
+  const QRect area = popup_rect_in_panel(list, panel.widget());
+  EXPECT_GT(count_magenta(stream.frames().back(), area), area.width() * area.height() / 2);
+  EXPECT_EQ(list->graphicsEffect(), nullptr) << "the capture installed an effect";
+}
+
+TEST(OffscreenPopupGuard, TheWindows11StyleComboListReachesThePanelImage)
+{
+  if (!QStyleFactory::keys().contains("windows11", Qt::CaseInsensitive)) {
+    GTEST_SKIP() << "this Qt has no windows11 style";
+  }
+  const AppStyle style("windows11");
+  // The style installs the effect itself; the check asserts that it is there.
+  check_a_combo_list_with_an_effect_is_drawn(true, false);
+}
+
+TEST(OffscreenPopupGuard, TheWindows11StyleListOfAVisiblePanelReachesThePanelImage)
+{
+  if (!QStyleFactory::keys().contains("windows11", Qt::CaseInsensitive)) {
+    GTEST_SKIP() << "this Qt has no windows11 style";
+  }
+  const AppStyle style("windows11");
+  check_a_combo_list_with_an_effect_is_drawn(false, false);
+}
+
+namespace
+{
+
+// A panel whose top-level widget carries the effect itself: captured with the effect suspended.
+void
+check_a_top_level_with_an_effect_is_captured(bool offscreen)
+{
+  std::unique_ptr<QWidget> panel(make_black_panel());
+  give_drop_shadow(panel.get());
+  if (offscreen) {
+    ASSERT_TRUE(show_offscreen(panel.get(), 120, 80));
+  } else {
+    panel->resize(120, 80);
+    panel->show();
+  }
+  pump();
+
+  QtWidgetCapture capture(panel.get());
+  ASSERT_TRUE(capture.capture(120, 80, 1.0)) << capture.last_error();
+  ASSERT_NE(panel->graphicsEffect(), nullptr);
+  EXPECT_TRUE(panel->graphicsEffect()->isEnabled()) << "the effect was left disabled";
+  const seam::PanelPixels pixels = capture.pixels();
+  ASSERT_NE(pixels.data, nullptr);
+  const std::uint8_t * centre = pixels.data + 40u * pixels.stride_bytes + 60u * 4u;
+  EXPECT_EQ(centre[3], 255) << "the panel is captured empty";
+
+  pump(100);
+  ASSERT_TRUE(capture.capture(120, 80, 1.0)) << capture.last_error();
+  EXPECT_FALSE(capture.content_changed()) << "an unchanged panel captured differently";
+}
+
+}  // namespace
+
+TEST(OffscreenPopupGuard, AnOffscreenPanelWithAGraphicsEffectOnItsTopLevelIsStillCaptured)
+{
+  check_a_top_level_with_an_effect_is_captured(true);
+}
+
+TEST(OffscreenPopupGuard, AVisiblePanelWithAGraphicsEffectOnItsTopLevelIsStillCaptured)
+{
+  check_a_top_level_with_an_effect_is_captured(false);
 }
 
 // ---------------------------------------------------------------------------
@@ -785,7 +1135,7 @@ TEST(OffscreenPopupGuard, ControlAVisiblePanelsListIsADesktopWindowAsBefore)
   ArStream stream(panel.widget(), "visible");
 
   ASSERT_TRUE(stream.tap_at(panel.combo_center()));
-  QWidget * list = QApplication::activePopupWidget();
+  QWidget * list = active_popup_widget();
   ASSERT_NE(list, nullptr) << "the AR tap did not open the combo's list";
   EXPECT_FALSE(is_offscreen_popup(list));
   EXPECT_FALSE(list->testAttribute(Qt::WA_DontShowOnScreen));
@@ -801,7 +1151,7 @@ TEST(OffscreenPopupGuard, ControlAListInADialogOfTheOffscreenPanelIsLeftAlone)
   ASSERT_TRUE(show_offscreen(panel.get(), 300, 300));
   pump();
 
-  // Parented into the panel's tree, as RViz dialogs can be: the dialog is a visible window
+  // Parented into the panel's tree, as a host's dialogs can be: the dialog is a visible window
   // of its own, so what it opens is not the off-screen panel's popup.
   auto * dialog = new QDialog(inner);
   auto * combo = new QComboBox(dialog);
@@ -813,7 +1163,7 @@ TEST(OffscreenPopupGuard, ControlAListInADialogOfTheOffscreenPanelIsLeftAlone)
 
   combo->showPopup();
   pump();
-  QWidget * list = QApplication::activePopupWidget();
+  QWidget * list = active_popup_widget();
   ASSERT_NE(list, nullptr) << "the dialog's list did not open";
   EXPECT_FALSE(is_offscreen_popup(list));
   EXPECT_FALSE(list->testAttribute(Qt::WA_DontShowOnScreen));
@@ -833,7 +1183,7 @@ TEST(OffscreenPopupGuard, ControlAParentlessMenuIsLeftAlone)
   menu.addAction("one");
   menu.popup(QPoint(50, 50));
   pump();
-  ASSERT_EQ(QApplication::activePopupWidget(), &menu) << "the menu did not open";
+  ASSERT_EQ(active_popup_widget(), &menu) << "the menu did not open";
   EXPECT_FALSE(is_offscreen_popup(&menu));
   EXPECT_FALSE(menu.testAttribute(Qt::WA_DontShowOnScreen));
 
@@ -848,12 +1198,12 @@ TEST(OffscreenPopupGuard, ControlStoppingAVisiblePanelsStreamLeavesItsListOpen)
   ArStream stream(panel.widget(), "visible");
 
   ASSERT_TRUE(stream.tap_at(panel.combo_center()));
-  QWidget * list = QApplication::activePopupWidget();
+  QWidget * list = active_popup_widget();
   ASSERT_NE(list, nullptr);
 
   ASSERT_TRUE(stream.manager().close_panel("visible", "stopped").ok());
   pump();
-  EXPECT_EQ(QApplication::activePopupWidget(), list)
+  EXPECT_EQ(active_popup_widget(), list)
     << "a desktop popup is not this stream's to close";
   EXPECT_TRUE(list->isVisible());
 

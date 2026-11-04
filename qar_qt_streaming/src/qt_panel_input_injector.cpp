@@ -10,12 +10,11 @@
 #include <QCoreApplication>
 #include <QMouseEvent>
 #include <QThread>
-#include <QTouchDevice>
 #include <QTouchEvent>
-#include <QWindow>
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace qar_qt_streaming
 {
@@ -101,20 +100,49 @@ widget_to_global(const QWidget * target, const QPoint & local)
   return target->mapToGlobal(local);
 }
 
+/// Records the last widget one event object is delivered to. QApplication::notify walks a
+/// TouchBegin up the parent chain and stops at the widget that accepts it, so the last receiver
+/// of an accepted event is the widget that owns the sequence. Installed on the application
+/// only around one sendEvent.
+class DeliveryRecorder : public QObject
+{
+public:
+  explicit DeliveryRecorder(const QEvent * watched)
+  : watched_(watched)
+  {
+    QCoreApplication::instance()->installEventFilter(this);
+  }
+
+  ~DeliveryRecorder() override
+  {
+    if (QCoreApplication * app = QCoreApplication::instance()) {
+      app->removeEventFilter(this);
+    }
+  }
+
+  QWidget * last_receiver() const {return last_.data();}
+
+  bool eventFilter(QObject * object, QEvent * event) override
+  {
+    if (event == watched_) {
+      if (auto * widget = qobject_cast<QWidget *>(object)) {
+        last_ = widget;
+      }
+    }
+    return false;
+  }
+
+private:
+  const QEvent * watched_;
+  QPointer<QWidget> last_;
+};
+
 }  // namespace
 
 QtPanelInputInjector::QtPanelInputInjector(QWidget * panel_widget, PanelInputOptions options)
 : panel_(panel_widget),
-  options_(std::move(options)),
-  touch_device_(std::make_unique<QTouchDevice>())
+  options_(std::move(options))
 {
-  // Not registered with QWindowSystemInterface on purpose: registration is
-  // for devices the platform delivers spontaneous events from, and this one
-  // never does. Widgets only ever inspect its type and capabilities.
-  touch_device_->setName(QStringLiteral("QarOS panel pointer"));
-  touch_device_->setType(QTouchDevice::TouchScreen);
-  touch_device_->setCapabilities(QTouchDevice::Position);
-  touch_device_->setMaximumTouchPoints(10);
   // Make this panel known to dialog attribution before it can take a single
   // action: a registered panel is one whose OWN dialogs can never be claimed by
   // another panel's click. See PanelOverlayAttribution.
@@ -216,7 +244,7 @@ QtPanelInputInjector::resolve(const QPointF & panel_pos) const
 {
   Resolved resolved;
   if (options_.route_to_popups) {
-    if (QWidget * popup = QApplication::activePopupWidget()) {
+    if (QWidget * popup = active_popup_widget()) {
       // Qt sends EVERY mouse event to the active popup while one is open. Inside
       // it the deepest child gets it; outside, the popup itself does — which is
       // how a combo box list closes on a press beside it.
@@ -306,8 +334,10 @@ QtPanelInputInjector::dispatch_enter_leave(
     QCoreApplication::sendEvent(w, &leave);
     ++stats_.delivered;
     if (w->testAttribute(Qt::WA_Hover)) {
-      QHoverEvent hover(QEvent::HoverLeave, QPointF(-1.0, -1.0), local);
-      QCoreApplication::sendEvent(w, &hover);
+      const QPointF outside(-1.0, -1.0);
+      const auto hover = qt_compat::make_hover_event(
+        devices_, QEvent::HoverLeave, outside, outside, local);
+      QCoreApplication::sendEvent(w, hover.get());
       ++stats_.delivered;
     }
   }
@@ -328,8 +358,9 @@ QtPanelInputInjector::dispatch_enter_leave(
     QCoreApplication::sendEvent(w, &enter);
     ++stats_.delivered;
     if (w->testAttribute(Qt::WA_Hover)) {
-      QHoverEvent hover(QEvent::HoverEnter, local, QPointF(-1.0, -1.0));
-      QCoreApplication::sendEvent(w, &hover);
+      const auto hover = qt_compat::make_hover_event(
+        devices_, QEvent::HoverEnter, local, screen_pos(w, local), QPointF(-1.0, -1.0));
+      QCoreApplication::sendEvent(w, hover.get());
       ++stats_.delivered;
     }
   }
@@ -354,11 +385,10 @@ QtPanelInputInjector::send_mouse(
   QWidget * target, QEvent::Type type, const QPointF & local, Qt::MouseButton button,
   Qt::MouseButtons buttons, unsigned long ts)
 {
-  QMouseEvent event(
-    type, local, window_pos(target, local), screen_pos(target, local), button, buttons,
-    Qt::NoModifier, Qt::MouseEventSynthesizedByApplication);
-  event.setTimestamp(ts);
-  QCoreApplication::sendEvent(target, &event);
+  const auto event = qt_compat::make_mouse_event(
+    devices_, type, local, window_pos(target, local), screen_pos(target, local), button, buttons);
+  event->setTimestamp(ts);
+  QCoreApplication::sendEvent(target, event.get());
   ++stats_.delivered;
   return true;
 }
@@ -366,38 +396,31 @@ QtPanelInputInjector::send_mouse(
 bool
 QtPanelInputInjector::send_touch(
   Pointer & p, std::uint32_t pointer_id, QWidget * target, QEvent::Type type,
-  Qt::TouchPointState state, unsigned long ts, QWidget *& out_accepting)
+  qt_compat::TouchPhase phase, unsigned long ts, QWidget *& out_accepting)
 {
   out_accepting = nullptr;
 
   // Qt groups a touchscreen's points per receiving widget: every pointer this
   // widget currently holds rides along, stationary, so the widget sees the
   // whole gesture and not one finger at a time.
-  QList<QTouchEvent::TouchPoint> points;
-  Qt::TouchPointStates states;
-  const auto add_point = [&](std::uint32_t id, const Pointer & q, Qt::TouchPointState s) {
-    QTouchEvent::TouchPoint point(static_cast<int>(id));
-    point.setState(Qt::TouchPointStates(s));
-    const QPointF local = map_from_panel(target, q.panel_pos);
-    const QPointF start = map_from_panel(target, q.press_pos);
-    const QPointF last = map_from_panel(target, q.last_pos);
-    point.setPos(local);
-    point.setStartPos(start);
-    point.setLastPos(last);
-    // For widgets the scene position IS the screen position (QTouchEvent docs).
-    point.setScenePos(screen_pos(target, local));
-    point.setStartScenePos(screen_pos(target, start));
-    point.setLastScenePos(screen_pos(target, last));
-    point.setScreenPos(screen_pos(target, local));
-    point.setStartScreenPos(screen_pos(target, start));
-    point.setLastScreenPos(screen_pos(target, last));
-    point.setPressure(s == Qt::TouchPointReleased ? 0.0 : 1.0);
-    points.append(point);
-    states |= s;
+  std::vector<qt_compat::TouchPointSpec> points;
+  const auto add_point = [&](std::uint32_t id, const Pointer & q, qt_compat::TouchPhase p_phase) {
+    qt_compat::TouchPointSpec point;
+    point.id = static_cast<int>(id);
+    point.phase = p_phase;
+    point.local = map_from_panel(target, q.panel_pos);
+    point.window = window_pos(target, point.local);
+    point.start_local = map_from_panel(target, q.press_pos);
+    point.last_local = map_from_panel(target, q.last_pos);
+    point.screen = screen_pos(target, point.local);
+    point.start_screen = screen_pos(target, point.start_local);
+    point.last_screen = screen_pos(target, point.last_local);
+    point.pressure = p_phase == qt_compat::TouchPhase::Released ? 0.0 : 1.0;
+    points.push_back(point);
   };
 
   if (type != QEvent::TouchCancel) {
-    add_point(pointer_id, p, state);
+    add_point(pointer_id, p, phase);
     for (const auto & entry : pointers_) {
       const Pointer & q = entry.second;
       if (entry.first == pointer_id || !q.pressed || q.route != Route::Touch ||
@@ -405,22 +428,26 @@ QtPanelInputInjector::send_touch(
       {
         continue;
       }
-      add_point(entry.first, q, Qt::TouchPointStationary);
+      add_point(entry.first, q, qt_compat::TouchPhase::Stationary);
     }
   }
 
-  QTouchEvent event(type, touch_device_.get(), Qt::NoModifier, states, points);
-  event.setWindow(target->window()->windowHandle());
-  event.setTarget(target);
-  event.setTimestamp(ts);
-  QCoreApplication::sendEvent(target, &event);
+  const auto event = qt_compat::make_touch_event(devices_, type, target, points);
+  event->setTimestamp(ts);
+  QWidget * delivered_to = nullptr;
+  {
+    DeliveryRecorder recorder(event.get());
+    QCoreApplication::sendEvent(target, event.get());
+    delivered_to = recorder.last_receiver();
+  }
   ++stats_.delivered;
 
-  if (event.isAccepted()) {
-    // QApplication::notify walks a TouchBegin up the parent chain and leaves
-    // target() on the widget that took it — that widget owns the sequence.
-    QWidget * accepting = qobject_cast<QWidget *>(event.target());
-    out_accepting = accepting != nullptr ? accepting : target;
+  if (event->isAccepted()) {
+    // The widget the event reached last took it and owns the sequence; with no receiver
+    // recorded, the widget it was sent to does.
+    out_accepting = delivered_to != nullptr ? delivered_to : target;
+    last_touch_.by_delivery = out_accepting;
+    last_touch_.by_qt = qt_compat::touch_owner_named_by_qt(*event);
   }
   return true;
 }
@@ -609,7 +636,7 @@ QtPanelInputInjector::on_press(std::uint32_t id, Pointer & p, const PointerActio
     p.route = Route::Touch;
     p.grab = touch_target;
     QWidget * accepting = nullptr;
-    send_touch(p, id, touch_target, type, Qt::TouchPointPressed, ts, accepting);
+    send_touch(p, id, touch_target, type, qt_compat::TouchPhase::Pressed, ts, accepting);
     if (accepting != nullptr) {
       grab = accepting;
       route = Route::Touch;
@@ -678,7 +705,7 @@ QtPanelInputInjector::on_drag(std::uint32_t id, Pointer & p, const PointerAction
   if (p.route == Route::Mouse) {
     QWidget * target = grab;
     if (options_.route_to_popups) {
-      if (QWidget * popup = QApplication::activePopupWidget()) {
+      if (QWidget * popup = active_popup_widget()) {
         if (popup != grab && !popup->isAncestorOf(grab)) {
           target = resolve(p.panel_pos).target;  // Qt: popups take everything
         }
@@ -689,7 +716,8 @@ QtPanelInputInjector::on_drag(std::uint32_t id, Pointer & p, const PointerAction
       Qt::LeftButton, ts);
   }
   QWidget * accepting = nullptr;
-  return send_touch(p, id, grab, QEvent::TouchUpdate, Qt::TouchPointMoved, ts, accepting);
+  return send_touch(
+    p, id, grab, QEvent::TouchUpdate, qt_compat::TouchPhase::Moved, ts, accepting);
 }
 
 bool
@@ -721,7 +749,7 @@ QtPanelInputInjector::on_release(
   if (route == Route::Mouse) {
     QWidget * target = grab;
     if (options_.route_to_popups) {
-      if (QWidget * popup = QApplication::activePopupWidget()) {
+      if (QWidget * popup = active_popup_widget()) {
         if (popup != grab && !popup->isAncestorOf(grab)) {
           target = resolve(p.panel_pos).target;
         }
@@ -745,7 +773,7 @@ QtPanelInputInjector::on_release(
     const QEvent::Type type =
       cancel ? QEvent::TouchCancel : (others ? QEvent::TouchUpdate : QEvent::TouchEnd);
     QWidget * accepting = nullptr;
-    sent = send_touch(p, id, grab, type, Qt::TouchPointReleased, ts, accepting);
+    sent = send_touch(p, id, grab, type, qt_compat::TouchPhase::Released, ts, accepting);
   }
 
   // The grab held the hover target through the whole press. If the pointer is

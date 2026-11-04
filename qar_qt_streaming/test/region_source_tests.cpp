@@ -6,12 +6,6 @@
 // which embeds a native window via QWidget::createWindowContainer. Exercised
 // at two levels: QtWidgetCapture directly, and the QtPanelStreamManager
 // passthrough.
-//
-// Include order note: qt_panel_stream_manager.hpp (via panel_pointer_state.hpp)
-// declares a method literally named `emit`, which only parses because no real
-// Qt header has defined Qt's `emit` keyword-macro yet at that point -- see the
-// ordering comment in qt_panel_stream.hpp. So the qar_qt_streaming project
-// headers come first here, and plain Qt headers (<QLabel> etc.) after.
 
 #include <gtest/gtest.h>
 
@@ -28,13 +22,15 @@
 #include <memory>
 #include <utility>
 
+namespace seam = qar_qt_streaming::seam;
+
 using qar_qt_streaming::LatestVideoFrame;
-using qar_ar_core::PanelPixels;
+using qar_qt_streaming::seam::PanelPixels;
 using qar_qt_streaming::PanelStreamOptions;
 using qar_qt_streaming::QtPanelStreamingConfig;
 using qar_qt_streaming::QtPanelStreamManager;
 using qar_qt_streaming::QtWidgetCapture;
-using qar_ar_core::Status;
+using qar_qt_streaming::seam::Status;
 
 namespace
 {

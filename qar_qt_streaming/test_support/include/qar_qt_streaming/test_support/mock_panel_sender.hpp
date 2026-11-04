@@ -12,7 +12,7 @@
 /// test_support::MockQarRenderSenderAdapter.
 
 #include "qar_qt_streaming/clock.hpp"
-#include "qar_ar_core/qar_panel_sender.hpp"
+#include "qar_qt_streaming/seam/panel_sender.hpp"
 #include "qar_qt_streaming/qt_panel_stream_manager.hpp"
 
 #include <algorithm>
@@ -37,14 +37,14 @@ struct RecordedPanelFrame
 };
 
 /// @brief Records everything the library asks of a panel sender.
-class MockQarPanelSenderAdapter : public qar_ar_core::IQarPanelSenderAdapter
+class MockQarPanelSenderAdapter : public seam::IPanelSender
 {
 public:
   /// @param events Optional log SHARED across every adapter one factory mints, so
   ///        a test can assert the order of closes and creates across senders
   ///        ("the old sender was closed before the new one was created").
   explicit MockQarPanelSenderAdapter(
-    qar_ar_core::PanelDesc desc, std::shared_ptr<std::vector<std::string>> events = nullptr)
+    seam::PanelDesc desc, std::shared_ptr<std::vector<std::string>> events = nullptr)
   : desc_(std::move(desc)),
     events_(std::move(events))
   {
@@ -56,7 +56,7 @@ public:
 
   /// @brief The cause `not_ready_cause()` names while the adapter is not ready, as the real
   /// adapter's 604 (no active transfers) and 603 (reconnecting) answers do.
-  void set_not_ready_cause(qar_ar_core::PanelNotReadyCause cause) { not_ready_cause_ = cause; }
+  void set_not_ready_cause(seam::PanelNotReadyCause cause) { not_ready_cause_ = cause; }
 
   /// @brief Whether the adapter is still being made, like the real one while its panel and video
   /// sender are made on the session's thread: pending() is true and try_begin_frame() reports
@@ -65,7 +65,7 @@ public:
 
   /// @brief Queues the outcome of a call, which the next drain_results() hands to the stream. The
   /// calls themselves are accepted at once, as the real adapter accepts them.
-  void queue_result(qar_ar_core::PanelOpResult result) { results_.push_back(std::move(result)); }
+  void queue_result(seam::PanelOpResult result) { results_.push_back(std::move(result)); }
   /// @brief How often drain_results() was called.
   std::uint32_t drain_calls() const { return drain_calls_; }
 
@@ -100,23 +100,23 @@ public:
     return true;
   }
 
-  qar_ar_core::PanelNotReadyCause not_ready_cause() const override
+  seam::PanelNotReadyCause not_ready_cause() const override
   {
-    return pending_ ? qar_ar_core::PanelNotReadyCause::Creating : not_ready_cause_;
+    return pending_ ? seam::PanelNotReadyCause::Creating : not_ready_cause_;
   }
 
   bool pending() const override { return pending_; }
 
-  void drain_results(std::vector<qar_ar_core::PanelOpResult> & out) override
+  void drain_results(std::vector<seam::PanelOpResult> & out) override
   {
     ++drain_calls_;
-    for (qar_ar_core::PanelOpResult & result : results_) {
+    for (seam::PanelOpResult & result : results_) {
       out.push_back(std::move(result));
     }
     results_.clear();
   }
 
-  bool submit_frame(const qar_ar_core::PanelPixels & pixels) override
+  bool submit_frame(const seam::PanelPixels & pixels) override
   {
     ++submit_calls_;
     if (fail_submit_) {
@@ -137,7 +137,7 @@ public:
     return true;
   }
 
-  bool set_placement(const qar_ar_core::PanelPlacement & placement) override
+  bool set_placement(const seam::PanelPlacement & placement) override
   {
     placement_ = placement;
     ++placement_calls_;
@@ -145,7 +145,7 @@ public:
   }
 
   /// Records every state it is asked for, refused ones included.
-  bool set_state(QarGuiPanelState state) override
+  bool set_state(seam::PanelState state) override
   {
     ++state_calls_;
     states_.push_back(state);
@@ -170,12 +170,12 @@ public:
   /// sender destroyed, each exactly once" without a QarOS runtime. The ORDER of
   /// the real thing has no automated test: it needs the real SDK and is checked
   /// by running the adapter against it.
-  using qar_ar_core::IQarPanelSenderAdapter::close;
-  qar_ar_core::PanelCloseReport close(bool panel_closed_in_ar) override
+  using seam::IPanelSender::close;
+  seam::PanelCloseReport close(bool panel_closed_in_ar) override
   {
     ++close_calls_;
     last_close_panel_closed_in_ar_ = panel_closed_in_ar;
-    qar_ar_core::PanelCloseReport report;
+    seam::PanelCloseReport report;
     if (closed_ || detached_) {
       return report;  // idempotent, like the real one
     }
@@ -187,17 +187,17 @@ public:
     if (panel_closed_in_ar) {
       steps_.push_back("close_panel_skipped");
       ++close_panel_skipped_;
-      report.panel = qar_ar_core::PanelCloseOutcome::AlreadyClosedInAr;
+      report.panel = seam::PanelCloseOutcome::AlreadyClosedInAr;
     } else {
       steps_.push_back("close_panel");
       ++close_panel_calls_;
       if (fail_close_panel_) {
         fail_close_panel_ = false;
-        report.panel = qar_ar_core::PanelCloseOutcome::Failed;
+        report.panel = seam::PanelCloseOutcome::Failed;
         report.panel_message = "mock close_panel failure";
         last_error_ = report.panel_message;
       } else {
-        report.panel = qar_ar_core::PanelCloseOutcome::Closed;
+        report.panel = seam::PanelCloseOutcome::Closed;
       }
     }
 
@@ -237,18 +237,18 @@ public:
   /// that asks for a named stream nobody serves.
   void set_stream_id(std::string id) { stream_id_ = std::move(id); }
 
-  const qar_ar_core::PanelDesc & desc() const { return desc_; }
-  const qar_ar_core::PanelPlacement & placement() const { return placement_; }
+  const seam::PanelDesc & desc() const { return desc_; }
+  const seam::PanelPlacement & placement() const { return placement_; }
   const std::vector<RecordedPanelFrame> & frames() const { return frames_; }
   std::uint32_t begin_calls() const { return begin_calls_; }
   std::uint32_t submit_calls() const { return submit_calls_; }
   std::uint32_t placement_calls() const { return placement_calls_; }
   /// Every call to set_state(), refused ones included, and the states asked for in order.
   std::uint32_t state_calls() const { return state_calls_; }
-  const std::vector<QarGuiPanelState> & states() const { return states_; }
+  const std::vector<seam::PanelState> & states() const { return states_; }
   /// The state of the panel as this adapter holds it: the last one set_state() accepted,
   /// VISIBLE before any.
-  QarGuiPanelState last_state() const { return last_state_; }
+  seam::PanelState last_state() const { return last_state_; }
   /// Every call to close(), idempotent repeats included.
   std::uint32_t close_calls() const { return close_calls_; }
   /// What close() actually did, once: the steps it ran, in order, and how often
@@ -271,17 +271,17 @@ public:
   const std::string & common_name() const { return desc_.common_name; }
 
 private:
-  qar_ar_core::PanelDesc desc_;
+  seam::PanelDesc desc_;
   std::shared_ptr<std::vector<std::string>> events_;
-  qar_ar_core::PanelPlacement placement_{};
+  seam::PanelPlacement placement_{};
   std::vector<RecordedPanelFrame> frames_;
   std::vector<std::string> steps_;
   std::string last_error_;
   std::string stream_id_ = "mock-stream";
-  qar_ar_core::PanelNotReadyCause not_ready_cause_ = qar_ar_core::PanelNotReadyCause::NoDestination;
+  seam::PanelNotReadyCause not_ready_cause_ = seam::PanelNotReadyCause::NoDestination;
   bool ready_ = true;
   bool pending_ = false;
-  std::vector<qar_ar_core::PanelOpResult> results_;
+  std::vector<seam::PanelOpResult> results_;
   std::uint32_t drain_calls_ = 0;
   bool fail_begin_ = false;
   bool fail_submit_ = false;
@@ -294,8 +294,8 @@ private:
   std::uint32_t detach_calls_ = 0;
   bool closed_ = false;
   bool last_close_panel_closed_in_ar_ = false;
-  QarGuiPanelState last_state_ = QAR_GUI_PANEL_STATE_VISIBLE;
-  std::vector<QarGuiPanelState> states_;
+  seam::PanelState last_state_ = seam::PanelState::Visible;
+  std::vector<seam::PanelState> states_;
   std::uint32_t begin_calls_ = 0;
   std::uint32_t submit_calls_ = 0;
   std::uint32_t placement_calls_ = 0;
@@ -307,7 +307,7 @@ private:
 };
 
 /// @brief Hands out MockQarPanelSenderAdapters and keeps them alive for asserts.
-class MockQarPanelSenderFactory : public qar_ar_core::IQarPanelSenderFactory
+class MockQarPanelSenderFactory : public seam::IPanelSenderFactory
 {
 public:
   /// @brief Hand out senders that report "no destination reserved" forever —
@@ -334,7 +334,7 @@ public:
     failure_reason_ = std::move(reason);
   }
 
-  std::shared_ptr<qar_ar_core::IQarPanelSenderAdapter> create_panel_sender(const qar_ar_core::PanelDesc & desc) override
+  std::shared_ptr<seam::IPanelSender> create_panel_sender(const seam::PanelDesc & desc) override
   {
     ++create_calls_;
     if (fails_) {

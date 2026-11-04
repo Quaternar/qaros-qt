@@ -27,8 +27,10 @@
 #include <ostream>
 #include <vector>
 
+namespace seam = qar_qt_streaming::seam;
+
 using qar_qt_streaming::hash_pixels;
-using qar_ar_core::PanelPixels;
+using qar_qt_streaming::seam::PanelPixels;
 using qar_qt_streaming::QtWidgetCapture;
 
 namespace
@@ -592,7 +594,7 @@ TEST(PopupCapture, APopupEntirelyOffThePanelDrawsNothing)
 
 TEST(PopupCapture, AnUnrelatedPanelsPopupIsNeverComposited)
 {
-  // Two panels streaming at once must not bleed into each other, and RViz has
+  // Two panels streaming at once must not bleed into each other, and a host has
   // menus of its own that are nobody's panel content.
   PopupPanel mine;
   PopupPanel theirs(240, 160, 100, 80);  // deliberately the SAME screen position
@@ -964,7 +966,7 @@ public:
   QWidget * left() const { return left_; }
   QWidget * right() const { return right_; }
 
-  /// A dialog parented to the WINDOW — the RViz parenting, unowned by either
+  /// A dialog parented to the WINDOW — the host parenting, unowned by either
   /// dock as far as the parent walk is concerned.
   QDialog * open_window_dialog(const QSize & size, const QColor & colour, bool modal = false)
   {
@@ -1108,7 +1110,7 @@ TEST(DialogAttribution, AStructurallyOwnedDialogIsNeverStolen)
 
 TEST(DialogAttribution, AReshownDialogIsAttributedAfresh)
 {
-  // The decision lasts as long as the SHOWING. A dialog object RViz keeps alive
+  // The decision lasts as long as the SHOWING. A dialog object a host keeps alive
   // and shows again was opened by whoever clicked the second time.
   SharedWindow app;
   SharedWindow::ar_activation(app.left());

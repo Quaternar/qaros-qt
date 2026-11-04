@@ -1,17 +1,37 @@
 # Copyright 2026 QuaternAR
 # SPDX-License-Identifier: MIT
 #
-# qar_qt_streaming — reusable Qt<->QarOS GUI-panel streaming library.
+# qar_qt_streaming - reusable Qt GUI-panel streaming library.
 #
 # Plain CMake (NOT ament). Reusable by ANY Qt application, so it has zero
-# dependency on rviz_common, rviz_rendering, ament or rclcpp — and, unlike
-# qar_ogre_streaming, zero dependency on Ogre. It DOES depend on Qt: that is the
-# point of the library. See docs/ARCHITECTURE.md.
+# dependency on any host application, middleware or rendering library, and none on any other
+# library of this project: its seam (seam/, standard library only) is part of it. It DOES depend
+# on Qt: that is the point of the library. See docs/ARCHITECTURE.md.
 #
-# The boundary (Qt allowed, everything else forbidden) is enforced by the layering
+# Two targets:
+#   qar_qt_streaming_seam  (alias qar_qt_streaming::seam)  the values, the panel and input
+#                          interfaces, the naming rule, the timing log; standard library only.
+#   qar_qt_streaming       (alias qar_qt_streaming::qar_qt_streaming)  the Qt core over the seam.
+# and, when QAR_QT_STREAMING_WITH_QAROS is on, a third one:
+#   qar_qt_streaming_qaros (alias qar_qt_streaming::qaros)  the backend over the QarOS C++ SDK
+#                          (SDK headers and the seam; no Qt).
+#
+# The boundary (Qt allowed in the core only, everything else forbidden) is enforced by the layering
 # guard: scripts/check_layering.py, CTest test check_layering_qar_qt_streaming.
 
-find_package(Qt5 REQUIRED COMPONENTS Core Gui Widgets)
+# The Qt major version comes from the caller (QAR_QT_MAJOR); without one the library builds
+# against Qt 5.
+if(NOT QAR_QT_MAJOR)
+  set(QAR_QT_MAJOR 5)
+endif()
+find_package(Qt${QAR_QT_MAJOR} REQUIRED COMPONENTS Core Gui Widgets)
+
+add_subdirectory(seam)
+
+# The backend over the QarOS C++ SDK; the top-level project says whether it is built.
+if(QAR_QT_STREAMING_WITH_QAROS)
+  add_subdirectory(qaros)
+endif()
 
 add_library(qar_qt_streaming STATIC
   src/capture_gate.cpp
@@ -42,14 +62,14 @@ target_include_directories(qar_qt_streaming PUBLIC
   "$<INSTALL_INTERFACE:include>"
 )
 
-# qar_ar_core is PUBLIC: the panel seam types, the input seam and the timing log
-# appear in this library's public headers. Qt is PUBLIC because public headers
-# take QWidget* and QtWidgetCapture holds a QImage by value.
+# The seam is PUBLIC: its panel types, the input interface and the timing log appear in this
+# library's public headers. Qt is PUBLIC because public headers take QWidget* and
+# QtWidgetCapture holds a QImage by value.
 target_link_libraries(qar_qt_streaming PUBLIC
-  qar_ogre_adapter::qar_ar_core
-  Qt5::Core
-  Qt5::Gui
-  Qt5::Widgets
+  qar_qt_streaming::seam
+  Qt${QAR_QT_MAJOR}::Core
+  Qt${QAR_QT_MAJOR}::Gui
+  Qt${QAR_QT_MAJOR}::Widgets
 )
 
 # A static library that is linked into a shared library (a plugin, for example)

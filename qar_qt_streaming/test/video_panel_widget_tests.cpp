@@ -19,8 +19,10 @@
 
 #include <memory>
 
+namespace seam = qar_qt_streaming::seam;
+
 using qar_qt_streaming::LatestVideoFrame;
-using qar_ar_core::PanelPixels;
+using qar_qt_streaming::seam::PanelPixels;
 using qar_qt_streaming::QtWidgetCapture;
 using qar_qt_streaming::VideoPanelWidget;
 

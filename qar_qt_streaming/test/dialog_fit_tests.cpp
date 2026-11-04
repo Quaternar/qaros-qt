@@ -35,7 +35,9 @@
 #include <string>
 #include <vector>
 
-using qar_ar_core::DiagnosticSeverity;
+namespace seam = qar_qt_streaming::seam;
+
+using qar_qt_streaming::seam::DiagnosticSeverity;
 using qar_qt_streaming::PanelCloseMode;
 using qar_qt_streaming::PanelOverlayAttribution;
 using qar_qt_streaming::PanelStreamOptions;
@@ -94,12 +96,12 @@ options_no_pacing()
   PanelStreamOptions options;
   options.max_fps = 0;
   options.keepalive_seconds = 0.0;
-  options.placement.pose.orientation = QarQuaternion{0.0f, 0.0f, 0.0f, 1.0f};
-  options.placement.pose.position = QarVector3{0.0f, 0.0f, 0.0f};
+  options.placement.pose.orientation = seam::Quaternion{0.0f, 0.0f, 0.0f, 1.0f};
+  options.placement.pose.position = seam::Vector3{0.0f, 0.0f, 0.0f};
   return options;
 }
 
-class RecordingDiagnostics : public qar_ar_core::PanelDiagnosticsSink
+class RecordingDiagnostics : public seam::PanelDiagnosticsSink
 {
 public:
   struct Entry
@@ -177,14 +179,14 @@ struct Harness
     }
   }
 
-  qar_ar_core::PanelStreamDiagnostics panel(const std::string & key) const
+  seam::PanelStreamDiagnostics panel(const std::string & key) const
   {
     for (const auto & entry : manager->diagnostics().panels) {
       if (entry.key == key) {
         return entry;
       }
     }
-    return qar_ar_core::PanelStreamDiagnostics{};
+    return seam::PanelStreamDiagnostics{};
   }
 
   std::shared_ptr<MockQarPanelSenderAdapter> adapter(const std::string & key) const

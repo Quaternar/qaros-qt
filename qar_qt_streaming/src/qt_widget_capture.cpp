@@ -8,8 +8,10 @@
 
 #include <QApplication>
 #include <QColor>
+#include <QGraphicsEffect>
 #include <QPainter>
 #include <QPoint>
+#include <QPointer>
 #include <QRect>
 #include <QRegion>
 #include <QSize>
@@ -48,6 +50,41 @@ hash_bytes(const std::uint8_t * data, std::size_t size, std::uint64_t seed)
   }
   return hash;
 }
+
+/// Switches the graphics effect of a widget off for one scope and back on at the end.
+///
+/// `QWidget::render()` of a window that carries an ENABLED graphics effect draws nothing,
+/// so a popup (or panel) with such an effect would reach the AR image as an empty
+/// rectangle. Qt's windows11 style gives every combo box list and menu a drop shadow
+/// effect, and an application may set one itself. The effect is decoration of the desktop
+/// window, so the capture draws the widget without it. The effect object and its settings
+/// stay as they were: only its enabled flag is toggled, and only when it was enabled.
+class EffectSuspension
+{
+public:
+  explicit EffectSuspension(QWidget * widget)
+  : effect_(widget != nullptr ? widget->graphicsEffect() : nullptr)
+  {
+    suspended_ = effect_ != nullptr && effect_->isEnabled();
+    if (suspended_) {
+      effect_->setEnabled(false);
+    }
+  }
+
+  ~EffectSuspension()
+  {
+    if (suspended_ && !effect_.isNull()) {
+      effect_->setEnabled(true);
+    }
+  }
+
+  EffectSuspension(const EffectSuspension &) = delete;
+  EffectSuspension & operator=(const EffectSuspension &) = delete;
+
+private:
+  QPointer<QGraphicsEffect> effect_;
+  bool suspended_ = false;
+};
 
 /// Is @p widget one of the window kinds that paints outside its parent?
 ///
@@ -406,7 +443,7 @@ collect_panel_overlays(QWidget * root, PanelOverlayOptions options)
   // applies when dialogs are NOT wanted — Qt publishes no equivalent "is any
   // dialog open" predicate that also covers modeless ones.
   if (!options.dialogs) {
-    const bool popup_open = options.popups && QApplication::activePopupWidget() != nullptr;
+    const bool popup_open = options.popups && active_popup_widget() != nullptr;
     const bool tooltip_open = options.tooltips && QToolTip::isVisible();
     if (!popup_open && !tooltip_open) {
       return overlays;
@@ -620,9 +657,13 @@ QtWidgetCapture::capture(
   // else. Report it so the operator sees a reason for a blank AR panel.
   widget_visible_ = widget_->isVisible();
 
-  widget_->render(
-    &image_, QPoint(), QRegion(),
-    QWidget::DrawWindowBackground | QWidget::DrawChildren);
+  {
+    // A panel whose top-level carries a graphics effect would render empty.
+    const EffectSuspension without_effect(widget_);
+    widget_->render(
+      &image_, QPoint(), QRegion(),
+      QWidget::DrawWindowBackground | QWidget::DrawChildren);
+  }
 
   // Region substitution (variant b) BEFORE popups: a combo list or menu opened
   // over an embedded native-window container must still end up on top of the
@@ -759,9 +800,12 @@ QtWidgetCapture::composite_owned_popups(
     // geometry across the whole device-pixel scratch.
     popup_image_.setDevicePixelRatio(ratio);
     popup_image_.fill(Qt::transparent);
-    popup->render(
-      &popup_image_, QPoint(), QRegion(),
-      QWidget::DrawWindowBackground | QWidget::DrawChildren);
+    {
+      const EffectSuspension without_effect(popup);
+      popup->render(
+        &popup_image_, QPoint(), QRegion(),
+        QWidget::DrawWindowBackground | QWidget::DrawChildren);
+    }
 
     // The scratch now holds DEVICE pixels and the blit below is 1:1, so drop the
     // ratio first or QPainter would helpfully scale it back down again.
@@ -885,10 +929,10 @@ QtWidgetCapture::composite_region_sources(
   return hash;
 }
 
-qar_ar_core::PanelPixels
+seam::PanelPixels
 QtWidgetCapture::pixels() const
 {
-  qar_ar_core::PanelPixels out;
+  seam::PanelPixels out;
   if (image_.isNull()) {
     return out;
   }

@@ -24,7 +24,7 @@ enum class PanelCloseMode
   /// **The default.** Close the QarOS GUI panel AND destroy its video sender, then
   /// forget the stream entirely. Re-opening the window later is an ordinary fresh
   /// add: a new GUI panel on a new sender. The teardown order is the adapter's
-  /// (IQarPanelSenderAdapter::close): input subscriptions first, then the panel,
+  /// (IPanelSender::close): input subscriptions first, then the panel,
   /// then the sender it consumed.
   ///
   /// The current QarOS runtime survives destroying a stream mid-session, so

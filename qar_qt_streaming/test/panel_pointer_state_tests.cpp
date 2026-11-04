@@ -12,11 +12,13 @@
 #include <string>
 #include <vector>
 
+namespace seam = qar_qt_streaming::seam;
+
 using qar_qt_streaming::PanelPointerStateMachine;
 using qar_qt_streaming::PointerAction;
 using qar_qt_streaming::PointerActionKind;
-using qar_ar_core::PointerGesture;
-using qar_ar_core::PointerPhase;
+using qar_qt_streaming::seam::PointerGesture;
+using qar_qt_streaming::seam::PointerPhase;
 using qar_qt_streaming::PointerStateConfig;
 using qar_qt_streaming::ResolvedPointerSample;
 
@@ -407,6 +409,6 @@ TEST(PointerActionKind, HasNames)
 {
   EXPECT_STREQ(qar_qt_streaming::to_string(K::Press), "Press");
   EXPECT_STREQ(qar_qt_streaming::to_string(K::Cancel), "Cancel");
-  EXPECT_STREQ(qar_ar_core::to_string(PointerPhase::Instant), "Instant");
-  EXPECT_STREQ(qar_ar_core::to_string(PointerGesture::Hover), "Hover");
+  EXPECT_STREQ(seam::to_string(PointerPhase::Instant), "Instant");
+  EXPECT_STREQ(seam::to_string(PointerGesture::Hover), "Hover");
 }

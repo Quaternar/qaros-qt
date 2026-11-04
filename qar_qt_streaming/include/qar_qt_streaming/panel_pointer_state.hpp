@@ -33,10 +33,10 @@
 ///   * **Multiple pointers** — every pointer id has its own state; two hands
 ///     can hover two panels or press the same one.
 ///
-/// Phases follow `QarGesturePhase` exactly (see panel_input_source.hpp), so
+/// Phases follow `QarGesturePhase` exactly (see pointer_input.hpp), so
 /// the app-volume API and the per-panel API feed the same transitions.
 
-#include "qar_ar_core/panel_input_source.hpp"
+#include "qar_qt_streaming/seam/pointer_input.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -63,12 +63,12 @@ struct PointerTarget
 struct ResolvedPointerSample
 {
   std::uint32_t pointer_id = 0;
-  qar_ar_core::PointerGesture gesture = qar_ar_core::PointerGesture::Hover;
-  qar_ar_core::PointerPhase phase = qar_ar_core::PointerPhase::Updated;
+  seam::PointerGesture gesture = seam::PointerGesture::Hover;
+  seam::PointerPhase phase = seam::PointerPhase::Updated;
   double timestamp_s = 0.0;
   /// Carried through from the seam (PanelPointerSample::hand) so a consumer can
   /// tell two hands apart; the machine itself keys on pointer_id.
-  qar_ar_core::PointerHand hand = qar_ar_core::PointerHand::Unknown;
+  seam::PointerHand hand = seam::PointerHand::Unknown;
   /// Native tap count, 0 when the source does not count taps. See
   /// PanelPointerSample::tap_count.
   std::uint8_t tap_count = 0;
@@ -106,7 +106,7 @@ struct PointerAction
   std::uint32_t click_count = 1;
   /// Which hand produced it, when known. Purely informational downstream: Qt
   /// has one mouse, so the injector ignores it and a diagnostics panel does not.
-  qar_ar_core::PointerHand hand = qar_ar_core::PointerHand::Unknown;
+  seam::PointerHand hand = seam::PointerHand::Unknown;
 };
 
 /// @brief Tunables. Defaults are Qt's own desktop defaults, so a pure test
@@ -214,10 +214,10 @@ private:
   void abandon_press(Pointer & p, std::uint32_t id, double t, std::vector<PointerAction> & out);
   void drop(const char * reason);
 
-  void emit(
+  void append_action(
     std::vector<PointerAction> & out, PointerActionKind kind, std::uint32_t id,
     const std::string & key, double x, double y, bool inside, double t,
-    std::uint32_t click_count = 1, qar_ar_core::PointerHand hand = qar_ar_core::PointerHand::Unknown);
+    std::uint32_t click_count = 1, seam::PointerHand hand = seam::PointerHand::Unknown);
 
   PointerStateConfig config_;
   std::map<std::uint32_t, Pointer> pointers_;

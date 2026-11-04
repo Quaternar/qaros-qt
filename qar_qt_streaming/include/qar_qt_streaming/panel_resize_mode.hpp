@@ -20,7 +20,7 @@ namespace qar_qt_streaming
 enum class PanelResizeMode
 {
   /// **The default.** The QarOS panel stays; its video sender is released
-  /// (IQarPanelSenderAdapter::detach) and a new sender of the new size is attached to the SAME
+  /// (IPanelSender::detach) and a new sender of the new size is attached to the SAME
   /// panel, which keeps its common name. Used for a sender that can detach; a sender that cannot
   /// takes the NewPanel path.
   Swap,

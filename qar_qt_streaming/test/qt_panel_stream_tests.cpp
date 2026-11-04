@@ -8,6 +8,7 @@
 #include <gtest/gtest.h>
 
 #include "qar_qt_streaming/offscreen_panel.hpp"
+#include "qar_qt_streaming/offscreen_popup_guard.hpp"
 #include "qar_qt_streaming/qt_panel_stream_manager.hpp"
 #include "qar_qt_streaming/test_support/mock_panel_sender.hpp"
 
@@ -24,16 +25,18 @@
 #include <string>
 #include <vector>
 
-using qar_ar_core::PanelPointerSample;
-using qar_ar_core::PointerGesture;
-using qar_ar_core::PointerPhase;
+namespace seam = qar_qt_streaming::seam;
+
+using qar_qt_streaming::seam::PanelPointerSample;
+using qar_qt_streaming::seam::PointerGesture;
+using qar_qt_streaming::seam::PointerPhase;
 using qar_qt_streaming::PanelFrame;
 using qar_qt_streaming::PanelPointerEvent;
 using qar_qt_streaming::PanelStreamOptions;
 using qar_qt_streaming::QtPanelStream;
 using qar_qt_streaming::QtPanelStreamingConfig;
 using qar_qt_streaming::QtPanelStreamManager;
-using qar_ar_core::Status;
+using qar_qt_streaming::seam::Status;
 using qar_qt_streaming::test_support::ManualClock;
 using qar_qt_streaming::test_support::MockQarPanelSenderFactory;
 using qar_qt_streaming::test_support::RecordingPanelInputSink;
@@ -398,8 +401,8 @@ TEST(PanelStreamHeight, TheHitPlacementOfADialogIsItsVideoInsideTheFrameToo)
   // The panel that is sent is 0.126 x 0.144 m and its video, 0.12 m wide, is 0.072 m tall: the
   // frame is the 0.066 m above it and the border of 0.003 m under it, and the fit margin of
   // 0.003 m, half of it above the video and half under it.
-  const qar_ar_core::PanelPlacement sent = stream.placement();
-  const qar_ar_core::PanelPlacement hit = stream.hit_placement();
+  const seam::PanelPlacement sent = stream.placement();
+  const seam::PanelPlacement hit = stream.hit_placement();
   EXPECT_NEAR(sent.size.width_meters, 0.126f, 1e-6f);
   EXPECT_NEAR(sent.size.height_meters, 0.144f, 1e-6f);
   EXPECT_NEAR(hit.size.width_meters, 0.12f, 1e-6f);
@@ -427,8 +430,8 @@ TEST(PanelStreamHeight, TheHitPlacementIsCentredUnderTheTitleBarWhenThePanelIsTa
 
   // The panel is 0.24 x 0.6 m; the video, 0.21 m wide, is 0.525 m tall, 0.012 m less than the
   // 0.537 m under the title bar. QarOS centres it there: 0.006 m of band above it and below it.
-  const qar_ar_core::PanelPlacement sent = stream.placement();
-  const qar_ar_core::PanelPlacement hit = stream.hit_placement();
+  const seam::PanelPlacement sent = stream.placement();
+  const seam::PanelPlacement hit = stream.hit_placement();
   EXPECT_NEAR(sent.size.height_meters, 0.6f, 1e-6f);
   EXPECT_NEAR(hit.size.height_meters, 0.525f, 1e-5f);
   EXPECT_NEAR(hit.pose.position.y, sent.pose.position.y - (0.063f + 0.006f), 1e-5f);
@@ -447,8 +450,8 @@ TEST(PanelStreamHeight, TheHitPlacementStartsAtTheLeftInsetOfThePanel)
   ASSERT_TRUE(stream.tick(0.0));
 
   // The video is 0.24 - 0.03 = 0.21 m wide and starts 0.02 m right of the left edge of the panel.
-  const qar_ar_core::PanelPlacement sent = stream.placement();
-  const qar_ar_core::PanelPlacement hit = stream.hit_placement();
+  const seam::PanelPlacement sent = stream.placement();
+  const seam::PanelPlacement hit = stream.hit_placement();
   EXPECT_NEAR(hit.size.width_meters, 0.21f, 1e-6f);
   // The pose is the top centre and +X runs to the viewer's left, so the left edge of the
   // rectangle is its centre plus half of its width, and it is 0.02 m from the left edge of the
@@ -477,8 +480,8 @@ TEST(PanelStreamHeight, TheHitPlacementStartsAtTheLeftEdgeOfThePanelWhenThePaddi
   ASSERT_EQ(desc.buffer_height, 122u);
   ASSERT_EQ(desc.content_width, 201u);
   ASSERT_EQ(desc.content_height, 121u);
-  const qar_ar_core::PanelPlacement sent = stream.placement();
-  const qar_ar_core::PanelPlacement hit = stream.hit_placement();
+  const seam::PanelPlacement sent = stream.placement();
+  const seam::PanelPlacement hit = stream.hit_placement();
   const float video_w_m = sent.size.width_meters - 0.006f;
   EXPECT_NEAR(hit.size.width_meters, video_w_m * 201.0f / 202.0f, 1e-6f);
   EXPECT_NEAR(hit.size.height_meters, video_w_m * 121.0f / 202.0f, 1e-6f);
@@ -514,13 +517,13 @@ TEST(PanelStreamHeight, TheHitPlacementMovesAlongTheTiltedPanelsOwnAxes)
     Fixture fixture;
     PanelStreamOptions options = options_no_pacing();
     options.ar_frame = c.frame;
-    options.placement.pose.orientation = QarQuaternion{0.0f, 0.0f, half_sqrt, half_sqrt};
-    options.placement.pose.position = QarVector3{1.0f, 2.0f, 3.0f};
+    options.placement.pose.orientation = seam::Quaternion{0.0f, 0.0f, half_sqrt, half_sqrt};
+    options.placement.pose.position = seam::Vector3{1.0f, 2.0f, 3.0f};
     auto factory = std::make_shared<MockQarPanelSenderFactory>();
     QtPanelStream stream("p", fixture.widget(), options, factory);
     ASSERT_TRUE(stream.tick(0.0)) << c.name;
 
-    const qar_ar_core::PanelPlacement hit = stream.hit_placement();
+    const seam::PanelPlacement hit = stream.hit_placement();
     EXPECT_NEAR(hit.pose.position.x, 1.0f + c.step_x_m, 1e-5f) << c.name;
     EXPECT_NEAR(hit.pose.position.y, 2.0f + c.step_y_m, 1e-5f) << c.name;
     EXPECT_NEAR(hit.pose.position.z, 3.0f, 1e-5f) << c.name;
@@ -537,14 +540,14 @@ TEST(PanelStreamHeight, TheHitPlacementOfATiltedDialogMovesAlongItsOwnVerticalAx
   // 0.144 m of video: a width of 0.24 * 0.104 / 0.144, with no horizontal part in the frame.
   options.ar_frame = PanelFrame{0.04, 0.0, 0.0, 0.0, 0.0};
   const float half_sqrt = 0.70710678f;
-  options.placement.pose.orientation = QarQuaternion{0.0f, 0.0f, half_sqrt, half_sqrt};
-  options.placement.pose.position = QarVector3{1.0f, 2.0f, 3.0f};
+  options.placement.pose.orientation = seam::Quaternion{0.0f, 0.0f, half_sqrt, half_sqrt};
+  options.placement.pose.position = seam::Vector3{1.0f, 2.0f, 3.0f};
   auto factory = std::make_shared<MockQarPanelSenderFactory>();
   QtPanelStream stream("dialog:Add", fixture.widget(), options, factory);
   ASSERT_TRUE(stream.tick(0.0));
 
   // The 0.04 m title bar down the panel: along the room's +X after the quarter turn.
-  const qar_ar_core::PanelPlacement hit = stream.hit_placement();
+  const seam::PanelPlacement hit = stream.hit_placement();
   EXPECT_NEAR(stream.placement().size.width_meters, 0.24f * 0.104f / 0.144f, 1e-5f);
   EXPECT_NEAR(hit.pose.position.x, 1.0f + 0.04f, 1e-5f);
   EXPECT_NEAR(hit.pose.position.y, 2.0f, 1e-5f);
@@ -874,17 +877,17 @@ TEST(PanelStream, TheNotReadyStreakIsAlsoCountedByTheCauseTheSenderGives)
   options.keepalive_seconds = 1.0;
   QtPanelStream stream("panel", fixture.widget(), options, factory);
   ASSERT_TRUE(stream.tick(0.0));
-  EXPECT_EQ(qar_ar_core::not_ready_split_text(stream.diagnostics()), "0/0/0");
+  EXPECT_EQ(seam::not_ready_split_text(stream.diagnostics()), "0/0/0");
 
   factory->latest()->set_ready(false);
   for (int i = 1; i <= 2; ++i) {
     EXPECT_FALSE(stream.tick(static_cast<double>(i)));
   }
-  factory->latest()->set_not_ready_cause(qar_ar_core::PanelNotReadyCause::NoActiveTransfers);
+  factory->latest()->set_not_ready_cause(seam::PanelNotReadyCause::NoActiveTransfers);
   for (int i = 3; i <= 5; ++i) {
     EXPECT_FALSE(stream.tick(static_cast<double>(i)));
   }
-  factory->latest()->set_not_ready_cause(qar_ar_core::PanelNotReadyCause::Reconnecting);
+  factory->latest()->set_not_ready_cause(seam::PanelNotReadyCause::Reconnecting);
   EXPECT_FALSE(stream.tick(6.0));
 
   const auto & d = stream.diagnostics();
@@ -892,12 +895,12 @@ TEST(PanelStream, TheNotReadyStreakIsAlsoCountedByTheCauseTheSenderGives)
   EXPECT_EQ(d.not_ready_streak_no_destination, 2u) << "the default cause";
   EXPECT_EQ(d.not_ready_streak_no_transfers, 3u);
   EXPECT_EQ(d.not_ready_streak_reconnecting, 1u);
-  EXPECT_EQ(qar_ar_core::not_ready_split_text(d), "2/3/1");
+  EXPECT_EQ(seam::not_ready_split_text(d), "2/3/1");
 
   factory->latest()->set_ready(true);
   EXPECT_TRUE(stream.tick(10.0));
   EXPECT_EQ(stream.diagnostics().not_ready_streak, 0u);
-  EXPECT_EQ(qar_ar_core::not_ready_split_text(stream.diagnostics()), "0/0/0")
+  EXPECT_EQ(seam::not_ready_split_text(stream.diagnostics()), "0/0/0")
     << "a frame that lands ends the streak and every count of it";
 }
 
@@ -911,12 +914,12 @@ TEST(PanelStream, ANotReadyTickCountsOnlyForTheCauseOfThatTick)
   ASSERT_TRUE(stream.tick(0.0));
   factory->latest()->set_ready(false);
 
-  factory->latest()->set_not_ready_cause(qar_ar_core::PanelNotReadyCause::Reconnecting);
+  factory->latest()->set_not_ready_cause(seam::PanelNotReadyCause::Reconnecting);
   EXPECT_FALSE(stream.tick(1.0));
-  EXPECT_EQ(qar_ar_core::not_ready_split_text(stream.diagnostics()), "0/0/1");
-  factory->latest()->set_not_ready_cause(qar_ar_core::PanelNotReadyCause::NoActiveTransfers);
+  EXPECT_EQ(seam::not_ready_split_text(stream.diagnostics()), "0/0/1");
+  factory->latest()->set_not_ready_cause(seam::PanelNotReadyCause::NoActiveTransfers);
   EXPECT_FALSE(stream.tick(2.0));
-  EXPECT_EQ(qar_ar_core::not_ready_split_text(stream.diagnostics()), "0/1/1")
+  EXPECT_EQ(seam::not_ready_split_text(stream.diagnostics()), "0/1/1")
     << "the earlier tick keeps its count, the new one goes to its own cause";
 }
 
@@ -969,15 +972,15 @@ TEST(PanelStream, ClosingReturnsWhatTheAdapterDidAndNothingTheSecondTime)
   QtPanelStream stream("panel", fixture.widget(), options_no_pacing(), factory);
   ASSERT_TRUE(stream.tick(0.0));
 
-  const qar_ar_core::PanelCloseReport first = stream.close();
+  const seam::PanelCloseReport first = stream.close();
   EXPECT_TRUE(first.input_unsubscribed);
-  EXPECT_EQ(first.panel, qar_ar_core::PanelCloseOutcome::Closed);
+  EXPECT_EQ(first.panel, seam::PanelCloseOutcome::Closed);
   EXPECT_TRUE(first.sender_destroyed);
   EXPECT_FALSE(factory->latest()->last_close_panel_closed_in_ar());
 
-  const qar_ar_core::PanelCloseReport second = stream.close();
+  const seam::PanelCloseReport second = stream.close();
   EXPECT_FALSE(second.input_unsubscribed);
-  EXPECT_EQ(second.panel, qar_ar_core::PanelCloseOutcome::NoPanel);
+  EXPECT_EQ(second.panel, seam::PanelCloseOutcome::NoPanel);
   EXPECT_FALSE(second.sender_destroyed);
   EXPECT_EQ(factory->latest()->sender_destroy_calls(), 1u);
 }
@@ -990,10 +993,10 @@ TEST(PanelStream, ClosingAStreamTheOperatorClosedInArTellsTheAdapterToSkipCloseP
   ASSERT_TRUE(stream.tick(0.0));
 
   stream.suspend_capture();  // what the manager does when the runtime reports CLOSED
-  const qar_ar_core::PanelCloseReport report = stream.close();
+  const seam::PanelCloseReport report = stream.close();
 
   EXPECT_TRUE(factory->latest()->last_close_panel_closed_in_ar());
-  EXPECT_EQ(report.panel, qar_ar_core::PanelCloseOutcome::AlreadyClosedInAr);
+  EXPECT_EQ(report.panel, seam::PanelCloseOutcome::AlreadyClosedInAr);
   EXPECT_EQ(factory->latest()->close_panel_calls(), 0u);
   EXPECT_TRUE(report.sender_destroyed);
 }
@@ -1029,9 +1032,9 @@ TEST(PanelStream, SetPoseIsForwardedToTheLiveSender)
   QtPanelStream stream("panel", fixture.widget(), options_no_pacing(), factory);
   ASSERT_TRUE(stream.tick(0.0));
 
-  QarPose pose{};
-  pose.orientation = QarQuaternion{0.0f, 0.0f, 0.0f, 1.0f};
-  pose.position = QarVector3{1.0f, 2.0f, 3.0f};
+  seam::Pose pose{};
+  pose.orientation = seam::Quaternion{0.0f, 0.0f, 0.0f, 1.0f};
+  pose.position = seam::Vector3{1.0f, 2.0f, 3.0f};
   stream.set_pose(pose);
 
   EXPECT_EQ(factory->latest()->placement_calls(), 1u);
@@ -1227,9 +1230,9 @@ TEST(PanelManager, SetPanelPoseTargetsTheNamedPanel)
   ASSERT_TRUE(manager.add_panel("p", fixture.widget(), options_no_pacing()).ok());
   manager.tick();
 
-  QarPose pose{};
-  pose.orientation = QarQuaternion{0.0f, 0.0f, 0.0f, 1.0f};
-  pose.position = QarVector3{0.0f, 1.5f, -2.0f};
+  seam::Pose pose{};
+  pose.orientation = seam::Quaternion{0.0f, 0.0f, 0.0f, 1.0f};
+  pose.position = seam::Vector3{0.0f, 1.5f, -2.0f};
   EXPECT_TRUE(manager.set_panel_pose("p", pose).ok());
   EXPECT_EQ(manager.set_panel_pose("missing", pose).status, Status::NotFound);
   EXPECT_FLOAT_EQ(factory->latest()->placement().pose.position.y, 1.5f);
@@ -1260,7 +1263,7 @@ TEST(PanelManager, RoutesARoomPointToThePanelPixelUnderIt)
   }
   ASSERT_GT(panel_height_m, static_cast<float>(config.ar_frame.vertical_m()));
   EXPECT_TRUE(manager.route_room_point(
-      QarVector3{0.0f, -0.5f * panel_height_m, 0.0f}, PanelPointerEvent::Kind::Click));
+      seam::Vector3{0.0f, -0.5f * panel_height_m, 0.0f}, PanelPointerEvent::Kind::Click));
   ASSERT_EQ(sink.events().size(), 1u);
   EXPECT_EQ(sink.events()[0].panel_key, "p");
   EXPECT_EQ(sink.events()[0].kind, PanelPointerEvent::Kind::Click);
@@ -1270,15 +1273,15 @@ TEST(PanelManager, RoutesARoomPointToThePanelPixelUnderIt)
   // A point in the band above the widget and one in the band below it hit nothing. The widget
   // spans 0.144 m, from 0.03 m under the panel's top edge to 0.174 m under it.
   EXPECT_FALSE(manager.route_room_point(
-      QarVector3{0.0f, -0.015f, 0.0f}, PanelPointerEvent::Kind::Click));
+      seam::Vector3{0.0f, -0.015f, 0.0f}, PanelPointerEvent::Kind::Click));
   EXPECT_FALSE(manager.route_room_point(
-      QarVector3{0.0f, -0.189f, 0.0f}, PanelPointerEvent::Kind::Click));
+      seam::Vector3{0.0f, -0.189f, 0.0f}, PanelPointerEvent::Kind::Click));
   EXPECT_EQ(sink.events().size(), 1u);
   // ...and the points just inside the two edges of the widget land on its first and last row.
   EXPECT_TRUE(manager.route_room_point(
-      QarVector3{0.0f, -0.0305f, 0.0f}, PanelPointerEvent::Kind::Click));
+      seam::Vector3{0.0f, -0.0305f, 0.0f}, PanelPointerEvent::Kind::Click));
   EXPECT_TRUE(manager.route_room_point(
-      QarVector3{0.0f, -0.1735f, 0.0f}, PanelPointerEvent::Kind::Click));
+      seam::Vector3{0.0f, -0.1735f, 0.0f}, PanelPointerEvent::Kind::Click));
   ASSERT_EQ(sink.events().size(), 3u);
   EXPECT_EQ(sink.events()[1].widget_y, 0);
   EXPECT_EQ(sink.events()[2].widget_y, 119);
@@ -1318,7 +1321,7 @@ TEST(PanelManager, APointInThePaddingStripOrBesideThePanelHitsNothing)
     // the panel's height is inside the widget.
     const auto route = [&](float from_left_edge_m) {
         return manager.route_room_point(
-          QarVector3{0.5f * width_m - from_left_edge_m, -0.5f * height_m, 0.0f},
+          seam::Vector3{0.5f * width_m - from_left_edge_m, -0.5f * height_m, 0.0f},
           PanelPointerEvent::Kind::Click);
       };
     EXPECT_TRUE(route(0.5f * column_m)) << dialog;
@@ -1415,7 +1418,7 @@ TEST(PanelManager, ARoomPointThatMissesEveryPanelNotifiesNobody)
   ASSERT_TRUE(manager.add_panel("p", fixture.widget(), options_no_pacing()).ok());
   manager.tick();
 
-  EXPECT_FALSE(manager.route_room_point(QarVector3{9.0f, 0.0f, 0.0f}, PanelPointerEvent::Kind::Hover));
+  EXPECT_FALSE(manager.route_room_point(seam::Vector3{9.0f, 0.0f, 0.0f}, PanelPointerEvent::Kind::Hover));
   EXPECT_TRUE(sink.events().empty());
 }
 
@@ -1440,7 +1443,7 @@ TEST(PanelManager, RoutesARoomRayThroughTheSameSeam)
   }
   ASSERT_GT(panel_height_m, 0.0f);
   EXPECT_TRUE(manager.route_room_ray(
-      QarVector3{0.0f, -0.5f * panel_height_m, 1.0f}, QarVector3{0.0f, 0.0f, -1.0f},
+      seam::Vector3{0.0f, -0.5f * panel_height_m, 1.0f}, seam::Vector3{0.0f, 0.0f, -1.0f},
       PanelPointerEvent::Kind::Click));
   ASSERT_EQ(sink.events().size(), 1u);
   EXPECT_EQ(sink.events()[0].widget_x, 100);
@@ -1448,7 +1451,8 @@ TEST(PanelManager, RoutesARoomRayThroughTheSameSeam)
   // The ray through the pose, on the top edge of the panel, meets the band of the frame above the
   // widget and lands on no pixel.
   EXPECT_FALSE(manager.route_room_ray(
-      QarVector3{0.0f, 0.0f, 1.0f}, QarVector3{0.0f, 0.0f, -1.0f}, PanelPointerEvent::Kind::Click));
+      seam::Vector3{0.0f, 0.0f, 1.0f}, seam::Vector3{0.0f, 0.0f, -1.0f},
+      PanelPointerEvent::Kind::Click));
   EXPECT_EQ(sink.events().size(), 1u);
 }
 
@@ -1466,7 +1470,7 @@ TEST(PanelManager, RoutingWithoutASinkIsSafe)
   }
   ASSERT_GT(panel_height_m, 0.0f);
   EXPECT_TRUE(manager.route_room_point(
-      QarVector3{0.0f, -0.5f * panel_height_m, 0.0f}, PanelPointerEvent::Kind::Click));
+      seam::Vector3{0.0f, -0.5f * panel_height_m, 0.0f}, PanelPointerEvent::Kind::Click));
 }
 
 
@@ -1483,19 +1487,19 @@ TEST(PanelManager, RoutingWithoutASinkIsSafe)
 namespace
 {
 
-class RecordingDiagnostics : public qar_ar_core::PanelDiagnosticsSink
+class RecordingDiagnostics : public seam::PanelDiagnosticsSink
 {
 public:
   struct Entry
   {
-    qar_ar_core::DiagnosticSeverity severity;
+    seam::DiagnosticSeverity severity;
     std::string category;
     std::string message;
     std::string panel_key;
   };
 
   void on_message(
-    qar_ar_core::DiagnosticSeverity severity,
+    seam::DiagnosticSeverity severity,
     const std::string & category,
     const std::string & message,
     const std::string & panel_key) override
@@ -1614,7 +1618,7 @@ TEST(PanelManager, WarnsOnceWhenAPanelHasHeldASenderWithoutServingIt)
   manager.tick();
   const auto * warning = diagnostics.find("is not being served");
   ASSERT_NE(warning, nullptr);
-  EXPECT_EQ(warning->severity, qar_ar_core::DiagnosticSeverity::Warning);
+  EXPECT_EQ(warning->severity, seam::DiagnosticSeverity::Warning);
   EXPECT_EQ(warning->panel_key, "p");
   // The stream the headset is asking for has to be IN the line, or it cannot be
   // matched to the runtime's streamRequest/<id> traffic.
@@ -1648,7 +1652,7 @@ TEST(PanelManager, RetiringAPanelThatNeverServedAFrameIsAWarningNamingTheStream)
 
   const auto * retired = diagnostics.find("having served it NO frames");
   ASSERT_NE(retired, nullptr);
-  EXPECT_EQ(retired->severity, qar_ar_core::DiagnosticSeverity::Warning);
+  EXPECT_EQ(retired->severity, seam::DiagnosticSeverity::Warning);
   EXPECT_NE(retired->message.find(stream_id), std::string::npos);
 }
 
@@ -1674,7 +1678,7 @@ TEST(PanelManager, RetiringAPanelThatDidServeReportsTheFrameCountAndStream)
   // served nothing.
   const auto * closed = diagnostics.find("closed 'p'");
   ASSERT_NE(closed, nullptr);
-  EXPECT_EQ(closed->severity, qar_ar_core::DiagnosticSeverity::Info);
+  EXPECT_EQ(closed->severity, seam::DiagnosticSeverity::Info);
   EXPECT_NE(closed->message.find(stream_id), std::string::npos);
   EXPECT_NE(closed->message.find("after 1 frame(s)"), std::string::npos);
   EXPECT_EQ(diagnostics.count("having served it NO frames"), 0u);
@@ -1703,7 +1707,7 @@ TEST(PanelManager, TombstoningAPanelInNoticeModeReportsTheFrameCountAndStream)
   // of frames that stream actually carried.
   const auto * retired = diagnostics.find("has closed after");
   ASSERT_NE(retired, nullptr);
-  EXPECT_EQ(retired->severity, qar_ar_core::DiagnosticSeverity::Info);
+  EXPECT_EQ(retired->severity, seam::DiagnosticSeverity::Info);
   EXPECT_NE(retired->message.find(stream_id), std::string::npos);
   EXPECT_NE(retired->message.find("1 frame(s)"), std::string::npos);
   EXPECT_EQ(diagnostics.count("having served it NO frames"), 0u);
@@ -1769,13 +1773,13 @@ TEST(QtPanelStreamManager, APopupOpeningAndClosingIsLoggedOnceEach)
   sample.v = 34.0f / 200.0f;
   ASSERT_TRUE(manager.handle_sample(sample));
   QCoreApplication::processEvents();
-  ASSERT_NE(QApplication::activePopupWidget(), nullptr) << "the AR tap did not open the list";
+  ASSERT_NE(qar_qt_streaming::active_popup_widget(), nullptr) << "the AR tap did not open the list";
 
   manager.tick();
   ASSERT_EQ(diagnostics.count("popup open over this panel"), 1u);
   const auto * opened = diagnostics.find("popup open over this panel");
   ASSERT_NE(opened, nullptr);
-  EXPECT_EQ(opened->severity, qar_ar_core::DiagnosticSeverity::Info);
+  EXPECT_EQ(opened->severity, seam::DiagnosticSeverity::Info);
   EXPECT_EQ(opened->panel_key, "off");
   EXPECT_NE(opened->message.find("kept off the desktop"), std::string::npos) << opened->message;
 

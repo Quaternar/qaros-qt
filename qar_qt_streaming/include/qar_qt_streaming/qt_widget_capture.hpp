@@ -66,7 +66,7 @@
 /// A popup or a dialog is at least a `QWidget` Qt can be asked to render
 /// somewhere; a widget embedded with `QWidget::createWindowContainer()` is
 /// not. That call wraps a **native platform window** so it can sit inside a
-/// Qt layout — a host such as an RViz plugin does exactly this to embed the
+/// Qt layout — a host application can do exactly this to embed the
 /// window of its 3D renderer, and so does any camera or image display built the
 /// same way. `QWidget::render()`
 /// walks the Qt widget tree and paints each child's own `paintEvent`; a
@@ -83,7 +83,7 @@
 /// runs in the per-tick pipeline and why the order matters.
 
 #include "qar_qt_streaming/latest_video_frame.hpp"
-#include "qar_ar_core/panel_types.hpp"
+#include "qar_qt_streaming/seam/panel_types.hpp"
 
 #include <QImage>
 #include <QPoint>
@@ -430,7 +430,7 @@ public:
 
   /// @brief The most recent captured frame, borrowed. Valid until the next
   /// @ref capture or destruction.
-  qar_ar_core::PanelPixels pixels() const;
+  seam::PanelPixels pixels() const;
 
   /// @brief Wall time the most recent @ref capture took, in milliseconds.
   double last_capture_ms() const { return last_capture_ms_; }

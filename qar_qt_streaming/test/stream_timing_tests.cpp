@@ -5,16 +5,12 @@
 // trace a decoded frame carries through LatestVideoFrame, and the row QtPanelStream writes
 // for every capture tick of a video panel. The analyser (analyze_video_timing.py in
 // qar_rviz_plugin) reads exactly these columns, so the tests pin the formats.
-//
-// Include order note: qt_panel_stream_manager.hpp declares a method literally named `emit`,
-// which only parses before any real Qt header has defined Qt's `emit` macro (see the note in
-// qt_panel_stream.hpp), so the project headers come first and plain Qt headers after.
 
 #include <gtest/gtest.h>
 
 #include "qar_qt_streaming/qt_panel_stream_manager.hpp"
 #include "qar_qt_streaming/test_support/mock_panel_sender.hpp"
-#include "qar_ar_core/timing_log.hpp"
+#include "qar_qt_streaming/seam/timing_log.hpp"
 #include "qar_qt_streaming/video_panel_widget.hpp"
 
 #include <QColor>
@@ -36,12 +32,14 @@
 #include <thread>
 #include <vector>
 
-using qar_ar_core::kTimingBlank;
+namespace seam = qar_qt_streaming::seam;
+
+using qar_qt_streaming::seam::kTimingBlank;
 using qar_qt_streaming::LatestVideoFrame;
 using qar_qt_streaming::PanelStreamOptions;
 using qar_qt_streaming::QtPanelStream;
-using qar_ar_core::TimingLog;
-using qar_ar_core::TimingSink;
+using qar_qt_streaming::seam::TimingLog;
+using qar_qt_streaming::seam::TimingSink;
 using qar_qt_streaming::VideoFrameTrace;
 using qar_qt_streaming::VideoPanelWidget;
 using qar_qt_streaming::test_support::MockQarPanelSenderFactory;
@@ -190,9 +188,9 @@ TEST(FrameTrace, PublishWithATraceStampsMailboxTimeInsideAndKeepsItWithTheFrame)
   LatestVideoFrame mailbox;
   EXPECT_FALSE(mailbox.latest_trace().valid);
 
-  const std::int64_t before = qar_ar_core::timing_epoch_us();
+  const std::int64_t before = seam::timing_epoch_us();
   mailbox.publish(solid_frame(Qt::red), make_trace(7));
-  const std::int64_t after = qar_ar_core::timing_epoch_us();
+  const std::int64_t after = seam::timing_epoch_us();
 
   const VideoFrameTrace trace = mailbox.latest_trace();
   ASSERT_TRUE(trace.valid);
@@ -321,7 +319,10 @@ TEST(StreamTiming, AnUnchangedFrameIsRecordedAsSuchAndAFramelessTraceLeavesBlank
 
   auto source = std::make_shared<LatestVideoFrame>();
   source->publish(solid_frame(Qt::red));   // no trace: timing was off when it was decoded
-  VideoPanelWidget widget(source, QStringLiteral("cam"));
+  // The caption strip carries the frame rate, which every publish changes. A platform that
+  // rasterizes glyphs would paint it differently for the second, byte-identical frame, so the
+  // widget is made too narrow to leave the caption any room.
+  VideoPanelWidget widget(source, QStringLiteral("cam"), 8);
   auto factory = std::make_shared<MockQarPanelSenderFactory>();
   QtPanelStream stream("video:/cam/image_raw", &widget, video_options(), factory);
 

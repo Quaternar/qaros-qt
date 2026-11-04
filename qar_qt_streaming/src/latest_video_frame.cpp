@@ -3,7 +3,7 @@
 
 #include "qar_qt_streaming/latest_video_frame.hpp"
 
-#include "qar_ar_core/timing_log.hpp"
+#include "qar_qt_streaming/seam/timing_log.hpp"
 
 #include <utility>
 
@@ -37,7 +37,7 @@ LatestVideoFrame::publish(QImage frame, VideoFrameTrace trace)
 
   latest_ = std::make_shared<const QImage>(std::move(frame));
   if (trace.valid) {
-    trace.mailbox_us = qar_ar_core::timing_epoch_us();  // visible to readers from here on
+    trace.mailbox_us = seam::timing_epoch_us();  // visible to readers from here on
   }
   latest_trace_ = trace;
   ++sequence_;
