@@ -5,7 +5,6 @@
 // The functions are compiled and linked and never run. Their parameters stand for what the host owns, so each one
 // is a pointer or a reference that the documentation names in its text.
 
-// The library headers come first: panel_pointer_state.hpp declares a method named emit(), which the emit macro of Qt breaks.
 #include "qar_qt_streaming/qt_panel_stream_manager.hpp"
 
 #include <QWidget>
@@ -16,11 +15,12 @@
 #include <string>
 
 namespace qqs = qar_qt_streaming;
+namespace seam = qar_qt_streaming::seam;
 
 std::unique_ptr<qqs::QtPanelStreamManager> snippet_manager_config(
-  std::shared_ptr<qar_ar_core::IQarPanelSenderFactory> factory,
-  std::shared_ptr<qar_ar_core::IQarPanelInputSource> input,
-  qar_ar_core::PanelDiagnosticsSink * sink, qqs::IQarPanelInputSink * input_sink)
+  std::shared_ptr<seam::IPanelSenderFactory> factory,
+  std::shared_ptr<seam::IPanelInputSource> input,
+  seam::PanelDiagnosticsSink * sink, qqs::IQarPanelInputSink * input_sink)
 {
   // [qar-snippet:manager_config]
   qqs::QtPanelStreamingConfig config;
@@ -46,18 +46,18 @@ void snippet_manager_use(qqs::QtPanelStreamManager * manager, QWidget * widget)
   // [qar-snippet:manager_use]
   qqs::PanelStreamOptions options;
   options.display_name = "Settings";                                  // the title that QarOS shows; the key when empty
-  options.placement.pose.position = QarVector3{0.0f, 1.5f, -1.0f};    // the top centre of the panel, in room space
+  options.placement.pose.position = seam::Vector3{0.0f, 1.5f, -1.0f};    // the top centre of the panel, in room space
 
-  const qar_ar_core::Result added = manager->add_panel("settings", widget, options);
+  const seam::Result added = manager->add_panel("settings", widget, options);
   if (!added.ok()) {
     // InvalidArgument: an empty key or a null widget. AlreadyExists: the key streams already.
     // InvalidState: the cap of the notice mode is reached.
-    std::printf("add_panel: %s: %s\n", qar_ar_core::to_string(added.status), added.message.c_str());
+    std::printf("add_panel: %s: %s\n", seam::to_string(added.status), added.message.c_str());
     return;
   }
 
   // Move the panel; its size always comes from the widget.
-  QarPose pose = options.placement.pose;
+  seam::Pose pose = options.placement.pose;
   pose.position.x = 0.5f;
   manager->set_panel_pose("settings", pose);
 
@@ -87,10 +87,10 @@ public:
 void snippet_diagnostics(qqs::QtPanelStreamManager * manager)
 {
   // [qar-snippet:diagnostics]
-  const qar_ar_core::PanelDiagnosticsSnapshot snapshot = manager->diagnostics();   // a copy, on the GUI thread
+  const seam::PanelDiagnosticsSnapshot snapshot = manager->diagnostics();   // a copy, on the GUI thread
   std::printf("%u panels, %u live, %llu closed\n", static_cast<unsigned>(snapshot.panel_count),
     static_cast<unsigned>(snapshot.live_panels), static_cast<unsigned long long>(snapshot.panels_closed));
-  for (const qar_ar_core::PanelStreamDiagnostics & panel : snapshot.panels) {
+  for (const seam::PanelStreamDiagnostics & panel : snapshot.panels) {
     std::printf("%s: %llu submitted, %llu unchanged, %llu not ready, %llu rebuilds, visible %d\n", panel.key.c_str(),
       static_cast<unsigned long long>(panel.frames_submitted),
       static_cast<unsigned long long>(panel.frames_skipped_unchanged),

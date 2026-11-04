@@ -4,7 +4,6 @@
 // Snippets of API.md for off-screen panels and for the close modes. The functions are compiled and linked and never
 // run; their parameters stand for what the host owns.
 
-// The library headers come first: panel_pointer_state.hpp declares a method named emit(), which the emit macro of Qt breaks.
 #include "qar_qt_streaming/offscreen_panel.hpp"
 #include "qar_qt_streaming/qt_panel_stream_manager.hpp"
 
@@ -37,9 +36,9 @@ void snippet_close_mode(const char * mode_text, qqs::QtPanelStreamingConfig & co
   // variable itself; kPanelCloseModeEnv only names the variable that a host may use for it.
   const qqs::PanelCloseModeChoice choice = qqs::parse_panel_close_mode(mode_text);
   if (!choice.warning.empty()) {
-    std::printf("%s\n", choice.warning.c_str());   // a word that is neither destroy nor notice
+    std::printf("%s\n", choice.warning.c_str());   // a word that is none of destroy, notice and park
   }
-  config.close_mode = choice.mode;                 // PanelCloseMode::Destroy or PanelCloseMode::Notice
+  config.close_mode = choice.mode;                 // PanelCloseMode::Destroy, Notice or Park
   std::printf("%s: %s (%s)\n", qqs::kPanelCloseModeEnv, qqs::to_string(choice.mode),
     choice.explicitly_chosen ? "chosen" : "default");
   // [qar-snippet-end:close_mode]
@@ -55,6 +54,6 @@ void snippet_close_calls(qqs::QtPanelStreamManager * manager)
     std::printf("%u panels show a notice\n", static_cast<unsigned>(manager->tombstoned_panel_keys().size()));
   }
   manager->note_ar_panel_closed("status");   // the operator closed the panel in AR; a source of input reports it for you
-  manager->clear();                          // end of the session: closes every panel that is still held, once
+  manager->clear();                          // end of the session: closes (destroy) or hides and detaches (notice, park) each held panel
   // [qar-snippet-end:close_calls]
 }

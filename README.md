@@ -1,10 +1,10 @@
 # qar_qt_streaming - Qt widgets as QarOS AR GUI panels
 
-qar_qt_streaming 0.1.0 turns Qt widgets into QarOS AR GUI panels. It draws a `QWidget` into a pixel buffer with the paint path of Qt, streams the picture to QarOS as the content of a GUI panel, and turns the gestures that QarOS reports on the panel into Qt events for the widget, so that a widget that works on the desktop works in AR. It is a C++17 static library for Windows 11 and MSVC that builds on Qt 5.15.2, delivered as the CMake package `qar_qt_streaming`, with an example, `qar_qt_panel_example`, that you can run.
+qar_qt_streaming 0.2.0 turns Qt widgets into QarOS AR GUI panels. It draws a `QWidget` into a pixel buffer with the paint path of Qt, streams the picture to QarOS as the content of a GUI panel, and turns the gestures that QarOS reports on the panel into Qt events for the widget, so that a widget that works on the desktop works in AR. It is a C++17 static library for Windows 11 and MSVC that builds on Qt 5.15 or Qt 6.5 and newer and on the headers of the QarOS C++ SDK, and it needs no ROS 2, no RViz and no Ogre. It is delivered as the CMake package `qar_qt_streaming`, with an example, `qar_qt_panel_example`, that you can run.
 
 ## TL;DR
 
-You need Windows 11, PowerShell 7, the toolchain, Qt, the ROS 2 distribution that provides Ogre (on Windows, the Humble binary distribution: [Installation](docs/INSTALL.md#ros-2-humble-for-windows)), the layout variables and the installed `qar_ogre_adapter` of [Installation](docs/INSTALL.md); the last step also needs QAROS installed ([The QarOS SDK](docs/INSTALL.md#the-qaros-sdk)). Then clone, build, test, install and run:
+You need Windows 11, PowerShell 7, Visual Studio 2019 or 2022 with the C++ tools, CMake 3.22 or newer and a Qt kit (Qt 5.15 or Qt 6.5 and newer) whose folder the environment variable `QAR_QT_ROOT` names; the layout variables and the steps to get there are in [Installation](docs/INSTALL.md). The QarOS SDK headers are part of the repository, so QAROS itself is needed only for the last step. Clone, build, test and install; for a Qt 6 kit use the preset `vs2022-x64` instead of `vs2019-x64`:
 
 ```powershell
 git clone https://github.com/Quaternar/qaros-qt "$env:QAR_ROOT\src\qar_qt_streaming"
@@ -15,7 +15,11 @@ ctest --preset vs2019-x64
 cmake --install build\vs2019-x64 --config RelWithDebInfo --prefix $env:QAR_PREFIX
 ```
 
-The tests end with the line 100% tests passed.
+The tests end with the line 100% tests passed. Your own CMake project then finds the installed package and links the libraries that it needs, `qar_qt_streaming::qar_qt_streaming` for the Qt core and `qar_qt_streaming::qaros` for the backend that talks to QarOS ([API reference](docs/API.md#linking-the-package) lists the targets and the other ways to use the sources):
+
+```cmake
+find_package(qar_qt_streaming 0.2.0 CONFIG REQUIRED)
+```
 
 To use QAROS, run the example. It joins the QAROS Hub of this PC as a source app: QAROS asks to allow the program once for each build of it (and again after a rebuild), so click Allow in the QAROS window. Then open a Visualizer from QAROS and add a receiver in it if it has none, and the example streams a window and a hidden panel to it. A Hub on another PC needs `--hub HOST:PORT --code CODE` instead of `--local`.
 
@@ -25,7 +29,7 @@ $env:QT_QPA_PLATFORM_PLUGIN_PATH = "$env:QAR_QT_ROOT\plugins\platforms"
 & .\build\vs2019-x64\examples\qt_panel_example\RelWithDebInfo\qar_qt_panel_example.exe --local --seconds 60
 ```
 
-The ten steps from a clean machine, with every output, are in [Quick start](docs/QUICKSTART.md); the details of each step are in the documents of the [Documentation](#documentation) table, and the web documentation at <https://docs.quaternar.com/> describes the stack in the context of QAROS: [Ogre and Qt in RViz](https://docs.quaternar.com/docs/next/developer-guide/ogre-qt-rviz/), [Qt AR panels](https://docs.quaternar.com/docs/next/developer-guide/qt-ar-panels/) and [SDK limits](https://docs.quaternar.com/docs/next/developer-guide/sdk-limits/).
+The steps from a clean machine, with every output, are in [Quick start](docs/QUICKSTART.md); the details of each step are in the documents of the [Documentation](#documentation) table, and the web documentation at <https://docs.quaternar.com/> describes the stack in the context of QAROS: [Ogre and Qt in RViz](https://docs.quaternar.com/docs/next/developer-guide/ogre-qt-rviz/), [Qt AR panels](https://docs.quaternar.com/docs/next/developer-guide/qt-ar-panels/) and [SDK limits](https://docs.quaternar.com/docs/next/developer-guide/sdk-limits/).
 
 ## Who this is for
 
@@ -33,7 +37,7 @@ This repository is for QuaternAR engineers who integrate with QarOS. It assumes 
 
 What it does explain, where it is used, is the part of the stack that is not QarOS:
 
-- Qt 5.15.2 widgets and how a widget is captured off screen and fed with input;
+- Qt 5.15.2 and Qt 6 widgets and how a widget is captured off screen and fed with input;
 - CMake and the Microsoft C++ toolchain, with the exact versions and the reason for each.
 
 Everything that is not QarOS is installed from a fresh Windows 11 machine, step by step, in the installation document.
@@ -41,8 +45,10 @@ Everything that is not QarOS is installed from a fresh Windows 11 machine, step 
 ## Features
 
 - **Any `QWidget` as a GUI panel.** The library draws the widget with `QWidget::render()` into an RGBA8888 buffer on the Qt GUI thread and sends a frame to QarOS only when the picture changed.
+- **Three layers, one dependency.** The values and interfaces of a panel (`seam`, the standard library only), the Qt core over them (`qar_qt_streaming`, Qt only) and the backend over the QarOS C++ SDK (`qaros`, no Qt) are three targets, so that a project takes the layers it needs.
+- **Qt 5.15 and Qt 6.5 and newer.** One source builds against both major versions of Qt, with C++17, C++20 and the latest language mode of the compiler (`/std:c++latest`) as the language standard of the project; [Testing](docs/TESTING.md#tested-configurations) lists the combinations that were built and tested.
 - **Panels sized for reading in AR.** A panel hangs in the room at 1.2 mm for each logical pixel of the widget, whatever the pixel density of the display, and the helpers of `ar_readability.hpp` derive a size and a render scale from a viewing distance.
-- **AR input as Qt events.** A tap, a drag or a hover that QarOS reports on a panel reaches the widget as Qt events, so that buttons, check boxes, sliders and combo boxes work; the unit tests cover drags and two hands, and no live session has run them.
+- **AR input as Qt events.** A tap, a drag or a hover that QarOS reports on a panel reaches the widget as Qt events, so that buttons, check boxes, sliders and combo boxes work; the unit tests cover drags and two hands. Live sessions on the desktop Visualizer showed taps, a combo list and resizing working in the Qt example with Qt 5.15 and Qt 6.8, and drags working on the RViz dock panels that `qar_rviz_plugin` streams through this library; no session with a headset has run this release.
 - **Popups, dialogs and resizing.** The popups of a panel are drawn into its picture, a dialog that a panel opens becomes a GUI panel of its own, and a widget of a new size gets a new video sender on the same QarOS panel.
 - **Closing, hiding and ending the session.** A closed window closes its AR panel, or with `QAR_PANEL_CLOSE_MODE` set to `notice` or `park` keeps it; `set_panel_ar_visible` hides and shows a panel without closing it; panels that are kept at the end of a session are hidden, and the next start finds each one again by its common name.
 - **Off-screen panels and video.** `show_offscreen` shows a top-level widget to Qt without a window ever reaching the desktop, and `VideoPanelWidget` paints the newest frame of a decoded video.
@@ -53,13 +59,13 @@ Each feature is described in [Feature details](docs/ARCHITECTURE.md#feature-deta
 
 ## Where this fits
 
-This repository is one of three that together stream an Ogre scene, Qt widgets, web pages and RViz into QarOS. Each repository has the version 0.1.0, and this documentation describes version 0.1.0 of all three: a repository asks for that version of the repositories it builds on, so the three have to be at matching versions. The table lists the three in the order in which they are installed: `qar_ogre_adapter` first, then `qar_qt_streaming`, then `qar_rviz_plugin`.
+This repository is one of three that together stream an Ogre scene, Qt widgets, web pages and RViz into QarOS. Each repository has the version 0.2.0, and this documentation describes version 0.2.0 of all three: a repository asks for that version of the repositories it builds on, so the three have to be at matching versions. The table lists the three in the order in which they are installed: `qar_ogre_adapter` and `qar_qt_streaming` are independent of each other, and `qar_rviz_plugin` comes last because it builds on both.
 
 | Repository | Version | What it provides | Depends on | Also needs |
 |---|---|---|---|---|
-| qar_ogre_adapter | 0.1.0 | The QarOS integration layer: renders an Ogre scene for each eye and streams it to QarOS; the adapter for the QarOS C API; the vendored C header | none | The ROS 2 distribution, for Ogre only |
-| **qar_qt_streaming** (this repository) | 0.1.0 | Qt widgets as QarOS AR GUI panels | qar_ogre_adapter | Qt 5.15.2 |
-| qar_rviz_plugin | 0.1.0 | The RViz2 plugin that streams RViz into QarOS, and web AR panels from a UI model and from the ROS 2 graph | qar_ogre_adapter, qar_qt_streaming | The ROS 2 distribution with its repairs, Qt 5.15.2, colcon |
+| qar_ogre_adapter | 0.2.0 | The QarOS integration layer: renders an Ogre scene for each eye and streams it to QarOS; the adapter for the QarOS C API; the vendored C header | none | The ROS 2 distribution, for Ogre only |
+| **qar_qt_streaming** (this repository) | 0.2.0 | Qt widgets as QarOS AR GUI panels, as a Qt library that needs no ROS 2, no RViz and no Ogre | none | Qt 5.15.2 or Qt 6.5 and newer, the QarOS C++ SDK headers (a copy is carried) |
+| qar_rviz_plugin | 0.2.0 | The RViz2 plugin that streams RViz into QarOS, and web AR panels from a UI model and from the ROS 2 graph | qar_ogre_adapter, qar_qt_streaming | The ROS 2 distribution with its repairs, Qt 5.15.2, colcon |
 
 The installation document of each repository installs the repositories it depends on, with the commands for each, so you can start from any of them.
 
@@ -85,9 +91,9 @@ The installation document of each repository installs the repositories it depend
 
 QAROS, which consists of `qar-streaming-c.dll`, `qar_streaming.dll`, the zenoh and GStreamer stacks, the Hub and the Visualizer `qar-streaming-viz.exe`, is QuaternAR's proprietary product and is not part of this repository. You obtain its setup program from QuaternAR and install it once on the PC. The crash reports of the Visualizer carry the name of a second program of the same installation, `qar-stereokit-gui.exe`.
 
-No part of QAROS is copied into this repository. The C header of the QarOS C API is vendored by the repository qar_ogre_adapter and installed with its libraries.
+This repository vendors the C header of the QarOS C API, `third_party/qar/include/qar_streaming.h`, with the MIT licence of the public QarOS repository in `third_party/qar/LICENSE`, and the headers of the QarOS C++ SDK in `third_party/qar_streaming_cpp`; the file `third_party/qar_streaming_cpp/README.md` names where they come from.
 
-You do not need QAROS to build this repository or to run its tests. Nothing links against QAROS: a program loads the installed library `qar-streaming-c.dll` at run time, and configuring this repository does not look at QAROS. You need QAROS to connect to it.
+You do not need QAROS to build this repository or to run its tests. Nothing links against QAROS: a program loads the installed library `qar-streaming-c.dll` at run time, and configuring this repository looks at the folder of `QAR_SDK_ROOT` only for the QarOS headers. You need QAROS to connect to it.
 
 A program finds the installed QAROS by itself: the installer records the install folder in the registry, and the library is loaded from there. How a program joins the Hub is described on the pages of QuaternAR: [Onboarding and sessions](https://docs.quaternar.com/docs/next/developer-guide/onboarding-and-sessions/).
 
@@ -96,6 +102,7 @@ This stack was verified against the installed QAROS 0.9.0-dev.3008+65dc9aeb; the
 ## Platform support
 
 The stack runs on Windows 11, 64-bit, and is built with the Microsoft C++ toolset v142 (Visual Studio 2019). It is run from a local desktop session. Linux is not built or tested.
+The Qt package is also built and tested with the toolset v143 (Visual Studio 2022) together with Qt 6.8.3 and 6.10.3.
 
 ## License
 
@@ -103,5 +110,5 @@ This repository is licensed under the MIT license; the text is in [LICENSE](LICE
 
 Third-party material in this repository:
 
-- This repository contains no third-party source files.
+- `third_party/qar` holds the QarOS C header and the MIT licence of the public QarOS repository, which publishes it; `third_party/qar_streaming_cpp` holds the headers of the QarOS C++ SDK; its README names the origin of both.
 - GoogleTest is downloaded when you configure, only for the tests; it is not part of this repository and is not installed with it.

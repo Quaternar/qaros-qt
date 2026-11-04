@@ -6,8 +6,7 @@ This page lists the problems that you may meet with this library, by what you se
 
 | Symptom | Section |
 |---|---|
-| The configure step stops because a folder is not set, or a package is not found | [The configure step cannot find Qt or qar_ogre_adapter](#the-configure-step-cannot-find-qt-or-qar_ogre_adapter) |
-| The compiler stops in `panel_pointer_state.hpp` at a method named `emit` | [The compiler stops at a method named emit](#the-compiler-stops-at-a-method-named-emit) |
+| The configure step stops because a folder is not set, or Qt or the QarOS headers are not found | [The configure step cannot find Qt or the QarOS headers](#the-configure-step-cannot-find-qt-or-the-qaros-headers) |
 | A path is too long, a script is refused, a command fails in Windows PowerShell, or a download fails | [Installation and build problems](#installation-and-build-problems) |
 | A Qt program cannot find its platform plugin | [A Qt program cannot find its platform plugin](#a-qt-program-cannot-find-its-platform-plugin) |
 | Creating a QarOS session fails, or the QarOS library crashes while it starts | [Run-time problems](#run-time-problems) |
@@ -39,11 +38,12 @@ This page lists the problems that you may meet with this library, by what you se
 
 ### A command of this documentation fails in Windows PowerShell
 
-**Symptom.** A command fails with a syntax error, or with an unknown command or parameter, in a window titled Windows PowerShell. **Cause.** Every command of this documentation was run in PowerShell 7 (`pwsh`); Windows PowerShell 5.1 is not what it was written and recorded for. **Fix.** Start `pwsh` and run the command there. The helper file `scripts\qar_locations.ps1` is the one script that states that it works in both editions.
+**Symptom.** A command fails with a syntax error, or with an unknown command or parameter, in a window titled Windows PowerShell. **Cause.** Every command of this documentation was run in PowerShell 7 (`pwsh`); Windows PowerShell 5.1 is not what it was written and recorded for. **Fix.** Start `pwsh` and run the command there.
 
 ### A download fails with a certificate error
 
-**Symptom.** `pip`, `aqt`, `git` or `winget` stops with a certificate verification error, or CMake cannot download GoogleTest. **Cause.** Your network inspects TLS traffic and re-signs it with a company certificate that these tools do not trust by themselves. On the reference machine behind such a network, the downloads of `scripts\fetch_dependencies.ps1` worked, because they use the Windows certificate store, while the tools below needed the following settings.
+**Symptom.** `pip`, `aqt`, `git` or `winget` stops with a certificate verification error, or CMake cannot download GoogleTest. **Cause.** Your network inspects TLS traffic and re-signs it with a company certificate that these tools do not trust by themselves.
+The tools below needed the following settings on a reference machine behind such a network.
 
 - `pip`: point it at a bundle that contains your company root certificate with its `--cert` option.
 - `aqt` and other Python programs: set the environment variables `SSL_CERT_FILE` and `REQUESTS_CA_BUNDLE` to the same bundle.
@@ -69,20 +69,15 @@ Set-Content -Path $bundle -Value $pem -Encoding ascii
 
 **Symptom.** `cmake --preset vs2019-x64` ends with a fatal error that says GoogleTest 1.14.0 is not available and names network access to GitHub. **Cause.** Every repository downloads GoogleTest 1.14.0 as an archive at configure time and checks its SHA256, `8ad598c73ad796e0d8280b082cebd82a630d73e73cd3c70057938a6501bba5d7`; without access to `github.com` the download fails. **Fix.** Download `https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz` on a machine that has access, check the SHA256, unpack it, and configure with `-DFETCHCONTENT_SOURCE_DIR_GOOGLETEST` set to the unpacked folder `googletest-1.14.0`.
 
-### The scripts cannot find Visual Studio 2019
 
-**Symptom.** A script stops because `vswhere` finds no Visual Studio 2019 with the C++ x64 build tools. **Cause.** Only a newer Visual Studio is installed, or the Build Tools were installed without the C++ workload and the MSVC component; the scripts accept only a 16.x installation. **Fix.** Install the components listed in [Toolchain](INSTALL.md#toolchain) and run its verify command; a newer Visual Studio next to it does no harm.
+### The configure step cannot find Qt or the QarOS headers
 
+**Symptom.** Configuring stops with a message that the Qt kit is not set, that a folder does not exist, or that the folder has no `Qt5Config.cmake` in lib/cmake/Qt5 or `Qt6Config.cmake` in lib/cmake/Qt6; or with a message that a QarOS header is not found, or that `QAR_STREAMING_CPP_INCLUDE_DIR` has no `qar_streaming_cpp/Config.hpp` and `qar_streaming.h`. **Cause.** The location of Qt comes from `-DQAR_QT_ROOT` or, when that is unset or empty, from the environment variable `QAR_QT_ROOT`, and the folder has to contain the CMake configuration file of the major version of Qt that you build with. The QarOS headers come from the `include` folder of `QAR_STREAMING_CPP_INCLUDE_DIR` or of `QAR_SDK_ROOT` when it holds both files, and from `third_party` otherwise, so a message about a missing header means that a folder you named lacks them or that `third_party` is absent.
+**Fix.** Set `QAR_QT_ROOT` as [Installation](INSTALL.md#directory-layout-and-environment-variables) says, and name a QarOS header folder that holds both files or leave `QAR_STREAMING_CPP_INCLUDE_DIR` unset.
 
-### The configure step cannot find Qt or qar_ogre_adapter
+### The linker reports a mismatch of QAR_ENABLE_DYNAMIC_LOADING
 
-**Symptom.** Configuring stops with a message that Qt 5.15.2 is not set, that a folder does not exist, or that the folder has no `Qt5Config.cmake` in its subfolder lib/cmake/Qt5; or with a message that qar_ogre_adapter 0.1.0 was not found. **Cause.** The location of Qt comes from `-DQAR_QT_ROOT` or, when that is unset or empty, from the environment variable `QAR_QT_ROOT`, and the folder has to contain the file `Qt5Config.cmake` of the Qt 5.15.2 build for MSVC 2019. The package qar_ogre_adapter is searched on `QAR_PREFIX` and `CMAKE_PREFIX_PATH`, so it has to be installed there first.
-**Fix.** Set `QAR_QT_ROOT` as [Installation](INSTALL.md#directory-layout-and-environment-variables) says, install qar_ogre_adapter with the commands of [Upstream repositories](INSTALL.md#upstream-repositories), or build against a checkout of it with `-DQAR_OGRE_ADAPTER_SOURCE_DIR=<folder>`.
-
-### The compiler stops at a method named emit
-
-**Symptom.** A source file that includes a header of Qt before a header of this library fails to compile in `panel_pointer_state.hpp`, at the declaration of a method named `emit`. **Cause.** That header declares a method with this name, which only parses while the `emit` macro of Qt does not exist yet, and every Qt header that is not Qt-free defines the macro.
-**Fix.** Include the headers of this library first, or define `QT_NO_KEYWORDS` for the target, which removes the macro.
+**Symptom.** Linking a program that uses `qar_qt_streaming::qaros` stops with a message about a mismatch of `qar_enable_dynamic_loading` (or of `qar_enable_d3d11`, `qar_enable_opengl`, `qar_enable_vulkan`). **Cause.** The backend and the program were compiled with different values of the macros `QAR_ENABLE_*` of the QarOS C header, which change what the header declares, and `sdk_config_check.hpp` records the values so that the linker finds the difference. **Fix.** Compile the program with the macros in `QAR_QT_STREAMING_SDK_DEFINES`, as the example does.
 
 ## Run-time problems
 
@@ -110,9 +105,10 @@ UDP 7446 is free
 
 ### The QarOS library crashes while it starts
 
-**Symptom.** The process ends with an access violation inside `qar_library_init`, and the call stack is in a `MSVCP140.dll` that lies next to the program. **Cause.** QarOS needs a Microsoft C++ runtime of version 14.40 or newer, and the process was using an older copy that lies next to the host program. The authors of this stack observed this in qar_rviz_plugin, where the older copy is the one that the ROS 2 distribution ships beside `rviz2.exe`.
-**What the loader of this stack does.** The adapter loads `qar-streaming-c.dll` by its full path, with the flags `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR` and `LOAD_LIBRARY_SEARCH_SYSTEM32` that the loader of the vendored header sets. Windows then searches for the dependencies of the library in the folder of the library first and then in the system folder, and never in the folder of the host program, the current folder or `PATH`. The runtime files in the QAROS `bin` folder therefore come before an older copy in the folder of the host program, and a runtime file that is missing from that folder is not taken from the folder of the host program. This is the order of the search and no guarantee: Windows uses a module of the same name that the process already holds, whichever folder it came from, so a runtime that the host program has already loaded stays in use.
-**Fix.** In qar_rviz_plugin the authors of this stack got past the crash by replacing the runtime files next to `rviz2.exe` with the same files of version 14.4x from the system folder. If the crash remains, report it together with the versions of the `MSVCP140.dll` files on your machine.
+**Symptom.** The process ends with an access violation inside `qar_library_init`, and the call stack is in a `MSVCP140.dll` that lies next to the program. **Cause.** QarOS needs a Microsoft C++ runtime of version 14.40 or newer, and the process was using an older copy that lies next to the host program.
+**What the loader does.** A program that calls `qar_library_load` with no path, as the example does, gets the first library found in the order of the header, and the loader of the header loads it with the flags `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR` and `LOAD_LIBRARY_SEARCH_SYSTEM32`.
+Windows then searches for the dependencies of the library in the folder of the library first and then in the system folder, and never in the folder of the host program, the current folder or `PATH`. The runtime files in the QAROS `bin` folder therefore come before an older copy in the folder of the host program, and a runtime file that is missing from that folder is not taken from the folder of the host program. This is the order of the search and no guarantee: Windows uses a module of the same name that the process already holds, whichever folder it came from, so a runtime that the host program has already loaded stays in use.
+**Fix.** Remove the older runtime files from the folder of the program, or replace them with the same files of version 14.40 or newer from the system folder, and start the program again. If the crash remains, report it together with the versions of the `MSVCP140.dll` files on your machine.
 
 ### The stream stutters when the source window is covered
 
@@ -132,7 +128,7 @@ The example of this repository runs at warn. The default of `log_severity` in th
 
 ## Reading the logs
 
-The library writes no log of its own, to no file and to no console. The manager reports through the `PanelDiagnosticsSink` of its configuration: every line has a severity, `Info`, `Warning` or `Error`, a category, which is always `panel`, a text and the key of the panel, and the host decides where it goes. Without a sink the manager keeps its counters and says nothing. The example prints every line with the word example and a colon, the key in square brackets and the text, and the table below lists the texts of the lines. The adapter of qar_ogre_adapter prints lines of its own to the standard error stream, each with the prefix `[qar-panel-adapter]`; [Getting started](GETTING_STARTED.md#stream-one-widget-into-ar) shows the lines of the creation and [Getting started](GETTING_STARTED.md#closing-a-panel) those of a close.
+The Qt core writes no log of its own, to no file and to no console, and neither does the backend. The manager reports through the `PanelDiagnosticsSink` of its configuration: every line has a severity, `Info`, `Warning` or `Error`, a category, which is `panel` for the manager and `qar-panel-adapter` or `qar-panel-input` for the backend, a text and the key of the panel, and the host decides where it goes. The backend queues its lines on its worker and delivers them to the sink on the Qt thread. Without a sink the manager keeps its counters and says nothing. The example prints every line with the word example and a colon, the key in square brackets and the text, and the table below lists the texts of the lines. [Getting started](GETTING_STARTED.md#stream-one-widget-into-ar) shows the lines of the creation and [Getting started](GETTING_STARTED.md#closing-a-panel) those of a close.
 
 | Text of the line | Severity | What it means |
 |---|---|---|
@@ -172,15 +168,13 @@ The library writes its log files to the folder `quaternar` inside your `TEMP` fo
 
 ### Which severity applies
 
-The library reads its severity from the environment variable `QAR_LOG_SEVERITY`, through the environment table of the C runtime, and that variable wins over the severity field of the library initialisation, in both directions: the field cannot make a run quieter than the variable, and the variable cannot be overridden by the field. A change made with the Windows function that sets an environment variable is not seen by the library; the adapter of this stack therefore sets the variable with the C runtime function before it initialises the library, and also passes the severity in the initialisation structure. The library accepts the spellings trace, debug, info, warn, warning, error and fatal, in any letter case, and no others; this stack accepts the same spellings.
+A program chooses the severity of the library log and the folder of its files when it initialises the library, with `LibraryBuilder::WithLogSeverity` and `WithLogFolder`, and the copy of the log on the console with `WithConsoleLogging`. The example switches the console copy off and keeps the defaults of the SDK for the severity and the folder. QuaternAR asks for full trace-level library logs with every bug report, so a host of your own offers a way to set the severity to trace.
+
 
 ### How much a trace log writes
 
 A run at trace severity writes hundreds of thousands of lines in a short time. Use trace only for the log that QuaternAR asks for, delete it afterwards, and run at warn or higher otherwise. [Installation and build problems](#installation-and-build-problems) and [Run-time problems](#run-time-problems) describe what a large log does to a machine.
 
-### The log of the transport
-
-QarOS uses zenoh as its transport. When a session cannot be created, the C API reports only a generic transport error; the actual reason, such as a port that cannot be bound, is in zenoh's own log, which stays silent unless it is switched on. The adapter of this stack switches it on when the environment variable `QAR_ZENOH_LOG` holds a tracing filter, such as debug, and only while the library severity is trace or debug; at a quieter severity the request is ignored and the log says so. Setting `RUST_LOG` alone does nothing in these programs.
 
 ## What to send us
 
@@ -200,7 +194,7 @@ $info = @(
     'powershell : ' + $PSVersionTable.PSVersion.ToString()
     'cmake      : ' + ((cmake --version) | Select-Object -First 1)
 )
-$info += Get-ChildItem Env:QAR_*, Env:ROS2_INSTALL_ROOT | ForEach-Object { '{0} = {1}' -f $_.Name, $_.Value }
+$info += Get-ChildItem Env:QAR_* | ForEach-Object { '{0} = {1}' -f $_.Name, $_.Value }
 $info += 'sdk header  : ' + (Get-FileHash -LiteralPath (Join-Path $env:QAR_SDK_ROOT 'include\qar_streaming.h') -Algorithm SHA256).Hash
 $info | Set-Content -Path $out
 Get-Content -Path $out
@@ -210,14 +204,13 @@ repository : a4480d7
 windows    : 10.0.26200
 powershell : 7.4.4
 cmake      : cmake version 3.29.5-msvc4
-QAR_DEPS_ROOT = C:\qar\deps
-QAR_VENV = C:\qar\venv
-QAR_SDK_ROOT = C:\QarOS\install
 QAR_QT_ROOT = C:\qar\deps\Qt\5.15.2\msvc2019_64
-QAR_PREFIX = C:\qar\install
+QAR_VENV = C:\qar\venv
+QAR_DEPS_ROOT = C:\qar\deps
 QAR_ROOT = C:\qar
-ROS2_INSTALL_ROOT = C:\qar\deps\ros2_humble\ros2-windows
-sdk header  : 5223B56251F3085B376A8BDE5ECEFCF661D6E8F8B800F6AA46414ADC1F4DB6EA
+QAR_PREFIX = C:\qar\install
+QAR_SDK_ROOT = C:\Program Files\Quaternar\QAROS
+sdk header  : 55E6E3F48D940CA29331F0528FE475C1B7230FB19A59C31D5525C6E90B097F6C
 ```
 
 The line `cmake` shows the CMake of your machine. The output above is the one of the recorded runs, which used the CMake that Visual Studio 2022 version 17.11 bundles; [CMake](INSTALL.md#cmake) says what that means for the CMake that you install.
@@ -268,7 +261,7 @@ Send, in addition:
 
 ### The panel streams but takes no AR input
 
-**Symptom.** The panel is in AR and nothing reacts to a tap or a hover. **Cause.** One of four. No input source was set in `QtPanelStreamingConfig`, so no subscription exists. Or the subscription failed, and the adapter prints a line with `streams but takes no AR input`, followed by the reason; a failed subscription is not fatal, because a panel without input is better than no panel. Or `PanelInputOptions::enabled` is false. Or the host set `pump_input_in_tick` to false and never calls `pump_input()`. **Fix.** The counter `input_samples_received` of the panel tells where to look: zero means that nothing arrived from QarOS, which is a matter of the subscription or of the Visualizer, and a number that grows with nothing happening in the widget means that the samples arrive and are dropped, which `input_events_dropped` and `last_input_drop_reason` explain.
+**Symptom.** The panel is in AR and nothing reacts to a tap or a hover. **Cause.** One of four. No input source was set in `QtPanelStreamingConfig`, so no subscription exists. Or the subscription failed, and the backend reports a line with `streams but takes no AR input`, followed by the reason; a failed subscription is not fatal, because a panel without input is better than no panel. Or `PanelInputOptions::enabled` is false. Or the host set `pump_input_in_tick` to false and never calls `pump_input()`. **Fix.** The counter `input_samples_received` of the panel tells where to look: zero means that nothing arrived from QarOS, which is a matter of the subscription or of the Visualizer, and a number that grows with nothing happening in the widget means that the samples arrive and are dropped, which `input_events_dropped` and `last_input_drop_reason` explain.
 
 ### An AR action is dropped
 
@@ -276,7 +269,7 @@ Send, in addition:
 
 ### A list, a menu or a dialog is missing in AR, or cut off
 
-**Symptom.** A combo box list, a menu or a tooltip opens on the desktop and not in the AR picture, a list is cut at the edge of the panel, or a dialog does not get a panel. **Cause.** A popup belongs to a panel by the parent walk, so a menu that was created without a parent, `new QMenu()` and not `new QMenu(this)`, belongs to nobody and is not drawn. A popup that hangs over the edge of its panel is clipped, never shifted, because shifting the drawing would put every item under a different item of the hit test. A dialog belongs to the panel whose tree is its parent, or else to the panel that took the latest activating AR action within 1500 ms; a dialog that you opened with the mouse has no owner and stays on the desktop. A dialog that a hidden panel opens appears on the desktop as well, because an off-screen panel keeps only popups off the desktop, and a tooltip of Qt on Windows is not covered either. **Fix.** Give the menu a parent. Give the panel enough room for its lists, and read `popup_clipped()` to see that a list was cut. Open the dialog from AR, or pass the panel as its parent.
+**Symptom.** A combo box list, a menu or a tooltip opens on the desktop and not in the AR picture, a list is cut at the edge of the panel, or a dialog does not get a panel. **Cause.** A popup belongs to a panel by the parent walk, so a menu that was created without a parent, `new QMenu()` and not `new QMenu(this)`, belongs to nobody and is not drawn. A popup that hangs over the edge of its panel is clipped, never shifted, because shifting the drawing would put every item under a different item of the hit test. A dialog belongs to the panel whose tree is its parent, or else to the panel that took the latest activating AR action within 1500 ms; a dialog that you opened with the mouse has no owner and stays on the desktop. A dialog that a hidden panel opens appears on the desktop as well, because an off-screen panel keeps only popups off the desktop, and a tooltip of Qt on Windows is not covered either. Under the style `windows11` of Qt 6.8 a list or a menu in AR has no drop shadow, because the capture draws a window without its graphics effect. **Fix.** Give the menu a parent. Give the panel enough room for its lists, and read `popup_clipped()` to see that a list was cut. Open the dialog from AR, or pass the panel as its parent.
 
 ### A panel stays in AR after its window closed
 
