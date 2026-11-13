@@ -22,10 +22,10 @@
 /// both delivered before Qt maps a native window - it sets WA_DontShowOnScreen (and the
 /// kOffscreenPopupProperty marker) on a Qt::Popup / Qt::ToolTip window owned by an
 /// off-screen panel. Qt then never maps it, never activates it and never gives it the
-/// OS mouse; it stays isVisible(), QApplication::activePopupWidget() still routes input
-/// to it, and QWidget::render() still paints it, so the capture composites it into the
-/// panel and the AR injector operates it exactly as before. Visible panels' popups are
-/// never touched. The filter never consumes an event.
+/// OS mouse; it stays isVisible(), active_popup_widget() still names it as the popup that
+/// takes the input, and QWidget::render() still paints it, so the capture composites it
+/// into the panel and the AR injector operates it exactly as before. Visible panels' popups
+/// are never touched. The filter never consumes an event.
 ///
 /// Not covered, by design: dialogs (they stream as AR panels of their own and stay on the
 /// desktop), Qt::Tool windows, and tooltips on Windows (QToolTip parents its label to the
@@ -33,8 +33,7 @@
 /// it to a panel either; AR input cannot raise a tooltip, Qt arms its tooltip timer only
 /// for spontaneous mouse moves).
 ///
-/// GUI thread only. Kept free of <QObject>/<QWidget>: panel_pointer_state.hpp declares a
-/// member named emit(), which Qt's `emit` keyword breaks if it is seen first.
+/// GUI thread only. Kept free of <QObject>/<QWidget> so that it can be included anywhere.
 
 #include <QPoint>
 
@@ -78,6 +77,15 @@ QWidget * popup_owner_widget(const QWidget * popup);
 /// yes, a popup the guard already kept off (a submenu's menu) answers yes, any other
 /// window answers no. Bounded walk.
 bool is_owned_by_offscreen_panel(const QWidget * window);
+
+/// @brief The popup that takes every mouse event while it is open: QApplication's active
+/// popup, or - when Qt names none - the most recently shown visible Qt::Popup window the guard
+/// keeps off the desktop (a tooltip window is never named). Qt registers a popup as the active
+/// one only through its native window, and a popup that carries Qt::WA_DontShowOnScreen has no
+/// mapped window in some Qt 6 versions, so Qt answers null for a list that is open and visible
+/// in the AR image.
+/// Null when no popup is open. GUI thread only.
+QWidget * active_popup_widget();
 
 /// @brief Did the guard keep @p widget off the desktop (marker set, WA_DontShowOnScreen on)?
 bool is_offscreen_popup(const QWidget * widget);

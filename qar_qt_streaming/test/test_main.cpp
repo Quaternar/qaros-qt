@@ -9,6 +9,8 @@
 
 #include <gtest/gtest.h>
 
+#include "qar_qt_streaming/qt_compat.hpp"
+
 #include <QApplication>
 
 int
@@ -18,6 +20,13 @@ main(int argc, char ** argv)
   // chosen a platform themselves.
   if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) {
     qputenv("QT_QPA_PLATFORM", "offscreen");
+  }
+
+  // A fractional device pixel ratio (QT_SCALE_FACTOR=1.25) reaches the widgets only if the
+  // rounding policy lets it through, and that is set before the QApplication exists. The runs
+  // of the fractional-ratio tests ask for it; every other run keeps the defaults of Qt.
+  if (qEnvironmentVariableIsSet("QAR_QT_TESTS_FRACTIONAL_DPR")) {
+    qar_qt_streaming::qt_compat::enable_fractional_high_dpi();
   }
 
   QApplication app(argc, argv);

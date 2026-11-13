@@ -23,16 +23,20 @@ ctest --preset vs2019-x64
 ```text
 Test project C:/qar/src/qar_qt_streaming/build/vs2019-x64
         Start   1: check_layering_qar_qt_streaming
-  1/681 Test   #1: check_layering_qar_qt_streaming ................................................................   Passed    0.27 sec
+  1/832 Test   #1: check_layering_qar_qt_streaming ................................................................   Passed    0.36 sec
         Start   2: check_layering_examples
-  2/681 Test   #2: check_layering_examples ........................................................................   Passed    0.05 sec
+  2/832 Test   #2: check_layering_examples ........................................................................   Passed    0.08 sec
         Start   3: check_layering_selftest
-  3/681 Test   #3: check_layering_selftest ........................................................................   Passed    0.06 sec
-        Start   4: AlignUp.RoundsUpToTheNextMultiple
+  3/832 Test   #3: check_layering_selftest ........................................................................   Passed    0.14 sec
+        Start   4: CommonName.SanitizeKeepsLowerCaseLettersDigitsAndDashesAndMapsTheRestToDash
 ...
-100% tests passed, 0 tests failed out of 681
+100% tests passed, 0 tests failed out of 832
 
-Total Test time (real) =  67.68 sec
+Total Test time (real) =  72.63 sec
+
+The following tests did not run:
+	626 - OffscreenPopupGuard.TheWindows11StyleComboListReachesThePanelImage (Skipped)
+	627 - OffscreenPopupGuard.TheWindows11StyleListOfAVisiblePanelReachesThePanelImage (Skipped)
 ```
 
 The last lines are the summary: how many tests passed, and the names of those that failed. A test that is skipped is reported as skipped and does not count as a failure.
@@ -50,14 +54,14 @@ Test project C:/qar/src/qar_qt_streaming/build/vs2019-x64
   Test   #1: check_layering_qar_qt_streaming
   Test   #2: check_layering_examples
   Test   #3: check_layering_selftest
-  Test   #4: AlignUp.RoundsUpToTheNextMultiple
-  Test   #5: AlignUp.AlignmentOfZeroOrOneIsIdentity
-  Test   #6: PanelGeometry.AtRatioOneBufferMatchesLogicalSize
-  Test   #7: PanelGeometry.HiDpiGrowsTheBufferButNotThePhysicalSize
+  Test   #4: CommonName.SanitizeKeepsLowerCaseLettersDigitsAndDashesAndMapsTheRestToDash
+  Test   #5: CommonName.SanitizeTurnsEveryByteOfAMultiByteCharacterIntoADash
+  Test   #6: CommonName.SanitizeCutsToTheLimit
+  Test   #7: CommonName.Fnv1aMatchesTheReferenceVectors
 ...
-  Test #681: StreamTiming.WithTimingOffTheStreamBehavesAsBeforeAndWritesNothing
+  Test #832: qar_qt_streaming_fractional_dpr_1.5
 
-Total Tests: 681
+Total Tests: 832
 ```
 
 ```powershell
@@ -66,24 +70,26 @@ ctest --preset vs2019-x64 -R check_layering_selftest
 ```text
 Test project C:/qar/src/qar_qt_streaming/build/vs2019-x64
     Start 3: check_layering_selftest
-1/1 Test #3: check_layering_selftest ..........   Passed    0.06 sec
+1/1 Test #3: check_layering_selftest ..........   Passed    0.09 sec
 
 100% tests passed, 0 tests failed out of 1
 
-Total Test time (real) =   0.09 sec
+Total Test time (real) =   0.12 sec
 ```
 
 Use `-R` with a part of a suite name to run one suite, and add `-j` followed by a number to run tests in parallel. When a test fails, its output is printed by the preset; add the option `--rerun-failed` to the command to run only the tests that failed in the last run.
 
 ## What the tests cover
 
-The unit tests are one GoogleTest executable, `qar_qt_streaming_tests`, and the layering guard adds its own tests. The list command above prints every registered test by name, with the number of tests at the end. Unlike the tests of the Ogre side, these tests drive the real Qt paint path, because the capture of a widget with `QWidget::render()` is what the library exists for.
+The unit tests are three GoogleTest executables, and the layering guard adds its own tests. The suite `FractionalDpr` of the Qt core is registered a second time as the two ctest entries `qar_qt_streaming_fractional_dpr_1.25` and `qar_qt_streaming_fractional_dpr_1.5`, which run it with the environment variable `QT_SCALE_FACTOR` at that ratio. `qar_qt_streaming_tests` tests the Qt core, `qar_qt_streaming_seam_tests` tests the seam, and `qar_qt_streaming_qaros_tests` tests the backend against a fake of the QarOS function tables; the last two use no Qt. The list command above prints every registered test by name, with the number of tests at the end. The tests of the Qt core drive the real Qt paint path, because the capture of a widget with `QWidget::render()` is what the library exists for.
 
 | Suites | What the tests assert |
 |---|---|
 | `PanelGeometry`, `AlignUp`, `Readability` | the buffer follows the logical size times the pixel ratio and is aligned up to an even size; the physical size follows the logical pixels and never the buffer; an oversized widget lowers the ratio and not the panel size; the content scale that is sent is always 1.0; the readability presets reproduce the worked example, and the distance changes the physical size but not the render scale |
 | `HashPixels`, `WidgetCapture` | a capture has the requested size; an untouched widget reports no change and an edit makes the next capture dirty; padding at the end of a row is not hashed; a hidden widget still captures but is flagged |
 | `PopupOwnership`, `PopupCapture` | a popup of the panel is owned and the popup of another panel is not; an open popup lands where Qt placed it, honours the render scale, vanishes when it closes and is not sent again every tick; the list of a real combo box reaches the stream |
+| `Values`, `CommonName`, `PanelAttach`, `PanelStateDecision`, `PanelStatePoll`, `PanelGestureMapper`, `PointerGestureMapping`, `QueuedInputSource`, `TimingLog` (the seam) | the values have the layout of the structures of the QarOS C header; the common names are stable and carry the program, the instance and the host; the decision about a panel that QarOS holds walks the retry names; the guard decides from the state that QarOS reports whether to ask for the state again, and gives up after three asks; a gesture of QarOS becomes a pointer sample with the same pointer id for the same peer and hand, and the golden values of the pointer ids are fixed |
+| `BackendTest`, `SessionExecutor`, `Conversions` (the backend) | the create chain, the frame cycle with a pitch that differs from the width, the coalescing of placements, the close order, the found-again and the retry of a panel, the refusal when all names are taken, that no SDK call but the three frame calls runs on the Qt thread, that the session is never released on a callback thread, the bounded shutdown, and that the messages reach the sink only on the Qt thread |
 | `DialogOwnership`, `DialogModality`, `DialogCapture`, `DialogAttribution` | an owned dialog is never drawn into its owner; a dialog that is parented to the shared window is attributed to the panel that took input last; only the attributed panel is blocked by its modal dialog |
 | `PanelStream` | the first tick creates the sender and submits; an unchanged widget is captured and not sent; the keepalive resends it; the frame-rate limit sheds ticks; a size change rebuilds the sender only when it is large and has settled, and a width that oscillates never does |
 | `PanelManager`, `QtPanelStreamManager` | construction without a factory is refused; adding a panel calls QarOS not at all before the first tick; duplicate keys and bad arguments are refused; a room point is routed to the pixel under it; a panel that holds a sender and serves no frame is warned about once; a popup is logged once when it opens and once when it closes |
@@ -96,6 +102,7 @@ The unit tests are one GoogleTest executable, `qar_qt_streaming_tests`, and the 
 | `PanelGeometryFrame`, `PanelGeometryDialog`, `PanelStreamHeight`, `PanelManagerHeight` | the default frame is the one measured on the Visualizer; a panel is the video inside the frame plus the fit margin and keeps its width, and no frame makes it exactly as tall as its video; each inset has its own effect; a frame that leaves no width is not applied; the panel of a dialog keeps the height of its video, fits its width to the frame, is never under half of its nominal width, and a frame that is not below the height of the video is not applied; the sender is told the video inside the frame; the hit rectangle is the video inside the frame, centred under the title bar; the frame of the manager replaces the frame of the options |
 | `PanelResizeMode`, `PanelCommonName`, `PanelSwap`, `PanelNewPanel`, `PanelNameRule`, `PanelSessionEnd`, `PanelPaused`, `PanelAsync` | the parser of `QAR_PANEL_RESIZE` and its warning, the common name of a panel with and without the buffer size, a size change that swaps the sender of the same panel and one that makes a second panel, the rule that selects the name, what the end of a session does to each close mode, a stream that the receiver paused, and the results that the panel adapter reports through `drain_results` |
 | `PanelPark`, `PanelParkResize`, `PanelStreamReplacedPanels` | in the mode park a Qt-side close hides the panel and closes nothing, releases a pressed pointer without a click, and the parked stream is not pointed at; adding the key again revives it onto another window and pose, and a revival is allowed whatever the cap; parked panels and notices count together against the cap; a refused hide falls back to the notice and never to a close; a panel that the operator closed in AR is parked without a hide call; a size change hides and keeps the old panel, asks again for a refused hide three more times, and closes as before at the limit of kept panels; the end of the session closes every kept and parked panel once |
+| `FractionalDpr` | at a device pixel ratio of 1.25 and 1.5 the buffer of a panel is the logical size times the ratio, rounded and aligned; the diagnostics name the ratio; the capture paints the logical geometry across the larger buffer; the injector keeps the sub-pixel part of a position, so that a contact on a narrow target presses it and its neighbours stay unpressed |
 | `QtPanelVisibility` | a hide applies on the next tick and pauses the capture; a show resumes with one frame; a hidden panel is not hit and drops its input; a refused request keeps the state and is counted; a notice is refused and an unknown key is not found |
 | `DialogFit`, `DialogPoseHook`, `DialogFrame`, `DialogHeightFactor`, `DialogCapRefusal` | the stream of a dialog is added once, at the size the fit ends with; a fit settles on the second equal look; a dialog that cannot fit the screen is clamped and says so; an area that scrolls by design never makes a dialog grow; a dialog that is hidden or destroyed meanwhile gets no panel; the pose hook sees every dialog pose; the fixed factor makes a dialog taller once and is not applied while an adjuster is installed; a refused dialog is tried once |
 | `ScrollCensus`, `StreamCensus`, `ManagerCensus` | the census measures per-item and per-pixel areas, hidden pages, areas that sit one above the other or side by side, and areas that scroll by design; a stream measures its first frame and again 1.5 s later; a bar that remains is a warning with its overflow, and one that scrolls by design is a note; a requested census is taken at the next frame; a panel that is hidden, parked or closed in AR waits |
@@ -104,9 +111,26 @@ The unit tests are one GoogleTest executable, `qar_qt_streaming_tests`, and the 
 | `CaptureGatePure`, `TickIntervalEstimatorTest`, `FrameArrivalCapture`, `SubmitGapWindow`, `FrameTrace`, `StreamTiming` | a panel without video keeps the strict limiter; video keeps 30 frames a second on a coarse tick and the frame-rate limit stays an upper bound; a stalled source falls back to polling so that the keepalive still fires; the timing rows of a video panel |
 | `RawImageDecode`, `CompressedImageDecode`, `AspectFitRect`, `LatestVideoFrame`, `VideoPanelWidget`, `RegionSubstitution`, `PanelRegionSourceManager` | exact pixels for each encoding, padding at the end of a row, normalised 16-bit and float samples, rejection of bad input, down-scaling that keeps the aspect ratio; a PNG round-trips exactly; the mailbox is safe under concurrent publishing; a video frame fills its region, and a destroyed region is ignored |
 
+## Tested configurations
+
+The libraries and their tests were built and run in a shell without ROS 2, RViz or Ogre and with `QAR_QT_ROOT` as the only location variable, in each of these combinations, with the language standards C++17 and C++20 and with the compiler option `/std:c++latest` (the latest language mode of the compiler), the configuration `RelWithDebInfo`, and the platform plugin `offscreen`:
+
+| Qt | Visual Studio | Toolset | Result |
+|---|---|---|---|
+| 5.15.2 | 2019 | v142 | built without warnings, every test passed |
+| 6.5.3 | 2019 | v142 | built without warnings, every test passed |
+| 6.8.3 | 2022 | v143 | built without warnings, every test passed |
+| 6.10.3 | 2022 | v143 | built without warnings, every test passed |
+
+The tests that are specific to Qt 6 run only there, and the two tests that need the style `windows11` run where the kit has the plugin for it, that is from Qt 6.7 on, and are skipped on Qt 5.15.2 and Qt 6.5.3; the build copies the plugin next to the test executable when the kit has it.
+
+The imports of the executables were read with the tool `dumpbin`: the tests and the example import only the Qt libraries, the Microsoft runtime and the system libraries, and none of them imports `qar-streaming-c.dll`. The installed package was used by a consumer project with Qt 5.15.2, 6.5.3 and 6.8.3, and the source ZIP and `add_subdirectory` by consumers with Qt 5.15.2 and 6.8.3. Not run: Qt before 5.15 and between the versions above, Visual Studio 2026, and the Debug configuration.
+
+The live checks on the desktop Visualizer ran the example with Qt 5.15 and Qt 6.8 (taps, a combo list, resizing, Ctrl+C, joining again without a second Allow); no live check ran with Qt 6.5 or Qt 6.10, with a headset, or with a pairing code.
+
 ## Test doubles
 
-The tests replace the QarOS side of the library, the clock and the receiver of resolved pointer events with small stand-ins that run in the same process. The stand-ins are in the header `mock_panel_sender.hpp`, which belongs to the interface library `qar_qt_streaming::test_support`; that library is only for the tests and is not installed. Two collaborators stay real: the Qt widgets, and the queue of pointer samples, `QueuedPanelInputSource` of `qar_ar_core`, into which the tests push samples the way the callback of QarOS does.
+The tests replace the QarOS side of the library, the clock and the receiver of resolved pointer events with small stand-ins that run in the same process. The stand-ins are in the header `mock_panel_sender.hpp`, which belongs to the interface library `qar_qt_streaming::test_support`; that library is only for the tests and is not installed. Two collaborators stay real: the Qt widgets, and the queue of pointer samples, `QueuedPanelInputSource` of the seam, into which the tests push samples the way the callback of QarOS does.
 
 | Test double | What it stands in for |
 |---|---|
@@ -115,17 +139,17 @@ The tests replace the QarOS side of the library, the clock and the receiver of r
 | `RecordingPanelInputSink` | the receiver of resolved pointer events: it records which panel, which pixel, and whether the event was a hover or a click |
 | `ManualClock` | the clock of the manager: its time advances by hand, so the frame-rate limit, the keepalive, the settling of a resize and the warning for an unserved panel are tested without a wall clock |
 
-There is no stand-in for the QarOS C API in this repository. The tests of the panel adapters in the component `panels` of `qar_ogre_adapter` run against a fake of the QarOS function tables that belongs to that repository; the real runtime and Hub are exercised only in the live checks of qar_rviz_plugin on the desktop Visualizer. The check `--connect-only` of the example joins the Hub and creates no panel.
+The tests of the backend replace the QarOS C API by a fake of its function tables, `fake_c_table.hpp`, that records the calls and the threads they run on. The real runtime and Hub are exercised only in live checks on the desktop Visualizer. The check `--connect-only` of the example joins the Hub and creates no panel.
 
 ## What the automated tests do not cover
 
-- **Calls to QarOS.** Every test of the library uses the recording sender, so the creation of the video sender and of the QarOS panel, the subscription for gestures and the real sequence of a close are exercised only in a live session. A widget is only a source of pixels for these tests; what a Visualizer shows of it is not tested.
+- **Calls to QarOS.** Every test of the Qt core uses the recording sender and every test of the backend uses the fake function tables, so the creation of the video sender and of the QarOS panel, the subscription for gestures and the real sequence of a close are exercised against the real runtime only in a live session. A widget is only a source of pixels for these tests; what a Visualizer shows of it is not tested.
 - **AR input from a device.** The pointer samples are synthetic: they come from the queue that the tests fill, not from a headset.
 - **Text.** The offscreen platform plugin, under which the tests run, rasterizes no glyphs, so a test cannot tell a changed text from an unchanged one. Where a test needs a change in the picture, it paints a known colour instead.
 - **The desktop.** The offscreen plugin cannot show whether a window would reach a real desktop. The tests of the off-screen panels check the attributes and the flag that `show_offscreen` sets and use the visibility of the native window of Qt as the witness for popups; only a live run shows that nothing appears on the desktop of a running application.
 - **JPEG.** Qt reads and writes JPEG through a plugin, and the test build copies that plugin next to the test executable, so the test that decodes a JPEG image runs. On a host whose Qt has no JPEG codec the test skips itself and reports the skip.
 
-The desktop check of this library is a Level 2 procedure of [Verification](VERIFICATION.md#desktop-visualizer-checks-level-2) that was not run with the example of this repository. [What the live sessions showed](VERIFICATION.md#what-the-live-sessions-showed) says what the live sessions of qar_rviz_plugin showed of the library.
+The desktop check of this library is a Level 2 procedure of [Verification](VERIFICATION.md#desktop-visualizer-checks-level-2); [What the live sessions showed](VERIFICATION.md#what-the-live-sessions-showed) says what it showed.
 
 ## The layering guard
 
@@ -152,8 +176,8 @@ The first command checks all modules of this repository and prints one summary l
 & "$env:QAR_VENV\Scripts\python.exe" scripts\check_layering.py --all
 ```
 ```text
-check_layering examples: OK (1 files)
-check_layering qar_qt_streaming: OK (66 files)
+check_layering examples: OK (3 files)
+check_layering qar_qt_streaming: OK (103 files)
 ```
 
 ```powershell
@@ -173,11 +197,12 @@ path:line: [rule] detail
 
 Fix the include rather than the table: move the code to the layer that may use that header, or pass the dependency in through an interface. Change the table in the script only when the architecture itself changes, and then change the documentation of the layers with it.
 
-For this repository the guard checks two modules: `qar_qt_streaming` and `examples`. CTest registers one test for each of them, `check_layering_qar_qt_streaming` and `check_layering_examples`, and the test `check_layering_selftest`. What the rules mean here:
+For this repository the guard checks two modules: `qar_qt_streaming`, which holds the seam, the Qt core and the backend, and `examples`. CTest registers one test for each of them, `check_layering_qar_qt_streaming` and `check_layering_examples`, and the test `check_layering_selftest`. What the rules mean here:
 
-- `qar_qt_streaming` includes the standard library, Qt, its own headers and the headers of `qar_ar_core`, and nothing else: no Ogre, no ROS 2, no RViz and no platform header. Only the tests may include GoogleTest.
-- Every folder under `examples` has its own entry. The folder `qt_panel_example` may include the standard library, Qt, `qar_qt_streaming`, `qar_ar_core` and the headers of the components `render` and `panels` of `qar_ogre_adapter`, and no header of another component.
-- Only the wrapper header of `qar_ar_core` includes the vendored QarOS C header, so this repository never includes it directly.
+- The Qt core includes the standard library, Qt, its own headers and the headers of the seam, and nothing else: no Ogre, no ROS 2, no RViz, no QarOS header and no platform header. Only the tests may include GoogleTest.
+- The seam includes the standard library and its own headers only: no Qt and no QarOS header. The backend includes the seam, its own headers and the QarOS C++ SDK headers, and no Qt.
+- Every folder under `examples` has its own entry. The folder `qt_panel_example` may include the standard library, Qt, the headers of the Qt core, of the seam and of the backend, and the QarOS C++ SDK headers.
+- The macro `QAR_IMPLEMENT_DYNAMIC_LOADING()` appears once in the example and nowhere in the libraries, and nothing but CMake defines `QAR_ENABLE_DYNAMIC_LOADING`.
 
 ## Adding a test
 

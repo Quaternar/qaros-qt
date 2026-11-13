@@ -16,8 +16,8 @@ namespace qar_qt_streaming
 /// without sleeping. Production uses @ref SteadyClock; tests inject a fake clock
 /// they advance by hand.
 ///
-/// A local twin of qar_ogre_streaming's IClock rather than a reuse of it:
-/// depending on that library would drag Ogre into a Qt-only library.
+/// The interface is declared here so that the library depends on nothing but Qt and the
+/// standard library.
 class IClock
 {
 public:

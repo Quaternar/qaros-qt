@@ -4,7 +4,6 @@
 // Snippets of API.md for video in panels: the decoders, the mailbox, the video panel and the region sources. The
 // functions are compiled and linked and never run; their parameters stand for what the host owns.
 
-// The library headers come first: panel_pointer_state.hpp declares a method named emit(), which the emit macro of Qt breaks.
 #include "qar_qt_streaming/qt_panel_stream_manager.hpp"
 #include "qar_qt_streaming/video_frame.hpp"
 #include "qar_qt_streaming/video_panel_widget.hpp"
@@ -20,6 +19,7 @@
 #include <string>
 
 namespace qqs = qar_qt_streaming;
+namespace seam = qar_qt_streaming::seam;
 
 void snippet_decode(
   const std::uint8_t * rgb, std::uint32_t width, std::uint32_t height, const std::uint8_t * jpeg, std::size_t jpeg_size,
@@ -73,7 +73,7 @@ void snippet_region_source(
 {
   // [qar-snippet:region_source]
   // render_view is a child of the streamed widget that embeds a native window; QWidget::render() cannot paint it.
-  const qar_ar_core::Result set = manager->set_panel_region_source("dock", render_view, mailbox);
+  const seam::Result set = manager->set_panel_region_source("dock", render_view, mailbox);
   if (!set.ok()) {
     std::printf("no such panel: %s\n", set.message.c_str());   // NotFound for a key that does not stream
   }

@@ -16,6 +16,7 @@
 #include <QVariant>
 #include <QWidget>
 
+#include <algorithm>
 #include <vector>
 
 namespace qar_qt_streaming
@@ -25,6 +26,23 @@ namespace
 
 /// GUI thread only, like everything the guard touches.
 OffscreenPopupGuardStats g_stats;
+
+/// The popups the guard keeps off the desktop, the one shown last at the back: a popup that
+/// is shown again moves there. Entries that were destroyed drop out when the list is next
+/// changed; hidden ones stay (a menu is shown again) and are skipped by
+/// active_popup_widget().
+std::vector<QPointer<QWidget>> g_kept_popups;
+
+void
+remember_popup(QWidget * widget)
+{
+  g_kept_popups.erase(
+    std::remove_if(
+      g_kept_popups.begin(), g_kept_popups.end(),
+      [widget](const QPointer<QWidget> & kept) {return kept.isNull() || kept.data() == widget;}),
+    g_kept_popups.end());
+  g_kept_popups.emplace_back(widget);
+}
 
 /// The popup-class window kinds. windowType() masks the flags down to the one kind, so a
 /// combo list (Qt::Popup | Qt::FramelessWindowHint) still answers Qt::Popup.
@@ -83,6 +101,7 @@ keep_off_screen(QWidget * widget, bool effect)
     ++g_stats.kept_effects;
   } else {
     ++g_stats.kept_popups;
+    remember_popup(widget);
   }
 }
 
@@ -107,9 +126,14 @@ protected:
       return false;
     }
     auto * widget = static_cast<QWidget *>(watched);
-    if (!widget->isWindow() || widget->testAttribute(Qt::WA_DontShowOnScreen) ||
-      !is_popup_class(widget))
-    {
+    if (!widget->isWindow() || !is_popup_class(widget)) {
+      return false;
+    }
+    if (widget->testAttribute(Qt::WA_DontShowOnScreen)) {
+      // Already kept off the desktop: a popup that is shown again is the newest one.
+      if (type == QEvent::Show && is_offscreen_popup(widget) && !is_effect_helper(widget)) {
+        remember_popup(widget);
+      }
       return false;
     }
     if (is_owned_by_offscreen_panel(widget)) {
@@ -148,7 +172,7 @@ remove_guard(QPointer<OffscreenPopupGuard> & guard)
 /// The guard is a child of the QApplication, but its vtable - through which Qt calls
 /// eventFilter() for every event of the application and, at last, its destructor - lives in
 /// the module this file is linked into. A host can unload that module while its
-/// QApplication lives on (RViz frees a plugin library before it destroys its QApplication,
+/// QApplication lives on (a host can free a plugin library before it destroys its QApplication,
 /// and every later event passes the application's event filters), so the slot's
 /// destructor, which runs when the module is unloaded or its process exits, removes the
 /// guard while its code is still mapped.
@@ -217,6 +241,25 @@ popup_owner_widget(const QWidget * popup)
   return popup->focusProxy();
 }
 
+QWidget *
+active_popup_widget()
+{
+  if (QWidget * popup = QApplication::activePopupWidget()) {
+    return popup;
+  }
+  // Only a Qt::Popup window takes the mouse the way Qt's own active popup does; a tooltip
+  // window never does.
+  for (auto it = g_kept_popups.rbegin(); it != g_kept_popups.rend(); ++it) {
+    QWidget * kept = it->data();
+    if (kept != nullptr && kept->windowType() == Qt::Popup && kept->isVisible() &&
+      is_offscreen_popup(kept))
+    {
+      return kept;
+    }
+  }
+  return nullptr;
+}
+
 bool
 is_offscreen_popup(const QWidget * widget)
 {
@@ -259,7 +302,7 @@ close_offscreen_popups(QWidget * panel_root)
   if (panel_root == nullptr || QCoreApplication::instance() == nullptr) {
     return 0;
   }
-  if (QApplication::activePopupWidget() == nullptr && !QToolTip::isVisible()) {
+  if (active_popup_widget() == nullptr && !QToolTip::isVisible()) {
     return 0;
   }
   const std::vector<QWidget *> popups = collect_panel_popups(panel_root, true);

@@ -35,12 +35,14 @@
 #include <utility>
 #include <vector>
 
-using qar_ar_core::DiagnosticSeverity;
-using qar_ar_core::PanelPointerSample;
-using qar_ar_core::PointerGesture;
-using qar_ar_core::PointerPhase;
-using qar_ar_core::QueuedPanelInputSource;
-using qar_ar_core::Status;
+namespace seam = qar_qt_streaming::seam;
+
+using qar_qt_streaming::seam::DiagnosticSeverity;
+using qar_qt_streaming::seam::PanelPointerSample;
+using qar_qt_streaming::seam::PointerGesture;
+using qar_qt_streaming::seam::PointerPhase;
+using qar_qt_streaming::seam::QueuedPanelInputSource;
+using qar_qt_streaming::seam::Status;
 using qar_qt_streaming::PanelCloseMode;
 using qar_qt_streaming::PanelOverlayAttribution;
 using qar_qt_streaming::PanelPointerEvent;
@@ -145,8 +147,8 @@ options_no_pacing()
   PanelStreamOptions options;
   options.max_fps = 0;              // every tick captures
   options.keepalive_seconds = 0.0;  // isolate the dirty check
-  options.placement.pose.orientation = QarQuaternion{0.0f, 0.0f, 0.0f, 1.0f};
-  options.placement.pose.position = QarVector3{0.0f, 0.0f, 0.0f};
+  options.placement.pose.orientation = seam::Quaternion{0.0f, 0.0f, 0.0f, 1.0f};
+  options.placement.pose.position = seam::Vector3{0.0f, 0.0f, 0.0f};
   return options;
 }
 
@@ -160,7 +162,7 @@ options_with_keepalive()
   return options;
 }
 
-class RecordingDiagnostics : public qar_ar_core::PanelDiagnosticsSink
+class RecordingDiagnostics : public seam::PanelDiagnosticsSink
 {
 public:
   struct Entry
@@ -203,7 +205,7 @@ public:
 };
 
 /// A manager wired to the recording factory, a manual clock and a recording sink, in Park mode
-/// unless told otherwise, with input pumped by the test (the way the RViz plugin runs it).
+/// unless told otherwise, with input pumped by the test (as a host pumping its input does).
 struct Harness
 {
   explicit Harness(
@@ -236,14 +238,14 @@ struct Harness
   }
 
   /// The snapshot entry of @p key (a default one when there is none).
-  qar_ar_core::PanelStreamDiagnostics panel(const std::string & key) const
+  seam::PanelStreamDiagnostics panel(const std::string & key) const
   {
     for (const auto & entry : manager->diagnostics().panels) {
       if (entry.key == key) {
         return entry;
       }
     }
-    return qar_ar_core::PanelStreamDiagnostics{};
+    return seam::PanelStreamDiagnostics{};
   }
 
   /// The adapter minted for @p key, or null.
@@ -306,21 +308,21 @@ struct DialogGuard
 class CallOrderAdapter : public MockQarPanelSenderAdapter
 {
 public:
-  CallOrderAdapter(qar_ar_core::PanelDesc desc, std::shared_ptr<std::vector<std::string>> calls)
+  CallOrderAdapter(seam::PanelDesc desc, std::shared_ptr<std::vector<std::string>> calls)
   : MockQarPanelSenderAdapter(std::move(desc)),
     calls_(std::move(calls))
   {
   }
 
-  bool set_placement(const qar_ar_core::PanelPlacement & placement) override
+  bool set_placement(const seam::PanelPlacement & placement) override
   {
     calls_->push_back("placement");
     return MockQarPanelSenderAdapter::set_placement(placement);
   }
 
-  bool set_state(QarGuiPanelState state) override
+  bool set_state(seam::PanelState state) override
   {
-    calls_->push_back(state == QAR_GUI_PANEL_STATE_VISIBLE ? "show" : "hide");
+    calls_->push_back(state == seam::PanelState::Visible ? "show" : "hide");
     return MockQarPanelSenderAdapter::set_state(state);
   }
 
@@ -328,11 +330,11 @@ private:
   std::shared_ptr<std::vector<std::string>> calls_;
 };
 
-class CallOrderFactory : public qar_ar_core::IQarPanelSenderFactory
+class CallOrderFactory : public seam::IPanelSenderFactory
 {
 public:
-  std::shared_ptr<qar_ar_core::IQarPanelSenderAdapter> create_panel_sender(
-    const qar_ar_core::PanelDesc & desc) override
+  std::shared_ptr<seam::IPanelSender> create_panel_sender(
+    const seam::PanelDesc & desc) override
   {
     return std::make_shared<CallOrderAdapter>(desc, calls);
   }
@@ -345,9 +347,9 @@ private:
   std::string error_;
 };
 
-const std::vector<QarGuiPanelState> kHiddenOnly = {QAR_GUI_PANEL_STATE_HIDDEN};
-const std::vector<QarGuiPanelState> kHiddenThenVisible = {
-  QAR_GUI_PANEL_STATE_HIDDEN, QAR_GUI_PANEL_STATE_VISIBLE};
+const std::vector<seam::PanelState> kHiddenOnly = {seam::PanelState::Hidden};
+const std::vector<seam::PanelState> kHiddenThenVisible = {
+  seam::PanelState::Hidden, seam::PanelState::Visible};
 const std::vector<std::string> kFullClose = {"unsubscribe_input", "close_panel", "destroy_sender"};
 const std::vector<std::string> kSkippedClose = {
   "unsubscribe_input", "close_panel_skipped", "destroy_sender"};
@@ -392,7 +394,7 @@ TEST(PanelPark, AQtSideCloseParksTheStreamAndClosesNothing)
   const std::uint64_t captured = h.panel("dock").frames_captured;
   const std::uint32_t submits = adapter->submit_calls();
 
-  ASSERT_TRUE(h.manager->close_panel("dock", "closed in RViz").ok());
+  ASSERT_TRUE(h.manager->close_panel("dock", "closed by host").ok());
 
   // Parked from the close on, with the stream, its sender and its QarOS panel still there. No
   // notice, no close; and the hide itself is only a request until the next tick.
@@ -436,7 +438,7 @@ TEST(PanelPark, AQtSideCloseParksTheStreamAndClosesNothing)
   EXPECT_EQ(line->panel_key, "dock");
   EXPECT_EQ(
     line->message,
-    "parked 'dock' (reason: closed in RViz): hidden in AR; its sender and QarOS panel are kept "
+    "parked 'dock' (reason: closed by host): hidden in AR; its sender and QarOS panel are kept "
     "until the session ends");
   EXPECT_EQ(h.diagnostics.count("parked 'dock'"), 1u);
 }
@@ -480,7 +482,7 @@ TEST(PanelPark, ASenderlessStreamIsDroppedNotParked)
   ASSERT_TRUE(h.manager->add_panel("dock", source.get(), options_no_pacing()).ok());
   ASSERT_EQ(h.factory->create_calls(), 0u) << "no tick yet, so no sender and no QarOS panel";
 
-  ASSERT_TRUE(h.manager->close_panel("dock", "closed in RViz").ok());
+  ASSERT_TRUE(h.manager->close_panel("dock", "closed by host").ok());
   EXPECT_FALSE(h.manager->has_panel("dock"));
   EXPECT_FALSE(h.manager->is_parked("dock"));
   EXPECT_EQ(h.factory->create_calls(), 0u);
@@ -522,7 +524,7 @@ TEST(PanelPark, AParkedStreamIsNotPointedAtEvenBeforeTheHideIsCarriedOut)
   SourceWidget front;
   SourceWidget behind;
   PanelStreamOptions behind_options = options_no_pacing();
-  behind_options.placement.pose.position = QarVector3{0.0f, 0.0f, -0.5f};
+  behind_options.placement.pose.position = seam::Vector3{0.0f, 0.0f, -0.5f};
   ASSERT_TRUE(h.manager->add_panel("front", front.get(), options_no_pacing()).ok());
   ASSERT_TRUE(h.manager->add_panel("behind", behind.get(), behind_options).ok());
   ASSERT_EQ(h.tick(), 2u);
@@ -530,8 +532,8 @@ TEST(PanelPark, AParkedStreamIsNotPointedAtEvenBeforeTheHideIsCarriedOut)
   // the panel under the title bar.
   const float panel_height_m = h.panel("front").height_meters;
   ASSERT_GT(panel_height_m, static_cast<float>(qar_qt_streaming::kDefaultArFrameTopM));
-  const QarVector3 origin{0.0f, -0.5f * panel_height_m, 1.0f};
-  const QarVector3 direction{0.0f, 0.0f, -1.0f};
+  const seam::Vector3 origin{0.0f, -0.5f * panel_height_m, 1.0f};
+  const seam::Vector3 direction{0.0f, 0.0f, -1.0f};
 
   ASSERT_TRUE(h.manager->route_room_ray(origin, direction, PanelPointerEvent::Kind::Click));
   ASSERT_EQ(h.sink.events().size(), 1u);
@@ -539,7 +541,7 @@ TEST(PanelPark, AParkedStreamIsNotPointedAtEvenBeforeTheHideIsCarriedOut)
 
   // Parked, and no tick yet: the hide has not reached QarOS, but the stream is out of use, so
   // the same ray goes through to the panel behind it and a sample addressed to it lands nowhere.
-  ASSERT_TRUE(h.manager->close_panel("front", "closed in RViz").ok());
+  ASSERT_TRUE(h.manager->close_panel("front", "closed by host").ok());
   ASSERT_TRUE(h.manager->is_parked("front"));
   ASSERT_FALSE(h.manager->is_ar_hidden("front"));
   ASSERT_TRUE(h.manager->route_room_ray(origin, direction, PanelPointerEvent::Kind::Click));
@@ -610,7 +612,7 @@ TEST(PanelPark, AddingTheKeyAgainRevivesTheStreamOntoAnotherWindowAndPose)
   ASSERT_TRUE(h.manager->add_panel("dock", first->get(), options_no_pacing()).ok());
   ASSERT_EQ(h.tick(), 1u);
   const auto adapter = h.adapter("dock");
-  ASSERT_TRUE(h.manager->close_panel("dock", "closed in RViz").ok());
+  ASSERT_TRUE(h.manager->close_panel("dock", "closed by host").ok());
   h.tick();
   ASSERT_TRUE(h.manager->is_ar_hidden("dock"));
 
@@ -624,7 +626,7 @@ TEST(PanelPark, AddingTheKeyAgainRevivesTheStreamOntoAnotherWindowAndPose)
   EXPECT_EQ(adapter->close_calls(), 0u);
 
   // It cannot be shown without a window; it stays parked and nothing is asked of QarOS.
-  const qar_ar_core::Result refused = h.manager->set_panel_ar_visible("dock", true);
+  const seam::Result refused = h.manager->set_panel_ar_visible("dock", true);
   EXPECT_EQ(refused.status, Status::InvalidState);
   EXPECT_FALSE(refused.message.empty());
   EXPECT_TRUE(h.manager->is_parked("dock"));
@@ -635,7 +637,7 @@ TEST(PanelPark, AddingTheKeyAgainRevivesTheStreamOntoAnotherWindowAndPose)
   // a desktop click: it makes no QarOS call, the next tick applies the pose and the show.
   SourceWidget second;
   PanelStreamOptions moved = options_no_pacing();
-  moved.placement.pose.position = QarVector3{1.5f, 2.0f, -1.0f};
+  moved.placement.pose.position = seam::Vector3{1.5f, 2.0f, -1.0f};
   const std::uint32_t placements = adapter->placement_calls();
   const std::uint32_t state_calls = adapter->state_calls();
   ASSERT_TRUE(h.manager->add_panel("dock", second.get(), moved).ok());
@@ -686,7 +688,7 @@ TEST(PanelPark, TheRevivalPoseIsAppliedByTheTickBeforeTheShow)
   // The revival comes from a desktop click: QarOS is not called from it.
   SourceWidget again;
   PanelStreamOptions moved = options_no_pacing();
-  moved.placement.pose.position = QarVector3{0.5f, 1.5f, -2.0f};
+  moved.placement.pose.position = seam::Vector3{0.5f, 1.5f, -2.0f};
   ASSERT_TRUE(manager.add_panel("p", again.get(), moved).ok());
   EXPECT_EQ(*factory->calls, std::vector<std::string>{"hide"});
 
@@ -803,7 +805,7 @@ TEST(PanelPark, ReviveIsAllowedWhateverTheCapAndFreesItsSlot)
   h.tick();
 
   // Two parked panels fill the cap: no further stream is created, and a Warning says so.
-  const qar_ar_core::Result refused = h.manager->add_panel("c", c.get(), options_no_pacing());
+  const seam::Result refused = h.manager->add_panel("c", c.get(), options_no_pacing());
   EXPECT_EQ(refused.status, Status::InvalidState);
   EXPECT_FALSE(h.manager->has_panel("c"));
   EXPECT_GE(h.manager->diagnostics().tombstone_cap_refusals, 1u);
@@ -920,7 +922,7 @@ TEST(PanelPark, APanelClosedInArIsParkedWithoutAHideCallAndShowIsTriedOnRevival)
     const auto adapter = h.adapter("p");
     ASSERT_TRUE(h.manager->note_ar_panel_closed("p"));
 
-    ASSERT_TRUE(h.manager->close_panel("p", "closed in RViz").ok());
+    ASSERT_TRUE(h.manager->close_panel("p", "closed by host").ok());
     h.tick();
     EXPECT_TRUE(h.manager->is_parked("p"));
     EXPECT_TRUE(h.manager->is_ar_hidden("p"));
@@ -931,8 +933,8 @@ TEST(PanelPark, APanelClosedInArIsParkedWithoutAHideCallAndShowIsTriedOnRevival)
     SourceWidget again;
     ASSERT_TRUE(h.manager->add_panel("p", again.get(), options_no_pacing()).ok());
     EXPECT_EQ(h.tick(), 1u);
-    EXPECT_EQ(adapter->states(), (std::vector<QarGuiPanelState>{QAR_GUI_PANEL_STATE_VISIBLE}));
-    const qar_ar_core::PanelStreamDiagnostics d = h.panel("p");
+    EXPECT_EQ(adapter->states(), (std::vector<seam::PanelState>{seam::PanelState::Visible}));
+    const seam::PanelStreamDiagnostics d = h.panel("p");
     EXPECT_FALSE(d.ar_panel_closed);
     EXPECT_FALSE(d.ar_hidden);
     EXPECT_FALSE(d.parked);
@@ -947,14 +949,14 @@ TEST(PanelPark, APanelClosedInArIsParkedWithoutAHideCallAndShowIsTriedOnRevival)
     ASSERT_EQ(h.tick(), 1u);
     const auto adapter = h.adapter("p");
     ASSERT_TRUE(h.manager->note_ar_panel_closed("p"));
-    ASSERT_TRUE(h.manager->close_panel("p", "closed in RViz").ok());
+    ASSERT_TRUE(h.manager->close_panel("p", "closed by host").ok());
     h.tick();
 
     adapter->fail_next_set_state();
     SourceWidget again;
     ASSERT_TRUE(h.manager->add_panel("p", again.get(), options_no_pacing()).ok());
     EXPECT_EQ(h.tick(), 0u);
-    const qar_ar_core::PanelStreamDiagnostics d = h.panel("p");
+    const seam::PanelStreamDiagnostics d = h.panel("p");
     EXPECT_TRUE(d.ar_panel_closed);
     EXPECT_TRUE(d.ar_hidden);
     EXPECT_EQ(d.visibility_failures, 1u);
@@ -976,7 +978,7 @@ TEST(PanelPark, AnArCloseStillInTheQueueIsLearntBeforeThePark)
 
   // The operator's close has been pushed by the runtime and no tick has drained it yet.
   h.queue->push_closed_panel("p");
-  ASSERT_TRUE(h.manager->close_panel("p", "closed in RViz").ok());
+  ASSERT_TRUE(h.manager->close_panel("p", "closed by host").ok());
   h.tick();
 
   EXPECT_EQ(adapter->state_calls(), 0u);
@@ -1032,10 +1034,10 @@ TEST(PanelPark, ADismissedDialogParksAndOpeningItAgainRevivesTheSameSender)
   // Hidden after each dismissal and shown after each reopening.
   EXPECT_EQ(
     dialog_adapter->states(),
-    (std::vector<QarGuiPanelState>{
-      QAR_GUI_PANEL_STATE_HIDDEN, QAR_GUI_PANEL_STATE_VISIBLE, QAR_GUI_PANEL_STATE_HIDDEN,
-      QAR_GUI_PANEL_STATE_VISIBLE, QAR_GUI_PANEL_STATE_HIDDEN, QAR_GUI_PANEL_STATE_VISIBLE,
-      QAR_GUI_PANEL_STATE_HIDDEN}));
+    (std::vector<seam::PanelState>{
+      seam::PanelState::Hidden, seam::PanelState::Visible, seam::PanelState::Hidden,
+      seam::PanelState::Visible, seam::PanelState::Hidden, seam::PanelState::Visible,
+      seam::PanelState::Hidden}));
 }
 
 TEST(PanelPark, ADestroyedDialogParksBeforeAnythingPaintsThroughIt)
@@ -1049,7 +1051,7 @@ TEST(PanelPark, ADestroyedDialogParksBeforeAnythingPaintsThroughIt)
   h.tick();
   ASSERT_TRUE(h.manager->has_panel("dialog:Add"));
 
-  // Deleted outright, the way RViz disposes of a one-shot dialog.
+  // Deleted outright, the way a host disposes of a one-shot dialog.
   delete dialog;
   QCoreApplication::processEvents();
   h.tick();
@@ -1114,11 +1116,11 @@ TEST(PanelPark, AParkAskedForFromThePanelsOwnClickRunsOnceTheClickHasReturned)
 
   // The Stop button, pressed in AR on the very panel it stops: the handler runs INSIDE the
   // stream's own deliver_input, with the injector on the stack beneath it.
-  qar_ar_core::Result asked;
+  seam::Result asked;
   bool parked_inside_handler = true;
   QObject::connect(
     panel.button(), &QPushButton::clicked, [&]() {
-      asked = h.manager->close_panel("p", "stopped in RViz");
+      asked = h.manager->close_panel("p", "stopped by host");
       parked_inside_handler = h.manager->is_parked("p");
     });
   EXPECT_TRUE(h.manager->handle_sample(centre_sample("p", PointerPhase::Instant)));
@@ -1221,7 +1223,7 @@ TEST(PanelParkResize, TheOldPanelIsHiddenAndKeptAndANewOneIsMadeWithoutAClose)
 
   // The old panel: hidden once, never closed. The new one: its own, at the new size, shown.
   EXPECT_EQ(old_panel->states(), kHiddenOnly);
-  EXPECT_EQ(old_panel->last_state(), QAR_GUI_PANEL_STATE_HIDDEN);
+  EXPECT_EQ(old_panel->last_state(), seam::PanelState::Hidden);
   EXPECT_EQ(old_panel->close_calls(), 0u);
   EXPECT_EQ(old_panel->sender_destroy_calls(), 0u);
   EXPECT_EQ(new_panel->desc().buffer_width, 400u);
@@ -1360,7 +1362,7 @@ TEST(PanelParkResize, AHideQarOSRefusesLeavesTheOldPanelShownAndKeptNeverClosed)
   ASSERT_EQ(h.factory->create_calls(), 2u);
   const auto old_panel = h.factory->created()[0];
   EXPECT_EQ(old_panel->state_calls(), 1u) << "the hide was asked for, once";
-  EXPECT_EQ(old_panel->last_state(), QAR_GUI_PANEL_STATE_VISIBLE) << "and refused";
+  EXPECT_EQ(old_panel->last_state(), seam::PanelState::Visible) << "and refused";
   EXPECT_EQ(old_panel->close_calls(), 0u) << "a refused hide never turns into a close";
   EXPECT_EQ(h.manager->replaced_panel_count(), 1u);
   EXPECT_EQ(h.factory->events(), (std::vector<std::string>{"create p", "create p"}));
@@ -1583,7 +1585,7 @@ TEST(PanelParkResize, ARefusedHideOfAKeptPanelIsAskedAgainAndALaterSuccessIsLogg
     if (rebuilt_at < 0.0 && h.factory->create_calls() == 2u) {
       rebuilt_at = h.clock->now_seconds();
       EXPECT_EQ(old_panel->state_calls(), 1u) << "asked once, at the size change";
-      EXPECT_EQ(old_panel->last_state(), QAR_GUI_PANEL_STATE_VISIBLE) << "and refused";
+      EXPECT_EQ(old_panel->last_state(), seam::PanelState::Visible) << "and refused";
     }
     if (old_panel->state_calls() == 2u) {
       retried_at = h.clock->now_seconds();
@@ -1595,9 +1597,9 @@ TEST(PanelParkResize, ARefusedHideOfAKeptPanelIsAskedAgainAndALaterSuccessIsLogg
   EXPECT_LE(retried_at - rebuilt_at, 1.25);
 
   // This time QarOS takes the hide: the kept panel is hidden, and the log says so once.
-  EXPECT_EQ(old_panel->states(), (std::vector<QarGuiPanelState>{
-    QAR_GUI_PANEL_STATE_HIDDEN, QAR_GUI_PANEL_STATE_HIDDEN}));
-  EXPECT_EQ(old_panel->last_state(), QAR_GUI_PANEL_STATE_HIDDEN);
+  EXPECT_EQ(old_panel->states(), (std::vector<seam::PanelState>{
+    seam::PanelState::Hidden, seam::PanelState::Hidden}));
+  EXPECT_EQ(old_panel->last_state(), seam::PanelState::Hidden);
   EXPECT_EQ(old_panel->close_calls(), 0u) << "a retried hide is never a close";
   const auto * late = h.diagnostics.find("is hidden now (attempt 2 of 4)");
   ASSERT_NE(late, nullptr);
@@ -1642,7 +1644,7 @@ TEST(PanelParkResize, TheRetriesGoOnWhileTheStreamIsParked)
   }
   ASSERT_TRUE(h.manager->is_parked("p"));
   EXPECT_EQ(old_panel->state_calls(), 2u);
-  EXPECT_EQ(old_panel->last_state(), QAR_GUI_PANEL_STATE_HIDDEN);
+  EXPECT_EQ(old_panel->last_state(), seam::PanelState::Hidden);
   EXPECT_EQ(h.diagnostics.count("is hidden now (attempt 2 of 4)"), 1u);
   EXPECT_EQ(old_panel->close_calls(), 0u);
 }
@@ -1673,7 +1675,7 @@ TEST(PanelParkResize, ARefusedHideIsAskedForThreeMoreTimesAtMostAndTheEndIsAWarn
   for (std::size_t i = 1; i < asked_at.size(); ++i) {
     EXPECT_GE(asked_at[i] - asked_at[i - 1], 1.0 - 1e-6) << "attempt " << i + 1;
   }
-  EXPECT_EQ(old_panel->last_state(), QAR_GUI_PANEL_STATE_VISIBLE);
+  EXPECT_EQ(old_panel->last_state(), seam::PanelState::Visible);
   EXPECT_EQ(old_panel->close_calls(), 0u);
 
   // One Warning for the size change and one for the end of the attempts.
@@ -1718,8 +1720,8 @@ TEST(PanelParkResize, ARevivalOnAWindowOfAnotherSizeKeepsTheOldPanelHiddenToo)
   ASSERT_EQ(h.factory->create_calls(), 2u);
   EXPECT_EQ(
     old_panel->states(),
-    (std::vector<QarGuiPanelState>{
-      QAR_GUI_PANEL_STATE_HIDDEN, QAR_GUI_PANEL_STATE_VISIBLE, QAR_GUI_PANEL_STATE_HIDDEN}));
+    (std::vector<seam::PanelState>{
+      seam::PanelState::Hidden, seam::PanelState::Visible, seam::PanelState::Hidden}));
   EXPECT_EQ(old_panel->close_calls(), 0u);
   EXPECT_EQ(h.factory->created()[1]->desc().buffer_width, 400u);
   EXPECT_EQ(h.manager->replaced_panel_count(), 1u);
@@ -1852,16 +1854,16 @@ TEST(DialogPoseHook, TheAdjusterSeesEveryDialogPoseWithItsHeightAndItsAnswerIsUs
     Harness h(mode, /*dialogs=*/true);
     ButtonPanel panel;
     PanelStreamOptions owner_options = options_no_pacing();
-    owner_options.placement.pose.position = QarVector3{0.3f, 1.0f, -0.5f};
+    owner_options.placement.pose.position = seam::Vector3{0.3f, 1.0f, -0.5f};
     ASSERT_TRUE(h.manager->add_panel("p", panel.widget(), owner_options).ok());
     h.tick();
 
-    std::vector<QarPose> poses;
+    std::vector<seam::Pose> poses;
     std::vector<float> heights;
-    h.manager->set_dialog_pose_adjuster([&](const QarPose & top_centre, float height_m) {
+    h.manager->set_dialog_pose_adjuster([&](const seam::Pose & top_centre, float height_m) {
         poses.push_back(top_centre);
         heights.push_back(height_m);
-        QarPose raised = top_centre;
+        seam::Pose raised = top_centre;
         raised.position.y += 2.0f;
         return raised;
       });
@@ -1965,13 +1967,13 @@ TEST(DialogPoseHook, WithoutAnAdjusterThePosesAreTheOwnersSteppedSideways)
   Harness h(PanelCloseMode::Park, /*dialogs=*/true);
   ButtonPanel panel;
   PanelStreamOptions owner_options = options_no_pacing();
-  owner_options.placement.pose.position = QarVector3{0.3f, 1.0f, -0.5f};
+  owner_options.placement.pose.position = seam::Vector3{0.3f, 1.0f, -0.5f};
   ASSERT_TRUE(h.manager->add_panel("p", panel.widget(), owner_options).ok());
   h.tick();
 
   // Set, then cleared again with an empty function: the poses are left alone.
   int calls = 0;
-  h.manager->set_dialog_pose_adjuster([&](const QarPose & top_centre, float) {
+  h.manager->set_dialog_pose_adjuster([&](const seam::Pose & top_centre, float) {
       ++calls;
       return top_centre;
     });
@@ -2429,9 +2431,9 @@ struct Frame
     p[3] = a;
   }
 
-  qar_ar_core::PanelPixels pixels() const
+  seam::PanelPixels pixels() const
   {
-    qar_ar_core::PanelPixels out;
+    seam::PanelPixels out;
     out.data = bytes.data();
     out.width = width;
     out.height = height;
@@ -2496,12 +2498,12 @@ TEST(FrameLuminance, RowsAreStrideBytesApartAndThePaddingIsNeverRead)
 TEST(FrameLuminance, AFrameWithoutDataOrSizeReadsZero)
 {
   using qar_qt_streaming::mean_luminance;
-  EXPECT_EQ(mean_luminance(qar_ar_core::PanelPixels{}), 0.0);
+  EXPECT_EQ(mean_luminance(seam::PanelPixels{}), 0.0);
   Frame frame(16, 16, 64, 255, 255, 255);
-  qar_ar_core::PanelPixels no_width = frame.pixels();
+  seam::PanelPixels no_width = frame.pixels();
   no_width.width = 0;
   EXPECT_EQ(mean_luminance(no_width), 0.0);
-  qar_ar_core::PanelPixels no_height = frame.pixels();
+  seam::PanelPixels no_height = frame.pixels();
   no_height.height = 0;
   EXPECT_EQ(mean_luminance(no_height), 0.0);
   EXPECT_EQ(mean_luminance(frame.pixels(), 0), 0.0) << "a step of zero reads nothing";

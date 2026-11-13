@@ -35,6 +35,8 @@
 #include <string>
 #include <vector>
 
+namespace seam = qar_qt_streaming::seam;
+
 using qar_qt_streaming::describe_scroll_census;
 using qar_qt_streaming::kScrollsByDesignProperty;
 using qar_qt_streaming::PanelStreamOptions;
@@ -1217,19 +1219,19 @@ TEST(StreamCensus, AStreamNobodyDrainsDoesNotGrowWithoutBound)
 namespace
 {
 
-class RecordingDiagnostics : public qar_ar_core::PanelDiagnosticsSink
+class RecordingDiagnostics : public seam::PanelDiagnosticsSink
 {
 public:
   struct Entry
   {
-    qar_ar_core::DiagnosticSeverity severity;
+    seam::DiagnosticSeverity severity;
     std::string category;
     std::string message;
     std::string panel_key;
   };
 
   void on_message(
-    qar_ar_core::DiagnosticSeverity severity, const std::string & category,
+    seam::DiagnosticSeverity severity, const std::string & category,
     const std::string & message, const std::string & panel_key) override
   {
     messages.push_back(Entry{severity, category, message, panel_key});
@@ -1286,7 +1288,7 @@ TEST(ManagerCensus, TheCensusLinesAreInfoLinesOfThePanelCategoryAndTheBarIsAWarn
 
   const auto first = h.diagnostics.with("scroll census (first frame)");
   ASSERT_EQ(first.size(), 1u);
-  EXPECT_EQ(first[0].severity, qar_ar_core::DiagnosticSeverity::Info);
+  EXPECT_EQ(first[0].severity, seam::DiagnosticSeverity::Info);
   EXPECT_EQ(first[0].category, "panel");
   EXPECT_EQ(first[0].panel_key, "dock:Views");
   EXPECT_EQ(first[0].message.rfind("'dock:Views' scroll census (first frame): 1 area(s), ", 0), 0u);
@@ -1297,10 +1299,10 @@ TEST(ManagerCensus, TheCensusLinesAreInfoLinesOfThePanelCategoryAndTheBarIsAWarn
   h.tick(0.5);
   const auto second = h.diagnostics.with("scroll census (+1.5 s)");
   ASSERT_EQ(second.size(), 1u);
-  EXPECT_EQ(second[0].severity, qar_ar_core::DiagnosticSeverity::Info);
+  EXPECT_EQ(second[0].severity, seam::DiagnosticSeverity::Info);
   const auto warning = h.diagnostics.with("still shows a vertical scroll bar");
   ASSERT_EQ(warning.size(), 1u);
-  EXPECT_EQ(warning[0].severity, qar_ar_core::DiagnosticSeverity::Warning);
+  EXPECT_EQ(warning[0].severity, seam::DiagnosticSeverity::Warning);
   EXPECT_EQ(warning[0].category, "panel");
   EXPECT_EQ(warning[0].panel_key, "dock:Views");
   EXPECT_EQ(
@@ -1324,7 +1326,7 @@ TEST(ManagerCensus, ARequestNamesTheStreamAndIsRefusedForAKeyThatIsNotStreaming)
   ASSERT_EQ(h.tick(0.1), 1u);
   const auto lines = h.diagnostics.with("scroll census (tab 'AR panels' selected)");
   ASSERT_EQ(lines.size(), 1u);
-  EXPECT_EQ(lines[0].severity, qar_ar_core::DiagnosticSeverity::Info);
+  EXPECT_EQ(lines[0].severity, seam::DiagnosticSeverity::Info);
   EXPECT_EQ(lines[0].panel_key, "self");
   EXPECT_EQ(
     lines[0].message.rfind(

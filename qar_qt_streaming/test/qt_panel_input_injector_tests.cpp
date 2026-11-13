@@ -11,6 +11,7 @@
 
 #include "qar_qt_streaming/qt_panel_input_injector.hpp"
 #include "qar_qt_streaming/qt_widget_capture.hpp"
+#include "qar_qt_streaming/qt_compat.hpp"
 
 #include <QApplication>
 #include <QCheckBox>
@@ -39,6 +40,7 @@
 #include <thread>
 #include <vector>
 
+namespace qt_compat = qar_qt_streaming::qt_compat;
 using qar_qt_streaming::InputDeliveryMode;
 using qar_qt_streaming::PanelInputOptions;
 using qar_qt_streaming::PointerAction;
@@ -72,7 +74,7 @@ public:
       widget_->layout()->activate();
     }
     QCoreApplication::processEvents();
-    QApplication::setActiveWindow(widget_);
+    qt_compat::activate_window(widget_);
     QCoreApplication::processEvents();
   }
 
@@ -155,6 +157,7 @@ public:
   std::vector<int> point_counts;
   std::vector<int> released_ids;
   int mouse_presses = 0;
+  bool ignore_touch = false;  ///< sees touch events and leaves them unaccepted
 
 protected:
   bool event(QEvent * e) override
@@ -166,11 +169,15 @@ protected:
       case QEvent::TouchCancel: {
         auto * touch = static_cast<QTouchEvent *>(e);
         touch_types.push_back(e->type());
-        point_counts.push_back(touch->touchPoints().size());
-        for (const auto & point : touch->touchPoints()) {
-          if (point.state() == Qt::TouchPointReleased) {
+        point_counts.push_back(qt_compat::qt_size(qt_compat::touch_points(*touch)));
+        for (const auto & point : qt_compat::touch_points(*touch)) {
+          if (qt_compat::is_released(point)) {
             released_ids.push_back(point.id());
           }
+        }
+        if (ignore_touch) {
+          e->ignore();
+          return true;
         }
         e->accept();
         return true;
@@ -595,6 +602,150 @@ TEST(InputInjector, TouchAwareWidgetsGetTouchSequencesWithEveryPoint)
   std::uint32_t owner = 0;
   EXPECT_FALSE(injector.mouse_pointer(owner));
 }
+
+/// Qt 5 names the widget the begin ended at, so it must equal the delivery record. Qt 6 names
+/// the exclusive grabber of the point, which a sendEvent leaves unset: null, never another
+/// widget.
+static void
+expect_qt_names_no_other_owner(const QtPanelInputInjector & injector, QWidget * owner)
+{
+  QObject * const by_qt = injector.last_touch_acceptance().by_qt.data();
+#if QAR_QT_COMPAT_QT6
+  EXPECT_TRUE(by_qt == nullptr || by_qt == owner)
+    << "Qt names another owner than the widget the begin was delivered to last";
+#else
+  EXPECT_EQ(by_qt, static_cast<QObject *>(owner))
+    << "Qt names another owner than the widget the begin was delivered to last";
+#endif
+}
+
+TEST(InputInjector, TheOwnerOfATouchBeginIsTheWidgetThatAcceptedItWhoeverItIs)
+{
+  Panel panel;
+  auto * accepting = new TouchWidget(panel.widget());
+  accepting->setGeometry(20, 20, 100, 100);
+  auto * outer = new TouchWidget(panel.widget());
+  outer->setGeometry(140, 20, 200, 200);
+  auto * ignoring = new TouchWidget(outer);  // sees the begin, takes none
+  ignoring->setGeometry(10, 10, 100, 100);
+  ignoring->ignore_touch = true;
+  panel.show();
+
+  QtPanelInputInjector injector(panel.widget());
+  // (a) the widget under the pointer accepts the begin itself
+  injector.deliver(panel.at(PointerActionKind::Press, accepting, QPoint(30, 30), 1));
+  EXPECT_EQ(injector.grab_widget(1), accepting);
+  EXPECT_EQ(injector.last_touch_acceptance().by_delivery.data(), accepting);
+  expect_qt_names_no_other_owner(injector, accepting);
+  RecordProperty("by_qt_target_accepts", injector.last_touch_acceptance().by_qt.isNull() ?
+    "null" : "the target");
+  injector.deliver(panel.at(PointerActionKind::Release, accepting, QPoint(30, 30), 1));
+
+  // (b) the widget under the pointer ignores the begin and its parent accepts it
+  injector.deliver(panel.at(PointerActionKind::Press, ignoring, QPoint(30, 30), 2));
+  EXPECT_EQ(ignoring->touch_types.size(), 1u) << "the child saw the begin first";
+  EXPECT_EQ(injector.grab_widget(2), outer);
+  EXPECT_EQ(injector.last_touch_acceptance().by_delivery.data(), outer);
+  expect_qt_names_no_other_owner(injector, outer);
+  RecordProperty("by_qt_parent_accepts", injector.last_touch_acceptance().by_qt.isNull() ?
+    "null" : "the parent");
+  injector.deliver(panel.at(PointerActionKind::Release, ignoring, QPoint(30, 30), 2));
+}
+
+TEST(InputInjector, ATouchSequenceBelongsToTheWidgetThatAcceptedTheBegin)
+{
+  Panel panel;
+  auto * outer = new TouchWidget(panel.widget());
+  outer->setGeometry(20, 20, 200, 200);
+  auto * inner = new QWidget(outer);  // a plain child: takes no touch, so the begin goes up
+  inner->setGeometry(10, 10, 100, 100);
+  panel.show();
+
+  QtPanelInputInjector injector(panel.widget());
+  EXPECT_EQ(injector.last_touch_acceptance().by_delivery.data(), nullptr);
+  injector.deliver(panel.at(PointerActionKind::Press, inner, QPoint(30, 30), 1));
+  EXPECT_EQ(injector.grab_widget(1), outer) << "the parent that took the begin owns the sequence";
+  EXPECT_EQ(injector.last_touch_acceptance().by_delivery.data(), outer);
+  // What Qt itself names as the owner: the target of the event in Qt 5 (the widget the
+  // delivery ended at), the exclusive grabber in Qt 6, which an event that is sent with
+  // sendEvent does not have. Qt never names another widget than the delivery does.
+  expect_qt_names_no_other_owner(injector, outer);
+  injector.deliver(panel.at(PointerActionKind::Release, inner, QPoint(30, 30), 1));
+  EXPECT_EQ(outer->touch_types.size(), 2u) << "a begin and an end reach the owner";
+}
+
+#if QAR_QT_COMPAT_QT6
+/// Qt 6 only: a touch point built from public API carries a scene position, a global position
+/// and a pressure. Its position in the widget, its press position and its last position are
+/// not settable; what they report is recorded, not asserted.
+TEST(InputInjectorQt6, ATouchPointCarriesTheScenePositionTheGlobalPositionAndThePressure)
+{
+  class PointProbe : public QWidget
+  {
+public:
+    explicit PointProbe(QWidget * parent)
+    : QWidget(parent) {setAttribute(Qt::WA_AcceptTouchEvents);}
+
+    struct Seen
+    {
+      QEvent::Type type;
+      QPointF position;
+      QPointF scene;
+      QPointF global;
+      QPointF press;
+      QPointF last;
+      double pressure;
+    };
+    std::vector<Seen> seen;
+
+protected:
+    bool event(QEvent * e) override
+    {
+      if (e->type() == QEvent::TouchBegin || e->type() == QEvent::TouchUpdate ||
+        e->type() == QEvent::TouchEnd)
+      {
+        const auto & p = qt_compat::touch_points(*static_cast<QTouchEvent *>(e)).first();
+        seen.push_back(
+          {e->type(), p.position(), p.scenePosition(), p.globalPosition(), p.pressPosition(),
+            p.lastPosition(), p.pressure()});
+        e->accept();
+        return true;
+      }
+      return QWidget::event(e);
+    }
+  };
+
+  Panel panel;
+  auto * probe = new PointProbe(panel.widget());
+  probe->setGeometry(20, 20, 200, 200);
+  panel.show();
+
+  QtPanelInputInjector injector(panel.widget());
+  injector.deliver(panel.at(PointerActionKind::Press, probe, QPoint(30, 30), 1));
+  injector.deliver(panel.at(PointerActionKind::Drag, probe, QPoint(60, 50), 1));
+  injector.deliver(panel.at(PointerActionKind::Release, probe, QPoint(60, 50), 1));
+  ASSERT_EQ(probe->seen.size(), 3u);
+  const QPointF local[3] = {QPointF(30, 30), QPointF(60, 50), QPointF(60, 50)};
+  const double pressure[3] = {1.0, 1.0, 0.0};
+  for (int i = 0; i < 3; ++i) {
+    const auto & s = probe->seen[static_cast<std::size_t>(i)];
+    EXPECT_EQ(s.scene, QPointF(probe->mapTo(probe->window(), local[i].toPoint())))
+      << "event " << i << ": the scene position is the position in the top-level widget";
+    EXPECT_EQ(s.global, QPointF(probe->mapToGlobal(local[i].toPoint())))
+      << "event " << i << ": the global position is the position on the screen";
+    EXPECT_EQ(QPointF(probe->mapFromGlobal(s.global.toPoint())), local[i])
+      << "event " << i << ": a widget finds its own position from the global position";
+    EXPECT_DOUBLE_EQ(s.pressure, pressure[i]) << "event " << i;
+  }
+  const auto & update = probe->seen[1];
+  RecordProperty("update_position", std::to_string(update.position.x()) + "," +
+    std::to_string(update.position.y()));
+  RecordProperty("update_press_position", std::to_string(update.press.x()) + "," +
+    std::to_string(update.press.y()));
+  RecordProperty("update_last_position", std::to_string(update.last.x()) + "," +
+    std::to_string(update.last.y()));
+}
+#endif
 
 TEST(InputInjector, TouchOnlyModeGivesPlainWidgetsNothing)
 {
@@ -1066,7 +1217,7 @@ public:
     window_->show();
     window_->ensurePolished();
     QCoreApplication::processEvents();
-    QApplication::setActiveWindow(window_);
+    qt_compat::activate_window(window_);
     QCoreApplication::processEvents();
   }
 
@@ -1090,7 +1241,7 @@ public:
   int right_clicks() const { return right_clicks_; }
   int dialog_clicks() const { return dialog_clicks_; }
 
-  /// A dialog parented to the WINDOW — the RViz parenting — placed by its
+  /// A dialog parented to the WINDOW — the host parenting — placed by its
   /// CONTENT origin at @p left_local and wide enough to straddle both panels.
   void open_window_dialog(const QPoint & left_local, const QSize & size, bool modal)
   {
@@ -1175,7 +1326,7 @@ TEST(DialogAttribution, AnAttributedDialogTakesInputThroughItsOwnPanelNotItsOwne
   QtPanelInputInjector right(app.right());
 
   // The operator works the left dock. This is the activation the attribution is
-  // based on, and in RViz it is the press on Add that opens the box.
+  // based on, and in a host it is the press that opens the box.
   tap_panel_point(left, QPointF(20.0, 20.0));
   ASSERT_EQ(app.left_clicks(), 1);
 
@@ -1284,7 +1435,7 @@ TEST(DialogAttribution, AModalDialogBlocksOnlyThePanelItIsAttributedTo)
   EXPECT_EQ(into_dialog.stats().dropped, 0u);
 
   // The other panel is not showing it, so it is not blocked by it either — the
-  // rule that keeps another part of RViz's modal dialogs from swallowing this
+  // rule that keeps another part of a host's modal dialogs from swallowing this
   // panel's AR clicks, applied to an attributed one.
   const std::uint64_t right_dropped = right.stats().dropped;
   tap_panel_point(right, QPointF(20.0, 20.0));

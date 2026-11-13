@@ -5,25 +5,62 @@
     {
       "name": "vs2019-x64",
       "displayName": "Visual Studio 2019, x64",
-      "description": "MSVC v142, the toolset of the ROS 2 Humble Windows distribution. Locations come from the environment variables of docs/INSTALL.md.",
+      "description": "MSVC v142. QAR_QT_ROOT names the Qt kit (Qt 5.15 or Qt 6.5, built for MSVC 2019); the Qt major version follows the kit. Locations come from the environment variables of docs/INSTALL.md.",
       "generator": "Visual Studio 16 2019",
       "architecture": "x64",
       "binaryDir": "${sourceDir}/build/vs2019-x64",
       "cacheVariables": {
         "QAR_BUILD_TESTS": "ON",
         "QAR_QT_ROOT": "$env{QAR_QT_ROOT}",
-        "QAR_PREFIX": "$env{QAR_PREFIX}"
+        "QAR_SDK_ROOT": "$env{QAR_SDK_ROOT}"
+      }
+    },
+    {
+      "name": "vs2022-x64",
+      "displayName": "Visual Studio 2022, x64",
+      "description": "MSVC v143. QAR_QT_ROOT names the Qt kit (Qt 6.5 or newer, built for MSVC 2019 or 2022). Locations come from the environment variables of docs/INSTALL.md.",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/vs2022-x64",
+      "cacheVariables": {
+        "QAR_BUILD_TESTS": "ON",
+        "QAR_QT_ROOT": "$env{QAR_QT_ROOT}",
+        "QAR_SDK_ROOT": "$env{QAR_SDK_ROOT}"
       }
     }
   ],
   "buildPresets": [
-    { "name": "vs2019-x64", "configurePreset": "vs2019-x64", "configuration": "RelWithDebInfo", "jobs": 8 }
+    { "name": "vs2019-x64", "configurePreset": "vs2019-x64", "configuration": "RelWithDebInfo", "jobs": 8 },
+    { "name": "vs2019-x64-debug", "configurePreset": "vs2019-x64", "configuration": "Debug", "jobs": 8 },
+    { "name": "vs2022-x64", "configurePreset": "vs2022-x64", "configuration": "RelWithDebInfo", "jobs": 8 },
+    { "name": "vs2022-x64-debug", "configurePreset": "vs2022-x64", "configuration": "Debug", "jobs": 8 }
   ],
   "testPresets": [
     {
       "name": "vs2019-x64",
       "configurePreset": "vs2019-x64",
       "configuration": "RelWithDebInfo",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "vs2019-x64-debug",
+      "configurePreset": "vs2019-x64",
+      "configuration": "Debug",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "vs2022-x64",
+      "configurePreset": "vs2022-x64",
+      "configuration": "RelWithDebInfo",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "vs2022-x64-debug",
+      "configurePreset": "vs2022-x64",
+      "configuration": "Debug",
       "output": { "outputOnFailure": true },
       "execution": { "noTestsAction": "error" }
     }

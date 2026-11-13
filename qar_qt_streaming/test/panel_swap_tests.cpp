@@ -12,7 +12,7 @@
 
 #include <gtest/gtest.h>
 
-#include "qar_ar_core/common_name.hpp"
+#include "qar_qt_streaming/seam/common_name.hpp"
 #include "qar_qt_streaming/panel_resize_mode.hpp"
 #include "qar_qt_streaming/qt_panel_stream_manager.hpp"
 #include "qar_qt_streaming/test_support/mock_panel_sender.hpp"
@@ -29,7 +29,9 @@
 #include <string>
 #include <vector>
 
-using qar_ar_core::DiagnosticSeverity;
+namespace seam = qar_qt_streaming::seam;
+
+using qar_qt_streaming::seam::DiagnosticSeverity;
 using qar_qt_streaming::PanelCloseMode;
 using qar_qt_streaming::PanelOverlayAttribution;
 using qar_qt_streaming::PanelResizeMode;
@@ -108,12 +110,12 @@ options_no_pacing()
   PanelStreamOptions options;
   options.max_fps = 0;              // every tick captures
   options.keepalive_seconds = 0.0;  // isolate the dirty check
-  options.placement.pose.orientation = QarQuaternion{0.0f, 0.0f, 0.0f, 1.0f};
-  options.placement.pose.position = QarVector3{0.0f, 0.0f, 0.0f};
+  options.placement.pose.orientation = seam::Quaternion{0.0f, 0.0f, 0.0f, 1.0f};
+  options.placement.pose.position = seam::Vector3{0.0f, 0.0f, 0.0f};
   return options;
 }
 
-class RecordingDiagnostics : public qar_ar_core::PanelDiagnosticsSink
+class RecordingDiagnostics : public seam::PanelDiagnosticsSink
 {
 public:
   void on_message(
@@ -172,9 +174,9 @@ struct Rig
     manager = std::make_unique<QtPanelStreamManager>(config);
   }
 
-  static qar_ar_core::NameScope scope()
+  static seam::NameScope scope()
   {
-    return qar_ar_core::make_name_scope("qt-panel-example", "", "TESTPC");
+    return seam::make_name_scope("qt-panel-example", "", "TESTPC");
   }
 
   std::uint32_t tick(double dt = 0.1)
@@ -248,7 +250,7 @@ TEST(PanelCommonName, EveryPanelCarriesTheNameOfItsKeyInTheScopeOfTheManager)
   ASSERT_EQ(rig.tick(), 1u);
   ASSERT_EQ(rig.factory->create_calls(), 1u);
   const std::string expected =
-    qar_ar_core::make_panel_common_name("Control Panel", Rig::scope());
+    seam::make_panel_common_name("Control Panel", Rig::scope());
   EXPECT_EQ(rig.factory->latest()->common_name(), expected);
   EXPECT_NE(expected.find("qt-panel-example.testpc.qaros-ros"), std::string::npos) << expected;
   EXPECT_EQ(rig.factory->latest()->desc().key, "Control Panel");
@@ -266,7 +268,7 @@ TEST(PanelCommonName, AnEmptyScopeStillGivesAUsableNameForTheMocks)
   ASSERT_TRUE(manager.add_panel("p", source.get(), options_no_pacing()).ok());
   clock->advance(0.1);
   ASSERT_EQ(manager.tick(), 1u);
-  EXPECT_EQ(factory->latest()->common_name(), qar_ar_core::make_panel_common_name("p", {}));
+  EXPECT_EQ(factory->latest()->common_name(), seam::make_panel_common_name("p", {}));
   EXPECT_FALSE(factory->latest()->common_name().empty());
 }
 
@@ -362,7 +364,7 @@ TEST(PanelSwap, ASenderThatCannotDetachKeepsTheOldPathAndItsKeptPanel)
   ASSERT_EQ(rig.factory->create_calls(), 2u);
   EXPECT_EQ(rig.manager->replaced_panel_count(), 1u) << "kept hidden, as before";
   EXPECT_EQ(rig.factory->created()[0]->detach_calls(), 0u);
-  EXPECT_EQ(rig.factory->created()[0]->last_state(), QAR_GUI_PANEL_STATE_HIDDEN);
+  EXPECT_EQ(rig.factory->created()[0]->last_state(), seam::PanelState::Hidden);
 }
 
 TEST(PanelSwap, InDestroyModeTheOldPanelIsClosedAsThatModeAlwaysDid)
@@ -388,7 +390,7 @@ TEST(PanelNewPanel, TheCommonNameCarriesTheBufferSizeAndAReturnToAKeptSizeShowsT
   ASSERT_TRUE(rig.manager->add_panel("p", source.get(), options_no_pacing()).ok());
   ASSERT_EQ(rig.tick(), 1u);
   const auto first = rig.factory->created()[0];
-  const std::string base = qar_ar_core::make_panel_common_name("p", Rig::scope());
+  const std::string base = seam::make_panel_common_name("p", Rig::scope());
   EXPECT_EQ(
     first->common_name(),
     base + "@" + std::to_string(first->desc().buffer_width) + "x" +
@@ -398,7 +400,7 @@ TEST(PanelNewPanel, TheCommonNameCarriesTheBufferSizeAndAReturnToAKeptSizeShowsT
   ASSERT_EQ(rig.factory->create_calls(), 2u);
   const auto second = rig.factory->created()[1];
   EXPECT_NE(second->common_name(), first->common_name()) << "a second QarOS panel";
-  EXPECT_EQ(first->last_state(), QAR_GUI_PANEL_STATE_HIDDEN);
+  EXPECT_EQ(first->last_state(), seam::PanelState::Hidden);
   EXPECT_EQ(first->detach_calls(), 0u) << "kept, not detached";
   EXPECT_EQ(rig.manager->replaced_panel_count(), 1u);
 
@@ -407,8 +409,8 @@ TEST(PanelNewPanel, TheCommonNameCarriesTheBufferSizeAndAReturnToAKeptSizeShowsT
   rig.resize_and_settle(source, 200, 120);
   EXPECT_EQ(rig.factory->create_calls(), 2u);
   EXPECT_EQ(rig.factory->live_name_collisions(), 0u);
-  EXPECT_EQ(first->last_state(), QAR_GUI_PANEL_STATE_VISIBLE);
-  EXPECT_EQ(second->last_state(), QAR_GUI_PANEL_STATE_HIDDEN);
+  EXPECT_EQ(first->last_state(), seam::PanelState::Visible);
+  EXPECT_EQ(second->last_state(), seam::PanelState::Hidden);
   EXPECT_EQ(rig.manager->replaced_panel_count(), 1u) << "the 400 x 240 panel is the kept one now";
   EXPECT_GT(first->submit_calls(), 1u) << "the revived sender serves the stream again";
 }
@@ -421,7 +423,7 @@ TEST(PanelNewPanel, ALongBaseNameIsCutSoTheNameWithItsSizeStaysWithinTheLimit)
   ASSERT_TRUE(rig.manager->add_panel(key, source.get(), options_no_pacing()).ok());
   ASSERT_EQ(rig.tick(), 1u);
   const std::string name = rig.factory->latest()->common_name();
-  EXPECT_LE(name.size(), qar_ar_core::kCommonNameMax);
+  EXPECT_LE(name.size(), seam::kCommonNameMax);
   EXPECT_NE(name.find('@'), std::string::npos);
 }
 
@@ -499,10 +501,10 @@ TEST(PanelSessionEnd, EveryPanelIsHiddenThenDetachedAndNeverClosed)
   const auto first = rig.factory->created()[0];
   const auto second = rig.factory->created()[1];
   ASSERT_EQ(first->desc().key, "a");
-  EXPECT_EQ(first->states(), (std::vector<QarGuiPanelState>{QAR_GUI_PANEL_STATE_HIDDEN}));
+  EXPECT_EQ(first->states(), (std::vector<seam::PanelState>{seam::PanelState::Hidden}));
   EXPECT_EQ(first->detach_calls(), 1u);
   EXPECT_EQ(first->close_calls(), 0u);
-  EXPECT_EQ(second->states(), (std::vector<QarGuiPanelState>{QAR_GUI_PANEL_STATE_HIDDEN}))
+  EXPECT_EQ(second->states(), (std::vector<seam::PanelState>{seam::PanelState::Hidden}))
     << "hidden once, when it was parked";
   EXPECT_EQ(second->detach_calls(), 1u);
   EXPECT_EQ(second->close_calls(), 0u);
@@ -524,7 +526,7 @@ TEST(PanelSessionEnd, TheKeptPanelsOfASizeChangeAreDetachedToo)
   for (const auto & adapter : rig.factory->created()) {
     EXPECT_EQ(adapter->detach_calls(), 1u);
     EXPECT_EQ(adapter->close_calls(), 0u);
-    EXPECT_EQ(adapter->last_state(), QAR_GUI_PANEL_STATE_HIDDEN);
+    EXPECT_EQ(adapter->last_state(), seam::PanelState::Hidden);
   }
 }
 
@@ -578,12 +580,12 @@ TEST(PanelPaused, APausedStreamCountsAsNotReadyButNeverAsUnserved)
   ASSERT_TRUE(rig.manager->add_panel("p", source.get(), options).ok());
   rig.tick();
   const auto adapter = rig.factory->latest();
-  adapter->set_not_ready_cause(qar_ar_core::PanelNotReadyCause::Paused);
+  adapter->set_not_ready_cause(seam::PanelNotReadyCause::Paused);
   for (int i = 0; i < 20; ++i) {
     rig.tick(1.0);  // 20 s on the manual clock: far past the 5 s unserved threshold
   }
   const auto snapshot = rig.manager->diagnostics();
-  qar_ar_core::PanelStreamDiagnostics d;
+  seam::PanelStreamDiagnostics d;
   for (const auto & entry : snapshot.panels) {
     if (entry.key == "p") {
       d = entry;
@@ -591,11 +593,11 @@ TEST(PanelPaused, APausedStreamCountsAsNotReadyButNeverAsUnserved)
   }
   EXPECT_GE(d.not_ready_streak, 20u) << "the ticks are in the total";
   // Only the first tick, which ran before the cause was set, is in the split of faults.
-  EXPECT_EQ(qar_ar_core::not_ready_split_text(d), "1/0/0") << "the split names faults only";
+  EXPECT_EQ(seam::not_ready_split_text(d), "1/0/0") << "the split names faults only";
   EXPECT_EQ(rig.diagnostics.count("is not being served"), 0u);
 
   // The same silence for a fault cause is reported.
-  adapter->set_not_ready_cause(qar_ar_core::PanelNotReadyCause::NoActiveTransfers);
+  adapter->set_not_ready_cause(seam::PanelNotReadyCause::NoActiveTransfers);
   for (int i = 0; i < 20; ++i) {
     rig.tick(1.0);
   }

@@ -16,7 +16,7 @@
 /// children that are `isVisible()`, and the input injector (qt_panel_input_injector.hpp)
 /// resolves its targets with `childAt()`, which skips hidden children too. A widget
 /// that exists only to be looked at in the headset - a second copy of a dock panel
-/// of a host such as an RViz plugin is one example - therefore has to be shown, and
+/// of a host application is one example - therefore has to be shown, and
 /// showing a top-level widget normally puts a window on the operator's desktop.
 ///
 /// `Qt::WA_DontShowOnScreen` is Qt's answer: the widget is mapped as far as Qt's own

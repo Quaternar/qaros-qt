@@ -24,8 +24,9 @@
 ///   * `QTouchEvent` (Begin / Update / End / Cancel) with one touch point per
 ///     pointer, grouped per receiving widget as Qt groups a touchscreen's
 ///     points;
-///   * `QMouseEvent` press / move / release / double-click, with
-///     `Qt::MouseEventSynthesizedByApplication` as the source.
+///   * `QMouseEvent` press / move / release / double-click, marked as coming from the
+///     application (`Qt::MouseEventSynthesizedByApplication` in Qt 5, the injector's own mouse
+///     device in Qt 6).
 ///
 /// ## Delivery modes, and why touch-with-mouse-fallback is the default
 ///
@@ -63,6 +64,7 @@
 /// instead of crashing.
 
 #include "qar_qt_streaming/panel_pointer_state.hpp"
+#include "qar_qt_streaming/qt_compat.hpp"
 
 #include <QEvent>
 #include <QPointF>
@@ -75,8 +77,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-
-class QTouchDevice;
 
 namespace qar_qt_streaming
 {
@@ -137,6 +137,17 @@ struct PanelInputOptions
   bool block_behind_modal = true;
 };
 
+/// @brief Who took the start of the last touch sequence, by the two ways of telling.
+///
+/// The injector decides by the widgets the TouchBegin was delivered to (the last one is the one
+/// that accepted it). Qt names an owner as well: the target of the event in Qt 5, the exclusive
+/// grabber of its first point in Qt 6.
+struct TouchAcceptance
+{
+  QPointer<QWidget> by_delivery;
+  QPointer<QObject> by_qt;
+};
+
 struct InputInjectionStats
 {
   /// Qt events actually sent into the widget tree.
@@ -179,6 +190,9 @@ public:
 
   /// @brief Which pointer currently synthesizes mouse events, if any.
   bool mouse_pointer(std::uint32_t & out_pointer_id) const;
+
+  /// @brief Who took the start of the last touch sequence this injector sent.
+  const TouchAcceptance & last_touch_acceptance() const {return last_touch_;}
 
 private:
   enum class Route : std::uint8_t
@@ -225,7 +239,7 @@ private:
     Qt::MouseButtons buttons, unsigned long ts);
   bool send_touch(
     Pointer & p, std::uint32_t pointer_id, QWidget * target, QEvent::Type type,
-    Qt::TouchPointState state, unsigned long ts, QWidget *& out_accepting);
+    qt_compat::TouchPhase phase, unsigned long ts, QWidget *& out_accepting);
   void apply_focus(QWidget * target, const QPointF & local) const;
 
   bool on_hover_move(std::uint32_t id, Pointer & p, const PointerAction & action);
@@ -238,7 +252,7 @@ private:
 
   QPointer<QWidget> panel_;
   PanelInputOptions options_;
-  std::unique_ptr<QTouchDevice> touch_device_;
+  qt_compat::InputDevices devices_;
   std::map<std::uint32_t, Pointer> pointers_;
   bool has_mouse_pointer_ = false;
   std::uint32_t mouse_pointer_ = 0;
@@ -246,6 +260,7 @@ private:
   /// first, Leave on the last, so two hands over one button are one hover.
   std::vector<std::pair<QPointer<QWidget>, unsigned>> entered_;
   InputInjectionStats stats_;
+  TouchAcceptance last_touch_;
 };
 
 }  // namespace qar_qt_streaming

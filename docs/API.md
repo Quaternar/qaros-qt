@@ -4,11 +4,11 @@ This page lists the public headers of the library, the types and functions that 
 
 ## Linking the package
 
-A consumer finds the package with `find_package` and links one imported target. The package version is compatible with the versions of the same minor number while the major number is 0, so a request for 0.1.0 is met by 0.1.x:
+A consumer finds the package with `find_package` and links the imported targets of the components that it needs. The package version is compatible with the versions of the same minor number while the major number is 0, so a request for 0.2.0 is met by 0.2.x:
 
 
 ```cmake
-find_package(qar_qt_streaming 0.1.0 CONFIG REQUIRED)
+find_package(qar_qt_streaming 0.2.0 CONFIG REQUIRED)
 ```
 
 The target that compiles the code of this page links it in the same way:
@@ -19,22 +19,25 @@ target_link_libraries(qar_qt_streaming_doc_snippets PRIVATE
 )
 ```
 
-| Target | What it brings with it |
-|---|---|
-| `qar_qt_streaming::qar_qt_streaming` | C++17, the include folder of the library, `qar_ogre_adapter::qar_ar_core`, and the Qt targets `Qt5::Core`, `Qt5::Gui` and `Qt5::Widgets` |
+| Component | Target | What it brings with it |
+|---|---|---|
+| `seam` | `qar_qt_streaming::seam` | C++17, the include folder of the seam, and the standard library only |
+| `qar_qt_streaming` | `qar_qt_streaming::qar_qt_streaming` | C++17, the include folder of the Qt core, `qar_qt_streaming::seam`, and the Qt targets `Qt5::Core`, `Qt5::Gui` and `Qt5::Widgets`, or `Qt6::Core`, `Qt6::Gui` and `Qt6::Widgets` |
+| `qaros` | `qar_qt_streaming::qaros` | the include folder of the backend, `qar_qt_streaming::seam`, the QarOS C++ SDK headers, and the compiler option `/permissive-` |
 
-The library calls no QarOS function. A program that streams to QarOS also needs a session and a panel factory, which are the components `render` and `panels` of qar_ogre_adapter, and the example links exactly these:
+Without a `COMPONENTS` list the package provides every component that it was built with. The component `qaros` needs the QarOS C++ SDK headers: the targets `qar-streaming-cpp` and `qar-streaming-c-headers` of your project when it defines them, else the `include` folder of `QAR_STREAMING_CPP_INCLUDE_DIR` or of the environment variable `QAR_SDK_ROOT`, else the copy that the package installed or the folder that it was built against. A program that links `qaros` expands the function tables of the QarOS C header once, in one source file, with `QAR_IMPLEMENT_DYNAMIC_LOADING()`, and it is compiled with the same `QAR_ENABLE_*` macros as the backend; the header `sdk_config_check.hpp` records them, and a difference is a link error. The example links exactly these libraries:
 
 ```cmake
 target_link_libraries(qar_qt_panel_example PRIVATE
   qar_qt_streaming::qar_qt_streaming
-  qar_ogre_adapter::session
-  qar_ogre_adapter::panels
-  Qt5::Widgets
+  qar_qt_streaming::qaros
+  Qt${QAR_QT_MAJOR}::Widgets
 )
 ```
 
-Include the headers of the library before the headers of Qt. `panel_pointer_state.hpp` declares a method named `emit`, which only parses while the `emit` macro of Qt does not exist yet, and a header of Qt defines it; defining `QT_NO_KEYWORDS` lifts the rule. The code is in the namespace `qar_qt_streaming`, and its results are the `qar_ar_core::Result` and `qar_ar_core::Status` of the core module, whose values are `Ok`, `InvalidArgument`, `InvalidState`, `AlreadyExists`, `NotFound`, `GuiThreadRequired` and `SenderFailed`.
+The project is also a subproject. `add_subdirectory` of the repository folder, or `FetchContent_Declare` with the source ZIP that `cpack --config CPackSourceConfig.cmake` makes in a configured build folder, builds the libraries only: the tests, the examples, the snippets and the install rules are on when the project is the top level of the build and off otherwise.
+
+The code is in the namespace `qar_qt_streaming`, the seam in `qar_qt_streaming::seam` and the backend in `qar_qt_streaming::qaros_backend`. The results are the `seam::Result` and `seam::Status` of the seam, whose values are `Ok`, `InvalidArgument`, `InvalidState`, `AlreadyExists`, `NotFound`, `GuiThreadRequired` and `SenderFailed`.
 
 ## Header map
 
@@ -52,7 +55,7 @@ Every public header of the library. The sections below describe the types.
 | `panel_geometry.hpp` | `PanelGeometryInput`, `PanelGeometry`, `PanelFrame`, `FrameNarrowing`, `compute_panel_geometry`, `align_up`, `kDefaultMetersPerLogicalPx`, `kDefaultArFrameTopM`, `kDefaultArFrameBottomM`, `kDefaultArFrameLeftM`, `kDefaultArFrameRightM`, `kDefaultArFitMarginM`, `kMinNarrowedWidthShare` |
 | `ar_readability.hpp` | `ReadabilityProfile`, `ReadabilityPreset`, `ReadabilityRecommendation`, `readability_preset`, `recommend_readability`, `subtended_arcmin`, `ceil_to_half` |
 | `offscreen_panel.hpp` | `show_offscreen`, `is_offscreen_panel`, `parse_offscreen_size`, `OffscreenSizeChoice`, `clamp_offscreen_side` |
-| `offscreen_popup_guard.hpp` | `install_offscreen_popup_guard`, `offscreen_popup_guard_installed`, `offscreen_popup_guard_stats`, `popup_owner_widget`, `is_owned_by_offscreen_panel`, `is_offscreen_popup`, `close_offscreen_popups`, `remove_offscreen_popup_guard` |
+| `offscreen_popup_guard.hpp` | `install_offscreen_popup_guard`, `offscreen_popup_guard_installed`, `offscreen_popup_guard_stats`, `popup_owner_widget`, `is_owned_by_offscreen_panel`, `is_offscreen_popup`, `active_popup_widget`, `close_offscreen_popups`, `remove_offscreen_popup_guard` |
 | `panel_close_mode.hpp` | `PanelCloseMode`, `PanelCloseModeChoice`, `parse_panel_close_mode`, `kPanelCloseModeEnv` |
 | `panel_tombstone.hpp` | `PanelTombstoneText`, `PanelTombstoneStyle`, `make_panel_tombstone_widget`, `tombstone_body_font_px`, `tombstone_is_clipped` |
 | `scroll_census.hpp` | `ScrollCensus`, `ScrollAreaCensus`, `take_scroll_census`, `describe_scroll_census`, `kScrollsByDesignProperty` |
@@ -61,8 +64,19 @@ Every public header of the library. The sections below describe the types.
 | `latest_video_frame.hpp` | `LatestVideoFrame`, `VideoFrameTrace` |
 | `video_panel_widget.hpp` | `VideoPanelWidget` |
 | `clock.hpp` | `IClock`, `SteadyClock` |
+| `qt_compat.hpp` | the helpers for the places where the input events of Qt 5.15 and Qt 6 differ |
+| `values.hpp` | `Vector3`, `Quaternion`, `Pose`, `PanelSize`, `PeerId`, `TimePoint`, `PanelState`, `PixelFormat` |
+| `panel_types.hpp` | `Status`, `Result`, `PanelDesc`, `PanelPlacement`, `PanelPixels`, `PanelDiagnosticsSink`, `PanelStreamDiagnostics`, `PanelDiagnosticsSnapshot`, `DiagnosticSeverity` |
+| `panel_sender.hpp` | `IPanelSender`, `IPanelSenderFactory`, `PanelCloseReport`, `PanelCloseOutcome`, `PanelNotReadyCause` |
+| `pointer_input.hpp` | `IPanelInputSource`, `QueuedPanelInputSource`, `PanelPointerSample`, `PointerGesture`, `PointerPhase`, `PointerHand` |
+| `panel_gesture_mapper.hpp` | `PanelGestureMapper`, `PanelGestureEvent`, `GestureSlot`, `GestureOutcome` |
+| `panel_attach.hpp`, `panel_state_guard.hpp`, `panel_op_result.hpp` | the decision about a panel that QarOS already holds, the guard of the panel state, the result of an operation that the worker carried out |
+| `common_name.hpp`, `timing_log.hpp` | `NameScope` and the naming rule of the common names, `TimingLog` |
+| `qaros_panel_sender_factory.hpp` | `QarosPanelSenderFactory`, `FactoryOptions` |
+| `qaros_panel_sender.hpp`, `qaros_panel_input_source.hpp` | `QarosPanelSender`, `QarosPanelInputSource`, `InputSourceOptions` |
+| `conversions.hpp`, `sdk_config_check.hpp` | the conversions between the values of the seam and the types of the SDK, the record of the `QAR_ENABLE_*` macros |
 
-The header `mock_panel_sender.hpp` belongs to the header-only target `qar_qt_streaming_test_support` and is not part of the library; [Testing](TESTING.md#test-doubles) describes the recording doubles in it.
+The header `mock_panel_sender.hpp` belongs to the interface library `qar_qt_streaming::test_support` and is not part of the library; [Testing](TESTING.md#test-doubles) describes the recording doubles in it.
 
 ## QtPanelStreamManager
 
@@ -92,7 +106,7 @@ config.pointer_state.double_click_distance_px = 5.0;
 | `remove_panel(key)` | `close_panel` with no reason |
 | `tombstone_panel(key, reason)` | the notice operation, whatever the close mode is |
 | `note_ar_panel_closed(key)` | the operator closed the panel in AR: stop capturing; the manager calls it itself for every report of the input source |
-| `clear()` | the end of the session: closes every panel that is still held, once |
+| `clear()` | the end of the session: closes every panel that is still held, once, in the mode `destroy`; hides and detaches it in the modes `notice` and `park` |
 | `tick()` | drains the input unless the host pumps it, drains the closes of the operator, sweeps the dialogs, advances the fit of the dialogs and runs one capture and submit cycle for every panel; returns the number of panels that submitted a frame |
 | `pump_input()` | drains the input source and processes every sample; re-entrant; returns the number of samples |
 | `handle_sample(sample)`, `route_room_point(point, kind)`, `route_room_ray(origin, direction, kind)` | the host's own entry points for a pointer sample, a point or a ray; each returns whether a panel was hit |
@@ -107,23 +121,23 @@ config.pointer_state.double_click_distance_px = 5.0;
 | `has_panel`, `panel_keys`, `dialog_panel_keys`, `tombstoned_panel_keys`, `is_tombstoned`, `is_parked`, `parked_panel_keys`, `is_ar_hidden`, `replaced_panel_count`, `close_mode` | queries |
 | `diagnostics()`, `reset_submit_gap_windows()`, `pointer_state()` | a copy of the counters, a new window for the statistics of the gaps between frames, and the pointer state machine |
 
-The calls return a `qar_ar_core::Result`. `add_panel` answers `InvalidArgument` for an empty key and for a null widget, `AlreadyExists` for a key that streams, and `InvalidState` when the cap of retired panels is reached for a new stream or a retired slot cannot be revived; `close_panel`, `set_panel_pose`, `set_panel_region_source` and `clear_panel_region_sources` answer `NotFound` for a key that does not stream, and so does `set_panel_ar_visible`, which answers `InvalidState` for a panel that shows the notice. In the code, `manager` is the manager of the host and `widget` the widget to stream.
+The calls return a `seam::Result`. `add_panel` answers `InvalidArgument` for an empty key and for a null widget, `AlreadyExists` for a key that streams, and `InvalidState` when the cap of retired panels is reached for a new stream or a retired slot cannot be revived; `close_panel`, `set_panel_pose`, `set_panel_region_source` and `clear_panel_region_sources` answer `NotFound` for a key that does not stream, and so does `set_panel_ar_visible`, which answers `InvalidState` for a panel that shows the notice. In the code, `manager` is the manager of the host and `widget` the widget to stream.
 
 ```cpp
 qqs::PanelStreamOptions options;
 options.display_name = "Settings";                                  // the title that QarOS shows; the key when empty
-options.placement.pose.position = QarVector3{0.0f, 1.5f, -1.0f};    // the top centre of the panel, in room space
+options.placement.pose.position = seam::Vector3{0.0f, 1.5f, -1.0f};    // the top centre of the panel, in room space
 
-const qar_ar_core::Result added = manager->add_panel("settings", widget, options);
+const seam::Result added = manager->add_panel("settings", widget, options);
 if (!added.ok()) {
   // InvalidArgument: an empty key or a null widget. AlreadyExists: the key streams already.
   // InvalidState: the cap of the notice mode is reached.
-  std::printf("add_panel: %s: %s\n", qar_ar_core::to_string(added.status), added.message.c_str());
+  std::printf("add_panel: %s: %s\n", seam::to_string(added.status), added.message.c_str());
   return;
 }
 
 // Move the panel; its size always comes from the widget.
-QarPose pose = options.placement.pose;
+seam::Pose pose = options.placement.pose;
 pose.position.x = 0.5f;
 manager->set_panel_pose("settings", pose);
 
@@ -154,10 +168,10 @@ public:
 `diagnostics()` returns a copy of the counters, so a host reads it on the GUI thread without a lock. The snapshot holds the totals of the manager, namely the panels and the live ones, the retired, the hidden, the parked and the closed ones, the number of closes that were deferred or failed, and the pointer samples that arrived, that landed on no panel and that made no sense; and one record for each panel with the frames that it captured, submitted and skipped for each reason, the size of its buffer and panel, its stream id, the senders that were built for it, its input counters, whether it is hidden in AR or parked and the counters of its hide and show requests, the brightness of the last frame that was measured, and its last error. `reset_submit_gap_windows()` starts a new window for the gaps between the frames of a panel, which a host that logs them calls after it has read them.
 
 ```cpp
-const qar_ar_core::PanelDiagnosticsSnapshot snapshot = manager->diagnostics();   // a copy, on the GUI thread
+const seam::PanelDiagnosticsSnapshot snapshot = manager->diagnostics();   // a copy, on the GUI thread
 std::printf("%u panels, %u live, %llu closed\n", static_cast<unsigned>(snapshot.panel_count),
   static_cast<unsigned>(snapshot.live_panels), static_cast<unsigned long long>(snapshot.panels_closed));
-for (const qar_ar_core::PanelStreamDiagnostics & panel : snapshot.panels) {
+for (const seam::PanelStreamDiagnostics & panel : snapshot.panels) {
   std::printf("%s: %llu submitted, %llu unchanged, %llu not ready, %llu rebuilds, visible %d\n", panel.key.c_str(),
     static_cast<unsigned long long>(panel.frames_submitted),
     static_cast<unsigned long long>(panel.frames_skipped_unchanged),
@@ -169,7 +183,7 @@ manager->reset_submit_gap_windows();   // start a new window for the submit_gap 
 
 ### Hiding, parking and fitting
 
-`set_panel_ar_visible(key, visible)` hides a panel in AR, or shows it again, without closing it. It records the request on the stream and makes no call to QarOS itself: the next `tick()` carries it out through the sender of the panel, which calls `qar_gui_panels_set_state` in qar_ogre_adapter. While a panel is hidden it is not captured, it takes no input and every hit test skips it. `is_ar_hidden(key)` is the state that QarOS accepted, so a request made since the last tick is not in it yet. `is_parked(key)` is true from the Qt-side close that parked a stream, in the close mode `Park`, until a window is shown on it again, and `parked_panel_keys()` lists such streams in key order. `set_close_mode(mode)` changes what the Qt-side closes that follow do, and streams that are parked or retired already stay as they are. `replaced_panel_count()` is the number of QarOS panels that earlier size changes replaced and kept in the mode `Park`, which count against `max_replaced_panels`. A host that places a panel before it exists asks `ar_panel_height_m(widget, options)`, the height in metres that the panel of the widget gets from the manager, which is 0 for a widget that has no size yet.
+`set_panel_ar_visible(key, visible)` hides a panel in AR, or shows it again, without closing it. It records the request on the stream and makes no call to QarOS itself: the next `tick()` carries it out through the sender of the panel, which calls `qar_gui_panels_set_state` through the SDK. While a panel is hidden it is not captured, it takes no input and every hit test skips it. `is_ar_hidden(key)` is the state that QarOS accepted, so a request made since the last tick is not in it yet. `is_parked(key)` is true from the Qt-side close that parked a stream, in the close mode `Park`, until a window is shown on it again, and `parked_panel_keys()` lists such streams in key order. `set_close_mode(mode)` changes what the Qt-side closes that follow do, and streams that are parked or retired already stay as they are. `replaced_panel_count()` is the number of QarOS panels that earlier size changes replaced and kept in the mode `Park`, which count against `max_replaced_panels`. A host that places a panel before it exists asks `ar_panel_height_m(widget, options)`, the height in metres that the panel of the widget gets from the manager, which is 0 for a widget that has no size yet.
 
 A dialog that a streamed panel opens is fitted before it gets its panel. `set_dialog_size_adjuster(adjuster)` installs a `DialogSizeAdjuster`, a function that the manager calls with the dialog, the available geometry of its screen and the round, counted from 0, and that answers a `DialogFitStep`: the size of the dialog after the step, whether the dialog is done, and a note for the log. `make_census_dialog_adjuster(slack_px, max_rounds)` builds the adjuster of the library, which makes the dialog taller by the overflow of its scroll areas, and without an adjuster the fixed `dialog_height_factor` of the configuration applies. `set_dialog_pose_adjuster(adjuster)` installs a `DialogPoseAdjuster` that may change the pose of the panel of a dialog, given its top-centre pose and its height in metres. [Architecture](ARCHITECTURE.md#popups-and-dialogs) says how the rounds run.
 
@@ -180,7 +194,7 @@ A dialog that a streamed panel opens is fitted before it gets its panel. `set_di
 ```cpp
 qqs::PanelStreamOptions options;
 options.display_name = "Robot status";                              // the title that QarOS shows
-options.placement.pose.position = QarVector3{0.0f, 1.4f, -1.2f};    // only the pose is yours; the size comes from the widget
+options.placement.pose.position = seam::Vector3{0.0f, 1.4f, -1.2f};    // only the pose is yours; the size comes from the widget
 options.meters_per_logical_px = 0.0012;      // the default: 1.2 mm in the room for each logical pixel
 options.render_scale = 1.0;                  // above 1.0 puts more pixels behind the same size
 options.buffer_alignment = 2;                // the buffer is rounded up to an even number of pixels
@@ -205,7 +219,7 @@ capture.set_region_source(camera_view, camera);     // video over a native windo
 // The size of the buffer in pixels and its pixel ratio, as compute_panel_geometry gives them.
 if (capture.capture(420, 200, 1.0)) {
   if (capture.content_changed()) {                  // the picture differs from the previous capture
-    const qar_ar_core::PanelPixels pixels = capture.pixels();   // borrowed until the next capture
+    const seam::PanelPixels pixels = capture.pixels();   // borrowed until the next capture
     std::printf("%u x %u pixels\n", static_cast<unsigned>(pixels.width), static_cast<unsigned>(pixels.height));
   }
   std::printf("visible %d, popups drawn %u, clipped %d\n", capture.widget_visible() ? 1 : 0,
@@ -288,8 +302,8 @@ An action produces no event for one of these reasons, and the last one is in `st
 qqs::PanelPointerStateMachine machine;            // no Qt needed
 qqs::ResolvedPointerSample sample;
 sample.pointer_id = 1;
-sample.gesture = qar_ar_core::PointerGesture::Click;
-sample.phase = qar_ar_core::PointerPhase::Instant;   // a tap: a press, a release and a click in one sample
+sample.gesture = seam::PointerGesture::Click;
+sample.phase = seam::PointerPhase::Instant;   // a tap: a press, a release and a click in one sample
 sample.timestamp_s = 12.0;
 sample.target.panel_key = "settings";
 sample.target.x = 40.0;
@@ -352,7 +366,7 @@ if (qqs::compute_panel_geometry(input, geometry, error)) {
 `panel_hit_test.hpp` maps the room to the pixels of a panel. `hit_test_panel_point(placement, point)` projects a point of the room onto the plane of the panel, and `intersect_panel_ray(placement, origin, direction)` intersects a ray with it, answering `valid` false for a ray that is parallel to the plane or whose plane lies behind its origin; `distance_m` is the signed distance along +Z of the panel for a point, and for a ray how far along the ray the plane was met. `panel_uv_to_widget_px(hit, width, height, x, y)` gives the widget pixel, clamped to the last pixel, and false outside the panel; `panel_hit_to_widget_point` gives the position as real numbers, unclamped, for a hit that needs only to be valid; `panel_uv_to_room_point` is the inverse of the point hit. `pick_panel_for_point` chooses the nearest panel of a vector of `PanelHitCandidate`s, and `pick_panel_for_ray` the first one along the ray.
 
 ```cpp
-const QarVector3 aim{0.1f, 1.45f, -1.0f};                     // a point in room space
+const seam::Vector3 aim{0.1f, 1.45f, -1.0f};                     // a point in room space
 const qqs::PanelHit hit = qqs::hit_test_panel_point(placement, aim);
 
 std::int32_t x = 0;
@@ -363,7 +377,7 @@ if (hit.valid && qqs::panel_uv_to_widget_px(hit, 420, 200, x, y)) {   // false o
 
 // A ray instead of a point: the hit is where the ray meets the plane, and distance_m is how far along the ray that is.
 const qqs::PanelHit along =
-  qqs::intersect_panel_ray(placement, QarVector3{0.0f, 1.5f, 0.0f}, QarVector3{0.0f, 0.0f, -1.0f});
+  qqs::intersect_panel_ray(placement, seam::Vector3{0.0f, 1.5f, 0.0f}, seam::Vector3{0.0f, 0.0f, -1.0f});
 std::printf("ray: valid %d, inside %d\n", along.valid ? 1 : 0, along.inside ? 1 : 0);
 ```
 
@@ -386,7 +400,7 @@ if (qqs::show_offscreen(hidden, choice.width, choice.height)) {
 std::printf("off-screen: %d\n", qqs::is_offscreen_panel(hidden) ? 1 : 0);
 ```
 
-The guard is installed by `show_offscreen`, and a host rarely calls it: `install_offscreen_popup_guard()` installs it once for each `QApplication` and returns false without an application or off its thread, `offscreen_popup_guard_installed()` asks, and `offscreen_popup_guard_stats()` counts the popups and the animation windows that were kept off the desktop since the process started. `popup_owner_widget(popup)` is the parent of a popup or, for a parentless one, its focus proxy; `is_owned_by_offscreen_panel(window)` and `is_offscreen_popup(widget)` answer the two questions of the guard; `close_offscreen_popups(panel_root)` closes the kept-off popups of a tree, innermost first, and returns how many. `remove_offscreen_popup_guard()` takes the guard off the `QApplication` and deletes it, and `show_offscreen` installs it again the next time; it returns false when no guard is installed and off the thread of the guard. The guard also removes itself when the module that holds this library is unloaded or the process exits, so that its code never outlives that module.
+The guard is installed by `show_offscreen`, and a host rarely calls it: `install_offscreen_popup_guard()` installs it once for each `QApplication` and returns false without an application or off its thread, `offscreen_popup_guard_installed()` asks, and `offscreen_popup_guard_stats()` counts the popups and the animation windows that were kept off the desktop since the process started. `popup_owner_widget(popup)` is the parent of a popup or, for a parentless one, its focus proxy; `is_owned_by_offscreen_panel(window)` and `is_offscreen_popup(widget)` answer the two questions of the guard; `active_popup_widget()` names the popup that takes the mouse while it is open, the active popup of Qt or, when Qt names none, the most recent popup that the guard keeps off the desktop, and is null when no popup is open; `close_offscreen_popups(panel_root)` closes the kept-off popups of a tree, innermost first, and returns how many. `remove_offscreen_popup_guard()` takes the guard off the `QApplication` and deletes it, and `show_offscreen` installs it again the next time; it returns false when no guard is installed and off the thread of the guard. The guard also removes itself when the module that holds this library is unloaded or the process exits, so that its code never outlives that module.
 
 ## Close modes
 
@@ -397,9 +411,9 @@ The guard is installed by `show_offscreen`, and a host rarely calls it: `install
 // variable itself; kPanelCloseModeEnv only names the variable that a host may use for it.
 const qqs::PanelCloseModeChoice choice = qqs::parse_panel_close_mode(mode_text);
 if (!choice.warning.empty()) {
-  std::printf("%s\n", choice.warning.c_str());   // a word that is neither destroy nor notice
+  std::printf("%s\n", choice.warning.c_str());   // a word that is none of destroy, notice and park
 }
-config.close_mode = choice.mode;                 // PanelCloseMode::Destroy or PanelCloseMode::Notice
+config.close_mode = choice.mode;                 // PanelCloseMode::Destroy, Notice or Park
 std::printf("%s: %s (%s)\n", qqs::kPanelCloseModeEnv, qqs::to_string(choice.mode),
   choice.explicitly_chosen ? "chosen" : "default");
 ```
@@ -414,7 +428,7 @@ if (manager->is_tombstoned("status")) {
   std::printf("%u panels show a notice\n", static_cast<unsigned>(manager->tombstoned_panel_keys().size()));
 }
 manager->note_ar_panel_closed("status");   // the operator closed the panel in AR; a source of input reports it for you
-manager->clear();                          // end of the session: closes every panel that is still held, once
+manager->clear();                          // end of the session: closes (destroy) or hides and detaches (notice, park) each held panel
 ```
 
 The notice of the second mode is built from `PanelTombstoneText`, which holds the name of the window that closed and a short reason, and from `PanelTombstoneStyle`: the body size of the text, 12 logical pixels, the minimum, 8.7 pixels, and four colours that follow the dark theme of the web panels by value, background `#0F141A`, text `#F2F5F7`, muted text `#A9B4BF` and the accent of the rule `#FFC857`. `make_panel_tombstone_widget(text, style, width, height)` returns the owned, parentless, never-shown widget, `tombstone_body_font_px(width, longest_line_chars, style)` is the pure fit, and `tombstone_is_clipped` tells whether the text does not fit even at the minimum.
@@ -480,7 +494,7 @@ Video can also replace a region of a larger widget, such as an embedded native w
 
 ```cpp
 // render_view is a child of the streamed widget that embeds a native window; QWidget::render() cannot paint it.
-const qar_ar_core::Result set = manager->set_panel_region_source("dock", render_view, mailbox);
+const seam::Result set = manager->set_panel_region_source("dock", render_view, mailbox);
 if (!set.ok()) {
   std::printf("no such panel: %s\n", set.message.c_str());   // NotFound for a key that does not stream
 }
@@ -491,11 +505,12 @@ manager->clear_panel_region_sources("dock");           // stop painting video ov
 
 | Call | Thread | Blocking | Failure is reported as |
 |---|---|---|---|
-| every method of `QtPanelStreamManager` and `QtPanelStream` | the Qt GUI thread | `tick()` captures every panel that passes its gate, and the tick that creates a panel and `close_panel` queue their QarOS calls for the thread that owns the session; `add_panel` never calls it | a `qar_ar_core::Result`, a `bool`, or a line to the diagnostics sink |
+| every method of `QtPanelStreamManager` and `QtPanelStream` | the Qt GUI thread | `tick()` captures every panel that passes its gate, and the tick that creates a panel and `close_panel` queue their QarOS calls for the worker of the backend; `add_panel` never calls it | a `seam::Result`, a `bool`, or a line to the diagnostics sink |
 | `QtPanelInputInjector::deliver`, `reset` | the Qt GUI thread; another thread is refused | none | `false`, with the reason in `stats()` |
 | `QtWidgetCapture::capture` | the Qt GUI thread | a full repaint of the widget | `false`, with the reason in `last_error()` |
 | `show_offscreen`, `install_offscreen_popup_guard`, `remove_offscreen_popup_guard`, `VideoPanelWidget::sync_to_frame` | the Qt GUI thread | none | `false` |
 | `PanelDiagnosticsSink::on_message`, `IQarPanelInputSink::on_panel_pointer` | called on the Qt GUI thread | must not block | none |
+| the calls of `QarosPanelSenderFactory`, `QarosPanelSender` and `QarosPanelInputSource` that the manager makes | the Qt GUI thread; the work that can wait for QarOS runs on the worker of the backend | `TryBeginFrame`, `GetCpuFrame` and `ShowFrame` of the SDK run on the Qt thread and every other call of the SDK does not | `false`, a result of `drain_results`, or a line to the diagnostics sink |
 | `LatestVideoFrame` | any thread | one short mutex | none |
 | `decode_raw_image`, `decode_compressed_image` | any thread; meant for a worker | the CPU time of the decode | `false`, with the reason in `error` |
 | the parsers, the geometry, the readability, the hit test, `PanelPointerStateMachine`, `decide_capture` | any thread | none | a value, or `false` with a reason |
@@ -512,28 +527,31 @@ include\qar_qt_streaming\ar_readability.hpp
 include\qar_qt_streaming\capture_gate.hpp
 include\qar_qt_streaming\clock.hpp
 include\qar_qt_streaming\frame_luminance.hpp
-include\qar_qt_streaming\latest_video_frame.hpp
-include\qar_qt_streaming\offscreen_panel.hpp
-include\qar_qt_streaming\offscreen_popup_guard.hpp
-include\qar_qt_streaming\panel_close_mode.hpp
-include\qar_qt_streaming\panel_geometry.hpp
-include\qar_qt_streaming\panel_hit_test.hpp
-include\qar_qt_streaming\panel_pointer_state.hpp
-include\qar_qt_streaming\panel_resize_mode.hpp
-include\qar_qt_streaming\panel_tombstone.hpp
-include\qar_qt_streaming\qt_panel_input_injector.hpp
-include\qar_qt_streaming\qt_panel_stream.hpp
-include\qar_qt_streaming\qt_panel_stream_manager.hpp
-include\qar_qt_streaming\qt_widget_capture.hpp
-include\qar_qt_streaming\scroll_census.hpp
-include\qar_qt_streaming\video_frame.hpp
-include\qar_qt_streaming\video_panel_widget.hpp
+...
+include\qar_qt_streaming\qaros\sdk_config_check.hpp
+include\qar_qt_streaming\seam\common_name.hpp
+include\qar_qt_streaming\seam\panel_attach.hpp
+include\qar_qt_streaming\seam\panel_gesture_mapper.hpp
+include\qar_qt_streaming\seam\panel_op_result.hpp
+include\qar_qt_streaming\seam\panel_sender.hpp
+include\qar_qt_streaming\seam\panel_state_guard.hpp
+include\qar_qt_streaming\seam\panel_types.hpp
+include\qar_qt_streaming\seam\pointer_input.hpp
+include\qar_qt_streaming\seam\timing_log.hpp
+include\qar_qt_streaming\seam\values.hpp
 lib\qar_qt_streaming.lib
+lib\qar_qt_streaming_qaros.lib
+lib\qar_qt_streaming_seam.lib
 share\qar_qt_streaming\LICENSE
 share\qar_qt_streaming\cmake\qar_qt_streamingConfig.cmake
 share\qar_qt_streaming\cmake\qar_qt_streamingConfigVersion.cmake
 share\qar_qt_streaming\cmake\qar_qt_streamingTargets-relwithdebinfo.cmake
 share\qar_qt_streaming\cmake\qar_qt_streamingTargets.cmake
+share\qar_qt_streaming\sdk\LICENSE
+share\qar_qt_streaming\sdk\README.md
+share\qar_qt_streaming\sdk\include\qar_streaming.h
+...
+share\qar_qt_streaming\sdk\include\qar_streaming_cpp\detail\VideoSender.inl
 ```
 
-The command lists the files of this package below the install prefix, relative to it. The package puts the headers below `include`, the static library below `lib`, and the CMake package files and the licence below `share/qar_qt_streaming`; the vendored QarOS header and its licence belong to the package qar_ogre_adapter.
+The command lists the files of this package below the install prefix, relative to it. The package puts the headers of the three libraries below `include`, the static libraries below `lib`, the CMake package files and the licence below `share/qar_qt_streaming`, and, when the build used the copies of `third_party`, the QarOS headers and their licence below `share/qar_qt_streaming/sdk`.

@@ -4,27 +4,29 @@ This page explains how the library turns a Qt widget into a QarOS GUI panel and 
 
 ## Where this library sits
 
-A QarOS GUI panel is a flat rectangle that hangs in the room, and its content comes from one of two sources. With the **stream route** a program renders the content and streams it to the panel as video. With the **URL route** the panel shows a web page that the browser of QarOS loads from a URL, so QarOS renders it. This library is the stream route for Qt: it draws a widget into a pixel buffer, streams the buffer as the video of a panel, and turns the gestures that QarOS reports on the panel into Qt events. The URL route is outside this library: the component `url` of qar_ogre_adapter opens such a panel, and the libraries of qar_rviz_plugin serve the pages.
+A QarOS GUI panel is a flat rectangle that hangs in the room, and its content comes from one of two sources. With the **stream route** a program renders the content and streams it to the panel as video. With the **URL route** the panel shows a web page that the browser of QarOS loads from a URL, so QarOS renders it. This library is the stream route for Qt: it draws a widget into a pixel buffer, streams the buffer as the video of a panel, and turns the gestures that QarOS reports on the panel into Qt events. The URL route is outside this library.
+
+The library has three layers, and each layer is a target of the CMake package. The layers depend on each other in one direction only.
 
 ```mermaid
 flowchart TB
   app["your Qt application"]
-  lib["qar_qt_streaming"]
-  core["qar_ar_core: the panel seams"]
-  panels["qar_ogre_adapter, component panels"]
-  session["qar_ogre_adapter, component render, or a session of your own"]
-  qaros["QarOS runtime"]
-  app --> lib
-  lib -- "frames out" --> core
-  lib -- "pointers in" --> core
-  panels -. implements .-> core
-  panels --> session
-  session -- "C API, loaded at run time" --> qaros
+  core["qar_qt_streaming: the Qt core"]
+  seam["seam: values and interfaces, standard library only"]
+  qaros["qaros: the backend over the QarOS C++ SDK"]
+  sdk["QarOS C++ SDK headers"]
+  runtime["QarOS runtime"]
+  app --> core
+  app --> qaros
+  core --> seam
+  qaros --> seam
+  qaros --> sdk
+  sdk -- "C API, loaded at run time" --> runtime
 ```
 
-The library never calls the QarOS C API. Everything that reaches QarOS crosses two interfaces that `qar_ar_core` of qar_ogre_adapter defines: `IQarPanelSenderFactory` and `IQarPanelSenderAdapter` take the frames out, and `IQarPanelInputSource` brings the pointer samples in. The component `panels` implements them, as `QarCApiPanelSenderFactory` and `QarCApiPanelInputSource`, on top of a QarOS session. The component `render` opens that session with `QarCApiSenderFactory`, and a program that opens its own session implements `IQarSessionOwner` instead. A GUI panel and its video sender have to belong to the same session, which is why the panel factory borrows the session of its owner and never creates one.
+The Qt core never calls the QarOS C API and has no dependency on the backend. Everything that reaches QarOS crosses two interfaces that `seam` defines: `IPanelSenderFactory` and `IPanelSender` take the frames out, and `IPanelInputSource` brings the pointer samples in. The backend implements them, as `QarosPanelSenderFactory`, `QarosPanelSender` and `QarosPanelInputSource`, on top of a QarOS session that the program opens and hands over; a program that has another way to reach QarOS, or none, implements the interfaces itself, as the recording doubles of the tests do. A GUI panel and its video sender have to belong to the same session, which is why the factory is made from one session and makes every panel from it.
 
-The library itself knows Qt and the seams and nothing else. It links Qt Core, Gui and Widgets and the module `qar_ar_core`, it has no dependency on Ogre, RViz, ament or ROS, and the layering guard fails the build when one of its files includes anything beyond the standard library, Qt, its own headers and `qar_ar_core`. The seams carry no Qt type, so that qar_ogre_adapter implements them without a Qt dependency, and the values that cross them are the types of the QarOS C header, `QarPose`, `QarVector3` and `QarGuiPanelSize`, so that nothing converts them on the way.
+The Qt core knows Qt and the seam and nothing else. It links Qt Core, Gui and Widgets and the target `seam`, it has no dependency on Ogre, RViz, ament or ROS, and the layering guard fails the build when one of its files includes anything beyond the standard library, Qt and its own headers. The seam carries no Qt type and includes only the standard library, and the backend includes the SDK headers and the seam but no Qt header. The values that cross the seam are plain structures of the seam, `Vector3`, `Quaternion`, `Pose` and `PanelSize`, whose layout is checked against the structures of the QarOS C header at compile time by the backend, so that the conversion between them is a copy of fields.
 
 ## Components
 
@@ -51,25 +53,25 @@ The library uses four seams that other code supplies. A seam is an abstract inte
 
 | Seam | Defined in | Implemented by | What crosses |
 |---|---|---|---|
-| `IQarPanelSenderFactory`, `IQarPanelSenderAdapter` | `qar_ar_core/qar_panel_sender.hpp` | `QarCApiPanelSenderFactory`, `QarCApiPanelSenderAdapter` of the component `panels`; a recording double in the tests | frames out: `try_begin_frame`, `submit_frame`, `set_placement`, `close` |
-| `IQarPanelInputSource` | `qar_ar_core/panel_input_source.hpp` | `QarCApiPanelInputSource` of `panels`; `QueuedPanelInputSource` | pointer samples in, and the keys of the panels that the operator closed in AR |
-| `PanelDiagnosticsSink` | `qar_ar_core/panel_types.hpp` | the host | the lines of the manager, with a severity, a category and the key of the panel |
+| `IPanelSenderFactory`, `IPanelSender` | `panel_sender.hpp` | `QarosPanelSenderFactory`, `QarosPanelSender` of the layer `qaros`; a recording double in the tests | frames out: `try_begin_frame`, `submit_frame`, `set_placement`, `close` |
+| `IPanelInputSource` | `pointer_input.hpp` | `QarosPanelInputSource` of `qaros`, on top of `QueuedPanelInputSource` | pointer samples in, and the keys of the panels that the operator closed in AR |
+| `PanelDiagnosticsSink` | `panel_types.hpp` | the host | the lines of the manager and of the backend, with a severity, a category and the key of the panel |
 | `IQarPanelInputSink` | `qt_panel_stream_manager.hpp` | the host, optional | the coarse result of the input: which panel, which pixel, a hover or a click |
 
 The header-only target `qar_qt_streaming_test_support` holds the recording stand-ins that the unit tests use; it is separate, so that it does not ship with the library. [Testing](TESTING.md#test-doubles) describes them.
 
 ## Thread model
 
-Everything runs on the Qt GUI thread, the one thread that may paint a widget or receive input for one. Two facts make that possible. `QWidget::render()` runs the paint path of a widget, which Qt permits only on the GUI thread, so the capture has no choice about where it runs. And `try_begin_frame` never blocks: it reports `ready == false` while no receiver has reserved a destination, so the whole capture and submit chain fits in a timer on the GUI thread, with no executor, no render lock and no hand-over of work between threads; the only locks are the mutex of the queue of the input source and the mutex of the video mailbox, each held for a moment. The stereo path of qar_ogre_adapter needs all three; its ARCHITECTURE explains why under "Threading model".
+The Qt core runs on the Qt GUI thread, the one thread that may paint a widget or receive input for one. Two facts make that possible. `QWidget::render()` runs the paint path of a widget, which Qt permits only on the GUI thread, so the capture has no choice about where it runs. And `try_begin_frame` never blocks: it reports `ready == false` while no receiver has reserved a destination, so the whole capture and submit chain fits in a timer on the GUI thread, with no render lock and no hand-over of work between threads; the only locks are the mutex of the queue of the input source and the mutex of the video mailbox, each held for a moment.
 
 | Thread | What runs there | Rule |
 |---|---|---|
-| Qt GUI thread | every method of `QtPanelStreamManager` and `QtPanelStream`, the capture, the delivery of input, the diagnostics sink, the close of a panel | the only thread that touches a widget; the injector refuses a delivery from any other thread and counts it as dropped; the sink must not block |
+| Qt GUI thread | every method of `QtPanelStreamManager` and `QtPanelStream`, the capture, the delivery of input, the diagnostics sink, the close of a panel, and the three frame calls of the SDK (`TryBeginFrame`, `GetCpuFrame`, `ShowFrame`) | the only thread that touches a widget; the injector refuses a delivery from any other thread and counts it as dropped; the sink must not block |
 | callback threads of QarOS | the callbacks of the input source | they only queue samples; `drain` hands the queue to the GUI thread, and the mutex of that queue is the one lock of the input path |
 | decode worker, optional | the decoders of `video_frame.hpp`, then `LatestVideoFrame::publish` | the decoders touch only `QImage`, so they are safe off the GUI thread; the mailbox holds one mutex and the GUI thread only reads |
-| the thread of the session owner | the join of the QAROS Hub, and the tasks that create, change and close a panel and its video sender | not a job of this library: the owner of `qar_ogre_adapter` runs them one at a time; `add_panel` calls QarOS never |
+| the worker of the backend | the calls that create, change and close a panel and its video sender, the subscriptions and their end, and the release of the session | one worker thread for each factory, or the executor of the application; no other SDK call runs on the GUI thread |
 
-The frame path never waits for QarOS, and neither does the creation of a panel or its close: the tick that finds a widget laid out asks the panel adapter to create the panel, and the adapter queues the calls `qar_video_sender_create` and `qar_gui_panels_get_or_create` as a task for the thread that owns the session. A close queues `qar_gui_panels_close_panel` and `qar_video_sender_handle_destroy` the same way, and the outcomes come back through `drain_results`, which the manager calls on every tick. The adapter prints how long a close took, so that the cost can be read from the log.
+The frame path never waits for QarOS, and neither does the creation of a panel or its close: the tick that finds a widget laid out asks the sender to create the panel, and the backend queues the creation of the video sender and of the GUI panel as tasks for its worker. A close queues the end of the subscriptions, the close of the GUI panel and the release of the video sender the same way, and the outcomes come back through `drain_results`, which the manager calls on every tick. The backend reports how long a close took, so that the cost can be read from the log. Its messages reach the diagnostics sink only on the GUI thread: the worker queues them, and `drain_results` and `drain` deliver them.
 
 The input path keeps the rule by pulling: QarOS delivers its gesture callbacks on a thread of its own, the input source queues them there, and the GUI thread drains the queue on its next tick. [SDK compatibility](SDK_COMPATIBILITY.md#panel-input-lifecycle) says what the callbacks may and may not do.
 
@@ -82,7 +84,7 @@ A few orderings are not obvious, and each of them exists for a reason that a cha
 3. **Pacing comes before capture.** The cap exists to save a full repaint of the widget, so a tick that the capture gate sheds does nothing else.
 4. **The dirty check comes before `try_begin_frame`.** A send cycle that QarOS reserved has to be followed by a frame, so the library asks for one only when it has something to send.
 5. **A resized widget gets a new sender on the same panel, and the old sender is released first.** By default the old video sender is detached, which cancels its subscriptions and destroys it, before the replacement is attached to the same QarOS panel, so that the runtime never holds two senders for one panel; with `QAR_PANEL_RESIZE=new-panel`, and for a sender that cannot detach, the old panel is hidden and kept and a second panel is made instead ([Resize and rebuilds](#resize-and-rebuilds)).
-6. **A panel is closed in a fixed order.** The pointers that are pressed on it are released first, while the stream can still deliver; then the adapter cancels the input subscriptions, closes the QarOS panel and destroys the video sender ([Closing panels](#closing-panels)).
+6. **A panel is closed in a fixed order.** The pointers that are pressed on it are released first, while the stream can still deliver; then the sender ends the input subscriptions, closes the QarOS panel and releases the video sender ([Closing panels](#closing-panels)).
 7. **Popups are composited after the video regions and before the hash.** An open popup then paints over the video under it, and a popup changes the hash of the picture.
 8. **A panel that is not served is reported after the batch**, so that a panel that submitted on this very tick is not reported for the run that it just ended.
 
@@ -95,14 +97,14 @@ sequenceDiagram
   participant H as host
   participant M as QtPanelStreamManager
   participant S as QtPanelStream
-  participant F as IQarPanelSenderFactory
-  participant A as IQarPanelSenderAdapter
+  participant F as IPanelSenderFactory
+  participant A as IPanelSender
   H->>M: add_panel(key, widget, options)
   Note over M: no call to QarOS
   H->>M: tick()
   M->>S: tick(now)
   S->>F: create_panel_sender(desc)
-  F-->>S: adapter: video sender, GUI panel, input subscription
+  F-->>S: sender: video sender, GUI panel, input subscription
   S->>A: try_begin_frame, then submit_frame
   H->>M: close_panel(key, reason)
   M->>S: close()
@@ -213,7 +215,7 @@ A pointer sample comes from the input source and ends as Qt events in a widget:
 
 ```mermaid
 flowchart LR
-  src["IQarPanelInputSource: drain()"] --> res["resolve against the live panels"]
+  src["IPanelInputSource: drain()"] --> res["resolve against the live panels"]
   res --> sm["PanelPointerStateMachine"]
   sm --> inj["QtPanelInputInjector of the panel"]
   sm --> sink["IQarPanelInputSink, optional"]
@@ -257,6 +259,8 @@ Three delivery modes choose between touch and mouse. The standard controls, push
 | `TouchOnly` | touch events only; a widget without `WA_AcceptTouchEvents` gets nothing |
 | `TouchWithMouseFallback`, the default | the sequence is offered as touch first; when no widget of the chain accepts the `TouchBegin`, mouse events are sent for the rest of that sequence |
 
+In Qt 6 a touch point is a `QEventPoint`, which has no public setter for the start position, the last position or the pressure, so the touch point that the library sends carries the positions in the receiving widget, in the scene and on the screen and no more. The standard controls take the mouse route and are not affected; a program whose widgets read other positions of a touch point chooses `InputDeliveryMode::MouseOnly`.
+
 Only one pointer at a time owns the synthesized mouse, because a desktop has one mouse; a further pointer that presses a plain widget meanwhile is dropped and counted with that reason, while a touch-aware widget takes it as another touch point. Why the events are not sent through `QWindowSystemInterface`, which would do the routing itself: it would share the button state, `QGuiApplication::mouseButtons()` and the popup grab with the real mouse of the desktop, so that an AR press held while the user drags with the mouse would corrupt both. The injector keeps its own implicit grab, its own enter and leave state and its own focus handling instead, and re-implements what `QApplication` does only for spontaneous events: click focus, enter and leave, the routing of events to an open popup, and the double click.
 
 The options of `PanelInputOptions` switch these parts: `enabled`, `delivery_mode`, `deliver_hover`, `apply_focus_policy`, `route_to_popups` and `block_behind_modal`. Every widget that the injector remembers is held through `QPointer`, so that a widget destroyed in the middle of a drag drops the action instead of crashing, and `reset()` cancels the pressed pointers, leaves the hovered widgets and closes the popups that only exist in the AR picture. The sink of the manager, an `IQarPanelInputSink`, is optional: it gets a coarse hover or click with the key of the panel and the widget pixel, and only a host that wants to log or visualise the interaction needs it.
@@ -269,6 +273,7 @@ The options of `PanelInputOptions` switch these parts: `enabled`, `delivery_mode
 - **Placing them.** The global position of the popup goes back into panel coordinates and into device pixels at the ratio of the panel, so that a supersampled panel gets a supersampled list, and the geometry is read again on every capture, because a long list moves as it scrolls.
 - **Clipping, never shifting.** A popup that hangs over the edge of its panel is cut at the edge, and `popup_clipped()` says so. Qt places a popup against the screen and not against the panel, and the input path maps a panel point to a global point and delivers it to the popup where Qt put it; drawing the popup shifted would put every item that the operator aimed at under a different one, silently. A cut list is visible, and a mis-aimed one is not. A host fixes the cut by giving the panel more room.
 - **The hash.** The popups are drawn before the picture is hashed, and their geometry is part of the hash, so that opening, closing, scrolling or moving one resends the frame, also on a platform that draws no glyphs.
+- **Graphics effects.** A window that carries an enabled graphics effect renders as nothing, so the capture switches the effect off while it draws the window and on again afterwards. Under the style `windows11` of Qt 6.8, which gives every combo box list and menu a drop shadow as such an effect, the lists and menus are therefore drawn into the picture without their shadow.
 - **Switches.** `set_composite_popups(false)` streams the bare widget, and `set_composite_tooltips(false)` keeps lists and menus and drops the tooltips.
 
 **Dialogs.** A dialog, a window of the kind `Qt::Dialog`, sheet or drawer, is a top-level window as well, but it is not composited. It gets a GUI panel of its own, because the rectangle of a dialog has nothing to do with the rectangle of the widget that opened it: a dialog squeezed into the narrow panel of a dock would show its top half and none of its buttons. Every `tick()` runs a sweep, before any widget is captured, that:
@@ -288,7 +293,7 @@ A dialog panel is **sized from the dialog**, and the real window is never moved;
 
 ## Resize and rebuilds
 
-A new widget size is not a redraw. The buffer layout of a sender is fixed when it is created, and QarOS allocates the receiver of the panel from it, so a new size means a new video sender. By default the QarOS panel stays and keeps its common name: the manager detaches the old adapter, which cancels the input subscriptions and destroys the video sender, and the adapter of the new size finds the panel again under its name, swaps its stream, fits its size and shows it. Reacting to every size on the way would turn a drag of a splitter into hundreds of rebuilds, and a widget that resizes itself, such as a status label inside the streamed widget whose text grows, widens its dock, which changes the buffer, which rebuilds the sender, which rewrites the label, would rebuild the sender for ever. A size is therefore adopted only when it is **significant** and **settled**:
+A new widget size is not a redraw. The buffer layout of a sender is fixed when it is created, and QarOS allocates the receiver of the panel from it, so a new size means a new video sender. By default the QarOS panel stays and keeps its common name: the manager detaches the old sender, which ends the input subscriptions and releases the video sender, and the sender of the new size finds the panel again under its name, swaps its stream, fits its size and shows it. Reacting to every size on the way would turn a drag of a splitter into hundreds of rebuilds, and a widget that resizes itself, such as a status label inside the streamed widget whose text grows, widens its dock, which changes the buffer, which rebuilds the sender, which rewrites the label, would rebuild the sender for ever. A size is therefore adopted only when it is **significant** and **settled**:
 
 | Option of `PanelStreamOptions` | Default | Meaning |
 |---|---|---|
@@ -312,7 +317,7 @@ The close mode of the manager, `QtPanelStreamingConfig::close_mode`, decides wha
 | QarOS refuses the hide | not applicable | not applicable | the stream becomes the notice of the second mode and a warning names the key and the reason; it is never closed |
 | the session ends: `clear()`, the destructor | every panel that is still held is closed exactly once | every panel is hidden in AR and detached: its video sender and subscriptions are released and the QarOS panel stays, so that the next session finds it under its common name; a sender that cannot detach closes its panel | the same, parked streams included |
 
-**The sequence of a close in the mode `destroy`.** (1) The pointers that are pressed on the panel are released, so that no widget stays pressed. (2) The adapter cancels the input and panel-update subscriptions of the panel. (3) The adapter closes the QarOS panel with `qar_gui_panels_close_panel`, unless the operator already closed it in AR; a failure is reported as a warning and does not stop the next step. (4) The adapter destroys the video sender. (5) The stream entry is dropped. The manager logs one line for every close, with the key, the stream, the reason, what each step did and how many frames the panel served; a panel that never served a frame, though QarOS was told its stream exists, is a warning. A close that is asked for from inside a pointer action that is being delivered into the panel itself, the Stop button of a panel that is pressed in AR, is queued: the stream is not destroyed under the handler, and the close runs when the delivery has returned, on the way out of the outermost `pump_input` or `handle_sample`, or at the top of the next tick. The call still returns success.
+**The sequence of a close in the mode `destroy`.** (1) The pointers that are pressed on the panel are released, so that no widget stays pressed. (2) The sender ends the input and panel-update subscriptions of the panel. (3) The sender closes the QarOS panel with `qar_gui_panels_close_panel`, unless the operator already closed it in AR; a failure is reported as a warning and does not stop the next step. (4) The sender releases the video sender. (5) The stream entry is dropped. The manager logs one line for every close, with the key, the stream, the reason, what each step did and how many frames the panel served; a panel that never served a frame, though QarOS was told its stream exists, is a warning. A close that is asked for from inside a pointer action that is being delivered into the panel itself, the Stop button of a panel that is pressed in AR, is queued: the stream is not destroyed under the handler, and the close runs when the delivery has returned, on the way out of the outermost `pump_input` or `handle_sample`, or at the top of the next tick. The call still returns success.
 
 **The operator closes a panel in AR.** The input source reports it, the manager drains the report on every tick, and the stream stops capturing and keeps its sender: the AR side that closes a panel is not the Qt window that closes. Minimised and hidden are not a close, because the operator only put the panel away. [SDK compatibility](SDK_COMPATIBILITY.md#panel-input-lifecycle) describes the states.
 
@@ -361,7 +366,7 @@ The README names each feature in one line. This section describes each feature i
 
 - **Any `QWidget` as a GUI panel.** The library draws the widget with `QWidget::render()` into an RGBA8888 buffer on the Qt GUI thread and sends a frame to QarOS only when the picture changed, which it finds by hashing the pixels. An unchanged picture is sent again after one second as a keepalive, and a panel is captured at most 15 times a second unless the host raises the limit.
 - **Panels sized for reading in AR.** A panel hangs in the room at 1.2 mm for each logical pixel of the widget, whatever the pixel density of the display: a denser display makes the picture sharper and not larger. The helpers of `ar_readability.hpp` derive the size of a pixel and a render scale from a viewing distance, with presets for 0.40 m, 0.65 m and 2.0 m, and the render scale makes the buffer denser without changing the size of the panel. QarOS draws the picture of a panel inside a frame of its own, so a panel is made a hair taller than its picture, by a fit margin, and QarOS draws it without a scroll bar; the panel of a dialog keeps the height of its picture and fits its width to the frame instead.
-- **AR input as Qt events.** A tap, a drag or a hover that QarOS reports on a panel reaches the widget as Qt events: touch events first, and mouse events for a widget that does not take touch, so that buttons, check boxes, sliders and combo boxes work. The library keeps an implicit grab for each pointer, recognises double clicks, sends the enter and leave events of a hover, and treats the two hands of a user as two pointers. The unit tests cover drags and two hands; no live session has exercised them yet.
+- **AR input as Qt events.** A tap, a drag or a hover that QarOS reports on a panel reaches the widget as Qt events: touch events first, and mouse events for a widget that does not take touch, so that buttons, check boxes, sliders and combo boxes work. The library keeps an implicit grab for each pointer, recognises double clicks, sends the enter and leave events of a hover, and treats the two hands of a user as two pointers. The unit tests cover drags and two hands; a live session exercised drags on the RViz dock panels that `qar_rviz_plugin` streams through this library (expanding a tree item, dragging a slider, scrolling), and no live session has exercised two hands.
 - **Popups and dialogs.** The lists of the combo boxes, menus and completers that a panel opens are drawn into its picture where Qt placed them; a tooltip window is drawn only when it has the panel as its parent, and a tooltip of Qt on Windows has the desktop as its parent. A dialog that a panel opens becomes a GUI panel of its own, sized from the dialog and placed 0.5 m beside the panel that opened it, and it closes when the dialog hides; a host that installs a size adjuster has the dialog fitted to its scroll areas first, so that its panel needs no scroll bar.
 - **Resizing without churn.** A widget of a new size gets a new video sender on the same QarOS panel: the library releases the old sender and attaches the new one, and the panel keeps its common name. It adopts a new size only when it differs by at least 8 pixels and has held for half a second and for three ticks; with `QAR_PANEL_RESIZE` set to `new-panel` a size change makes a second panel instead, and a sender that cannot detach takes that way as well.
 - **Closing a window and ending the session.** When a host reports a closed window, the manager closes the AR panel and destroys its video sender; with `QAR_PANEL_CLOSE_MODE` set to `notice` the panel stays and shows a notice, and with `park` nothing is closed while the session runs: the AR panel is hidden and kept, with its video sender, until the session ends. When the session ends in the mode `park` or `notice`, the manager hides the AR panels and detaches their senders instead of closing them, and the next start finds each panel again by its common name.
@@ -369,7 +374,7 @@ The README names each feature in one line. This section describes each feature i
 - **Numbers for the log.** A stream measures how bright the frames it sends are, so that a panel that shows black in AR can be told from a panel whose frames are black, and it counts the scroll areas of the widget, because a scroll bar cannot be used in AR.
 - **Hidden off-screen panels.** `show_offscreen` shows a top-level widget to Qt, so that it lays out, paints and takes input, without a window ever reaching the desktop, and a guard keeps the popups of such a panel off the desktop too.
 - **Video in panels.** `VideoPanelWidget` paints the newest frame of a `LatestVideoFrame`, the one-slot mailbox between a decoding thread and the GUI thread; `decode_raw_image` and `decode_compressed_image` turn raw and compressed camera images into the picture format of the capture; and a region source paints a video frame over a rectangle that `QWidget::render()` cannot paint, such as an embedded native window.
-- **An example and tests.** `qar_qt_panel_example` joins the QAROS Hub through a session owner and streams a window and a hidden panel to a target, and the unit tests run under the offscreen platform plugin of Qt, so that they open no window.
+- **An example and tests.** `qar_qt_panel_example` joins the QAROS Hub and streams a window and a hidden panel to a target, and the unit tests run under the offscreen platform plugin of Qt, so that they open no window.
 - **Known limitations.** What the QarOS SDK does not document or does not do is listed in [Known SDK limitations](SDK_COMPATIBILITY.md#known-sdk-limitations), and the symptoms of the limits that you may meet are in [Troubleshooting](TROUBLESHOOTING.md#panel-problems).
 
 ## Design notes
@@ -398,7 +403,7 @@ Compositing a dialog into the panel that opened it, and docking the real window 
 
 ### Dialog attribution: some applications parent their dialogs to the main window
 
-An application that creates its dialogs with its main window as the parent, as `rviz_common` does, gives a parent walk that leads from the dialog to the main window and never through a dock. A dock that is streamed answers "not yours" by that walk, and the dialog opens on the desktop and nowhere in the headset. Testing for the same top-level window would hand the dialog to every dock at once, each with a panel of its own and all of them competing for the same input, which is worse than no panel. The rule is therefore causation, decided once, and read-only everywhere else: promoting the dialog to a panel is what makes it visible in AR, so the sweep is the only place where an attribution is decided, and the input path only reads decisions that exist. A path that decided from the input could let one press adopt an unattributed dialog and act on it in the same instant, before the operator had seen it.
+An application that creates its dialogs with its main window as the parent gives a parent walk that leads from the dialog to the main window and never through a dock. A dock that is streamed answers "not yours" by that walk, and the dialog opens on the desktop and nowhere in the headset. Testing for the same top-level window would hand the dialog to every dock at once, each with a panel of its own and all of them competing for the same input, which is worse than no panel. The rule is therefore causation, decided once, and read-only everywhere else: promoting the dialog to a panel is what makes it visible in AR, so the sweep is the only place where an attribution is decided, and the input path only reads decisions that exist. A path that decided from the input could let one press adopt an unattributed dialog and act on it in the same instant, before the operator had seen it.
 
 ### A modal dialog freezes a timer-driven tick
 

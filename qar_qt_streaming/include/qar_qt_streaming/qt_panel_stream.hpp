@@ -9,17 +9,11 @@
 #include "qar_qt_streaming/panel_geometry.hpp"
 #include "qar_qt_streaming/panel_resize_mode.hpp"
 #include "qar_qt_streaming/panel_tombstone.hpp"
-#include "qar_ar_core/common_name.hpp"
-#include "qar_ar_core/panel_types.hpp"
-#include "qar_ar_core/qar_panel_sender.hpp"
+#include "qar_qt_streaming/seam/common_name.hpp"
+#include "qar_qt_streaming/seam/panel_types.hpp"
+#include "qar_qt_streaming/seam/panel_sender.hpp"
 #include "qar_qt_streaming/qt_panel_input_injector.hpp"
-#include "qar_ar_core/timing_log.hpp"
-// qt_widget_capture.hpp pulls in latest_video_frame.hpp (and real Qt headers)
-// LAST, deliberately: panel_pointer_state.hpp — reached above via
-// qt_panel_input_injector.hpp — declares a method named `emit`, which only
-// parses because Qt's `emit` keyword-macro (from any real Qt header, e.g.
-// <QImage> via LatestVideoFrame) does not exist yet at that point. Keep
-// anything Qt-heavy below the Qt-free headers in this list.
+#include "qar_qt_streaming/seam/timing_log.hpp"
 #include "qar_qt_streaming/qt_widget_capture.hpp"
 
 #include <QPointer>
@@ -46,7 +40,7 @@ struct PanelStreamOptions
   /// Where the panel hangs in the room. Its @c size is OVERWRITTEN each tick
   /// from the widget's real geometry (see panel_geometry.hpp); only the pose is
   /// the host's to choose.
-  qar_ar_core::PanelPlacement placement{};
+  seam::PanelPlacement placement{};
 
   double meters_per_logical_px = kDefaultMetersPerLogicalPx;
 
@@ -58,10 +52,10 @@ struct PanelStreamOptions
   /// panel it makes.
   PanelFrame ar_frame{};
 
-  /// Scope of the QarOS common name of this panel (qar_ar_core::make_panel_common_name). A
+  /// Scope of the QarOS common name of this panel (seam::make_panel_common_name). A
   /// QtPanelStreamManager sets it from QtPanelStreamingConfig::name_scope for every panel it
   /// makes.
-  qar_ar_core::NameScope name_scope{};
+  seam::NameScope name_scope{};
 
   /// What a size change does to the QarOS panel. A QtPanelStreamManager sets it from
   /// QtPanelStreamingConfig::resize_mode for every panel it makes.
@@ -208,7 +202,7 @@ public:
     std::string key,
     QWidget * widget,
     PanelStreamOptions options,
-    std::shared_ptr<qar_ar_core::IQarPanelSenderFactory> factory);
+    std::shared_ptr<seam::IPanelSenderFactory> factory);
 
   ~QtPanelStream();
 
@@ -221,19 +215,19 @@ public:
   bool tick(double now_seconds);
 
   /// @brief Move the panel in the room. Size is derived, so only pose is taken.
-  void set_pose(const QarPose & pose);
+  void set_pose(const seam::Pose & pose);
 
   /// @brief Move the panel in the room on the next @ref tick: the pose is taken now, the
-  /// QarOS call (IQarPanelSenderAdapter::set_placement) is left to that tick, which makes it
+  /// QarOS call (IPanelSender::set_placement) is left to that tick, which makes it
   /// before anything else, so a pose that comes from a desktop click makes no QarOS call there.
   /// A sender made before that tick is built with the pose and needs no call.
-  void set_pose_on_next_tick(const QarPose & pose);
+  void set_pose_on_next_tick(const seam::Pose & pose);
 
   /// @brief Close the QarOS panel and DESTROY the video sender. Idempotent. Also
   /// lets go of any pointer the injector still holds pressed.
   ///
   /// The order of the QarOS half is the adapter's, and is the contract
-  /// (IQarPanelSenderAdapter::close): input subscriptions, then
+  /// (IPanelSender::close): input subscriptions, then
   /// `qar_gui_panels_close_panel` — which is SKIPPED here when the operator
   /// already closed this panel in AR (@ref capture_suspended), so a panel is
   /// never closed twice — then the sender.
@@ -261,7 +255,7 @@ public:
   ///
   /// @return what the adapter did (an empty report when there was no adapter, or
   ///         it was already closed).
-  qar_ar_core::PanelCloseReport close();
+  seam::PanelCloseReport close();
 
   /// @brief The source window is gone: keep the stream, show a notice instead.
   ///
@@ -363,7 +357,7 @@ public:
   /// @brief Hide the panel in AR (@p visible false) or show it again, without closing it.
   ///
   /// Only records the request, the last one before a tick winning; the next @ref tick carries
-  /// it out first, so the QarOS call (IQarPanelSenderAdapter::set_state) happens on the host's
+  /// it out first, so the QarOS call (IPanelSender::set_state) happens on the host's
   /// render tick like every other. A stream that has no adapter yet carries it out right after
   /// creating one. While hidden the stream captures nothing and submits nothing, drops its
   /// input with the reason "hidden in AR", and keeps the QarOS panel, the video sender and the
@@ -408,7 +402,7 @@ public:
   /// panel.
   ///
   /// With @ref PanelStreamOptions::resize_mode Swap and a sender whose
-  /// IQarPanelSenderAdapter::supports_detach is true, a size change first detaches the old sender
+  /// IPanelSender::supports_detach is true, a size change first detaches the old sender
   /// (its video sender and its click/hover subscription go; the QarOS panel stays), then makes the
   /// new sender with the same common name, which the factory attaches to that same QarOS panel.
   /// The old sender is never kept, so a key never has two live senders on one panel. The function
@@ -433,7 +427,7 @@ public:
   static constexpr double kKeptHideRetrySeconds = 1.0;
 
   /// The least time, in seconds on the clock @ref tick is given, between the failure of a sender's
-  /// creation (reported through IQarPanelSenderAdapter::drain_results) and the next try.
+  /// creation (reported through IPanelSender::drain_results) and the next try.
   static constexpr double kCreateRetrySeconds = 1.0;
 
   /// @brief How many QarOS panels earlier size rebuilds replaced and kept.
@@ -560,7 +554,7 @@ public:
   /// @brief The placement that is sent to QarOS: the pose, and the size of the AR panel (its
   /// height holds the vertical part of the frame and the fit margin, a dialog's width is fitted
   /// to them; see PanelStreamOptions::ar_frame).
-  const qar_ar_core::PanelPlacement & placement() const { return placement_; }
+  const seam::PanelPlacement & placement() const { return placement_; }
   /// @brief The placement that pointer hit tests (panel_hit_test.hpp) work on: the rectangle of
   /// the widget in the panel. QarOS draws the video (the whole buffer) at the width the frame
   /// leaves, starting at the left inset, and centres it vertically between the top and the
@@ -573,8 +567,8 @@ public:
   /// the video lands on the same widget pixel whatever the frame is, and a point in the frame or
   /// in a band above or below the video lands on no pixel. Empty (no size) until the first
   /// geometry has been adopted.
-  qar_ar_core::PanelPlacement hit_placement() const;
-  const qar_ar_core::PanelStreamDiagnostics & diagnostics() const { return diagnostics_; }
+  seam::PanelPlacement hit_placement() const;
+  const seam::PanelStreamDiagnostics & diagnostics() const { return diagnostics_; }
 
   /// @brief Start a new window for the submit-gap statistics
   /// (PanelStreamDiagnostics::submit_gap_*); the last submit time is kept, so
@@ -632,14 +626,14 @@ private:
   /// makes it the current one (shown again when it was hidden). A common name is one QarOS panel,
   /// so a second sender for it is never made while a kept one holds it. Only in
   /// PanelResizeMode::NewPanel; false when no kept panel matches.
-  bool revive_kept_panel(const qar_ar_core::PanelDesc & desc);
+  bool revive_kept_panel(const seam::PanelDesc & desc);
 
   /// Asks again for the hide of every kept panel whose hide QarOS refused, when its time has
   /// come; says a late success, and the end of the attempts.
   void retry_kept_hides(double now_seconds);
 
   /// Takes the outcomes of the calls the senders only queued
-  /// (IQarPanelSenderAdapter::drain_results) and applies them: a creation that failed ends the
+  /// (IPanelSender::drain_results) and applies them: a creation that failed ends the
   /// sender (it is made again after @ref kCreateRetrySeconds), a creation that succeeded gives the
   /// stream its id, a refused placement is recorded, and a refused hide or show undoes what was
   /// assumed when the call was accepted. Called first on every tick, so that nothing below acts on
@@ -703,19 +697,19 @@ private:
   /// The sink this stream writes its per-capture rows to (`video_<key>.csv` in
   /// QAR_VIDEO_TIMING_DIR), or null when timing is off. Probed once, on the first
   /// frame-driven capture; see timing_log.hpp for why a row costs next to nothing.
-  qar_ar_core::TimingSink * timing_sink();
+  seam::TimingSink * timing_sink();
 
   std::string key_;
   /// Guarded: a parked stream outlives its window.
   QPointer<QWidget> widget_;
   PanelStreamOptions options_;
-  std::shared_ptr<qar_ar_core::IQarPanelSenderFactory> factory_;
-  std::shared_ptr<qar_ar_core::IQarPanelSenderAdapter> adapter_;
+  std::shared_ptr<seam::IPanelSenderFactory> factory_;
+  std::shared_ptr<seam::IPanelSender> adapter_;
   /// A sender (and QarOS panel) that a size rebuild replaced and kept. Idle: nothing is captured
   /// for it, and @ref close closes it once.
   struct KeptPanel
   {
-    std::shared_ptr<qar_ar_core::IQarPanelSenderAdapter> adapter;
+    std::shared_ptr<seam::IPanelSender> adapter;
     bool hidden = false;                ///< QarOS has accepted the hide
     std::uint32_t retries_left = 0;     ///< times a refused hide is still to be asked for again
     std::uint32_t attempts = 0;         ///< times the hide has been asked for, the first included
@@ -750,7 +744,7 @@ private:
   /// and @c widget_ points at it then.
   std::unique_ptr<QWidget> tombstone_widget_;
 
-  qar_ar_core::PanelPlacement placement_{};
+  seam::PanelPlacement placement_{};
   PanelGeometry geometry_{};
   std::uint32_t logical_width_ = 0;
   std::uint32_t logical_height_ = 0;
@@ -795,7 +789,7 @@ private:
   double frame_change_seconds_ = 0.0;           ///< when it last changed, at tick resolution
   std::uint64_t frame_sequence_captured_ = 0;   ///< as of the last capture let through
 
-  qar_ar_core::PanelStreamDiagnostics diagnostics_{};
+  seam::PanelStreamDiagnostics diagnostics_{};
   double capture_ms_total_ = 0.0;
 
   /// Pointer deliveries currently on the stack; see @ref delivering.
@@ -839,7 +833,7 @@ private:
 
   /// @name Per-frame stage timing (QAR_VIDEO_TIMING_DIR)
   /// @{
-  std::shared_ptr<qar_ar_core::TimingSink> timing_sink_;
+  std::shared_ptr<seam::TimingSink> timing_sink_;
   bool timing_probed_ = false;
   /// The run of consecutive "QarOS had no destination ready" capture ticks in progress:
   /// when its first tick happened (epoch us, 0 = no run) and how many ticks so far. Closed

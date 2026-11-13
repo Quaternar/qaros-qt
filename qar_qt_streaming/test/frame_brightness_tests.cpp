@@ -20,6 +20,8 @@
 #include <memory>
 #include <vector>
 
+namespace seam = qar_qt_streaming::seam;
+
 using qar_qt_streaming::FrameBrightness;
 using qar_qt_streaming::frame_brightness;
 using qar_qt_streaming::kBrightnessNotMeasured;
@@ -56,9 +58,9 @@ struct Frame
     }
   }
 
-  qar_ar_core::PanelPixels pixels() const
+  seam::PanelPixels pixels() const
   {
-    qar_ar_core::PanelPixels out;
+    seam::PanelPixels out;
     out.data = bytes.data();
     out.width = width;
     out.height = height;
@@ -257,12 +259,12 @@ TEST(FrameBrightness, AFrameWithoutDataOrSizeIsNotMeasured)
       EXPECT_EQ(b.rest, kBrightnessNotMeasured) << what;
       EXPECT_EQ(b.alpha, kBrightnessNotMeasured) << what;
     };
-  expect_nothing(frame_brightness(qar_ar_core::PanelPixels{}), "no data");
+  expect_nothing(frame_brightness(seam::PanelPixels{}), "no data");
   Frame frame(16, 16, 64, 255, 255, 255);
-  qar_ar_core::PanelPixels no_width = frame.pixels();
+  seam::PanelPixels no_width = frame.pixels();
   no_width.width = 0;
   expect_nothing(frame_brightness(no_width), "no width");
-  qar_ar_core::PanelPixels no_height = frame.pixels();
+  seam::PanelPixels no_height = frame.pixels();
   no_height.height = 0;
   expect_nothing(frame_brightness(no_height), "no height");
   expect_nothing(frame_brightness(frame.pixels(), 0.15, 0), "a step of zero reads nothing");
@@ -272,7 +274,7 @@ TEST(FrameBrightness, AFrameWithoutDataOrSizeIsNotMeasured)
 
 TEST(StreamBrightness, NothingIsMeasuredBeforeTheFirstSubmittedFrame)
 {
-  qar_ar_core::PanelStreamDiagnostics fresh;
+  seam::PanelStreamDiagnostics fresh;
   EXPECT_LT(fresh.luminance_all, 0.0);
   EXPECT_LT(fresh.luminance_top, 0.0);
   EXPECT_LT(fresh.luminance_rest, 0.0);
@@ -394,7 +396,7 @@ TEST(StreamBrightness, TheManagersSnapshotCarriesTheReading)
   clock->advance(0.1);
   ASSERT_EQ(manager.tick(), 1u);
 
-  const qar_ar_core::PanelStreamDiagnostics & d = manager.diagnostics().panels.at(0);
+  const seam::PanelStreamDiagnostics d = manager.diagnostics().panels.at(0);
   EXPECT_NEAR(d.luminance_top, 255.0, 1e-9);
   EXPECT_NEAR(d.luminance_rest, 0.0, 1e-12);
   EXPECT_NEAR(d.alpha_mean, 255.0, 1e-9);

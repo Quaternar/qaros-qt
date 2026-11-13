@@ -35,16 +35,18 @@
 #include <utility>
 #include <vector>
 
-using qar_ar_core::DiagnosticSeverity;
+namespace seam = qar_qt_streaming::seam;
+
+using qar_qt_streaming::seam::DiagnosticSeverity;
 using qar_qt_streaming::PanelCloseMode;
-using qar_ar_core::PanelPointerSample;
+using qar_qt_streaming::seam::PanelPointerSample;
 using qar_qt_streaming::PanelStreamOptions;
-using qar_ar_core::PointerGesture;
-using qar_ar_core::PointerPhase;
+using qar_qt_streaming::seam::PointerGesture;
+using qar_qt_streaming::seam::PointerPhase;
 using qar_qt_streaming::QtPanelStreamingConfig;
 using qar_qt_streaming::QtPanelStreamManager;
-using qar_ar_core::QueuedPanelInputSource;
-using qar_ar_core::Status;
+using qar_qt_streaming::seam::QueuedPanelInputSource;
+using qar_qt_streaming::seam::Status;
 using qar_qt_streaming::test_support::ManualClock;
 using qar_qt_streaming::test_support::MockQarPanelSenderFactory;
 
@@ -160,12 +162,12 @@ options_no_pacing()
   PanelStreamOptions options;
   options.max_fps = 0;              // every tick captures
   options.keepalive_seconds = 0.0;  // isolate the dirty check
-  options.placement.pose.orientation = QarQuaternion{0.0f, 0.0f, 0.0f, 1.0f};
-  options.placement.pose.position = QarVector3{0.0f, 0.0f, 0.0f};
+  options.placement.pose.orientation = seam::Quaternion{0.0f, 0.0f, 0.0f, 1.0f};
+  options.placement.pose.position = seam::Vector3{0.0f, 0.0f, 0.0f};
   return options;
 }
 
-class RecordingDiagnostics : public qar_ar_core::PanelDiagnosticsSink
+class RecordingDiagnostics : public seam::PanelDiagnosticsSink
 {
 public:
   struct Entry
@@ -223,7 +225,7 @@ struct Harness
     config.dialog_panels = false;
     config.diagnostics = &diagnostics;
     config.input_source = queue;
-    config.pump_input_in_tick = false;  // the way the RViz plugin runs it
+    config.pump_input_in_tick = false;  // as a host pumping its input does
     config.close_mode = mode;
     manager = std::make_unique<QtPanelStreamManager>(config);
   }
@@ -269,7 +271,7 @@ const std::vector<std::string> kSkippedSequence = {
 
 TEST(PanelCloseReport, TheOutcomeWordsAreTheOnesTheLogPrints)
 {
-  using qar_ar_core::PanelCloseOutcome;
+  using seam::PanelCloseOutcome;
   EXPECT_STREQ(to_string(PanelCloseOutcome::NoPanel), "none");
   EXPECT_STREQ(to_string(PanelCloseOutcome::Closed), "ran");
   EXPECT_STREQ(to_string(PanelCloseOutcome::AlreadyClosedInAr), "skipped (closed in AR)");
@@ -277,7 +279,7 @@ TEST(PanelCloseReport, TheOutcomeWordsAreTheOnesTheLogPrints)
 
   // An untouched report says nothing happened, so a caller that never ran a close
   // cannot mistake it for one that did.
-  const qar_ar_core::PanelCloseReport empty;
+  const seam::PanelCloseReport empty;
   EXPECT_FALSE(empty.input_unsubscribed);
   EXPECT_EQ(empty.panel, PanelCloseOutcome::NoPanel);
   EXPECT_TRUE(empty.panel_message.empty());
@@ -302,7 +304,7 @@ TEST(PanelClose, ClosingAPanelClosesTheGuiPanelAndDestroysTheSenderOnceInOrder)
   ASSERT_NE(adapter, nullptr);
   ASSERT_EQ(adapter->close_calls(), 0u) << "nothing closes before the window does";
 
-  ASSERT_TRUE(h.manager->close_panel("dock", "closed in RViz").ok());
+  ASSERT_TRUE(h.manager->close_panel("dock", "closed by host").ok());
 
   // Exactly once, in the contract's order: input first, then the GUI panel, then
   // the sender the panel consumed.
@@ -335,7 +337,7 @@ TEST(PanelClose, ANoticeIsNeverBuiltAndTheClosedPanelIsNeverCapturedAgain)
   const auto adapter = h.factory->latest();
   const std::size_t frames = adapter->frames().size();
 
-  ASSERT_TRUE(h.manager->close_panel("dock", "closed in RViz").ok());
+  ASSERT_TRUE(h.manager->close_panel("dock", "closed by host").ok());
   for (int i = 0; i < 10; ++i) {
     h.clock->advance(0.1);
     EXPECT_EQ(h.manager->tick(), 0u) << "nothing is left to submit";
@@ -353,7 +355,7 @@ TEST(PanelClose, ReopeningTheSameWindowIsAFreshAddWithANewSender)
     ASSERT_TRUE(h.manager->add_panel("dock", first.get(), options_no_pacing()).ok());
     h.clock->advance(0.1);
     ASSERT_EQ(h.manager->tick(), 1u);
-    ASSERT_TRUE(h.manager->close_panel("dock", "closed in RViz").ok());
+    ASSERT_TRUE(h.manager->close_panel("dock", "closed by host").ok());
   }
   const auto old_adapter = h.factory->latest();
 
@@ -391,7 +393,7 @@ TEST(PanelClose, ManyOpenCloseCyclesLeaveNothingBehind)
       << "cycle " << cycle;
     h.clock->advance(0.1);
     ASSERT_EQ(h.manager->tick(), 1u) << "cycle " << cycle;
-    ASSERT_TRUE(h.manager->close_panel("dock", "closed in RViz").ok()) << "cycle " << cycle;
+    ASSERT_TRUE(h.manager->close_panel("dock", "closed by host").ok()) << "cycle " << cycle;
   }
   // Every cycle minted a sender and every sender was destroyed, exactly once.
   EXPECT_EQ(h.factory->create_calls(), 25u);
@@ -423,7 +425,7 @@ TEST(PanelClose, TheTombstoneCapNoLongerBindsBecauseNothingAccumulates)
       << "window " << i << " must not be refused: the closed ones are gone, not kept";
     clock->advance(0.1);
     manager.tick();
-    ASSERT_TRUE(manager.close_panel(key, "closed in RViz").ok());
+    ASSERT_TRUE(manager.close_panel(key, "closed by host").ok());
   }
   EXPECT_EQ(manager.diagnostics().tombstone_cap_refusals, 0u);
   EXPECT_EQ(factory->create_calls(), 6u);
@@ -439,8 +441,8 @@ TEST(PanelClose, ClosingAKeyThatIsNotStreamingIsNotFoundAndTouchesNothing)
   EXPECT_EQ(h.manager->close_panel("nothing-here", "x").status, Status::NotFound);
   EXPECT_EQ(h.factory->latest()->close_calls(), 0u);
 
-  ASSERT_TRUE(h.manager->close_panel("dock", "closed in RViz").ok());
-  EXPECT_EQ(h.manager->close_panel("dock", "closed in RViz").status, Status::NotFound)
+  ASSERT_TRUE(h.manager->close_panel("dock", "closed by host").ok());
+  EXPECT_EQ(h.manager->close_panel("dock", "closed by host").status, Status::NotFound)
     << "a panel is closed once";
   EXPECT_EQ(h.factory->latest()->close_calls(), 1u);
 }
@@ -452,7 +454,7 @@ TEST(PanelClose, ClosingAPanelThatNeverGotASenderJustForgetsIt)
   ASSERT_TRUE(h.manager->add_panel("dock", source.get(), options_no_pacing()).ok());
   ASSERT_EQ(h.factory->create_calls(), 0u) << "no tick yet, so no sender";
 
-  ASSERT_TRUE(h.manager->close_panel("dock", "closed in RViz").ok());
+  ASSERT_TRUE(h.manager->close_panel("dock", "closed by host").ok());
   EXPECT_FALSE(h.manager->has_panel("dock"));
   EXPECT_EQ(h.factory->create_calls(), 0u);
   EXPECT_NE(h.diagnostics.find("none to destroy"), nullptr) << "and the log says so";
@@ -488,7 +490,7 @@ TEST(PanelClose, AnArClosedPanelIsNotClosedAgainButItsSenderIsStillDestroyed)
   EXPECT_TRUE(h.manager->has_panel("dock"));
 
   // Then the Qt window closes.
-  ASSERT_TRUE(h.manager->close_panel("dock", "closed in RViz").ok());
+  ASSERT_TRUE(h.manager->close_panel("dock", "closed by host").ok());
 
   EXPECT_TRUE(adapter->last_close_panel_closed_in_ar())
     << "the adapter has to be told, or it closes the panel a second time";
@@ -515,7 +517,7 @@ TEST(PanelClose, AnArCloseStillWaitingInTheQueueIsAppliedBeforeTheQtClose)
   // What the runtime's callback pushes the moment the operator closes the panel —
   // and no tick has drained it yet. The window closes in the same breath.
   h.queue->push_closed_panel("dock");
-  ASSERT_TRUE(h.manager->close_panel("dock", "closed in RViz").ok());
+  ASSERT_TRUE(h.manager->close_panel("dock", "closed by host").ok());
 
   EXPECT_TRUE(adapter->last_close_panel_closed_in_ar());
   EXPECT_EQ(adapter->close_panel_calls(), 0u);
@@ -547,7 +549,7 @@ TEST(PanelClose, AFailedClosePanelStillDestroysTheSenderDropsTheEntryAndWarns)
   const auto adapter = h.factory->latest();
   adapter->fail_next_close_panel();
 
-  const auto closed = h.manager->close_panel("dock", "closed in RViz");
+  const auto closed = h.manager->close_panel("dock", "closed by host");
   EXPECT_TRUE(closed.ok()) << "the panel is gone from this side; the failure is reported, not returned";
 
   // Not resurrected as a notice, and the sender went anyway.
@@ -593,7 +595,7 @@ TEST(PanelClose, SessionShutdownAfterClosesDoubleFreesNothing)
     ASSERT_EQ(manager.tick(), 3u);
     ASSERT_EQ(factory->create_calls(), 3u);
 
-    ASSERT_TRUE(manager.close_panel("qt", "closed in RViz").ok());
+    ASSERT_TRUE(manager.close_panel("qt", "closed by host").ok());
     ASSERT_TRUE(manager.note_ar_panel_closed("ar"));
     EXPECT_EQ(total(*factory, &qar_qt_streaming::test_support::MockQarPanelSenderAdapter::close_calls), 1u)
       << "only the Qt close has closed anything so far";
@@ -629,8 +631,8 @@ TEST(PanelClose, ClearAfterEveryPanelWasClosedHasNothingLeftToDo)
   ASSERT_TRUE(h.manager->add_panel("a", a.get(), options_no_pacing()).ok());
   ASSERT_TRUE(h.manager->add_panel("b", b.get(), options_no_pacing()).ok());
   ASSERT_EQ(h.manager->tick(), 2u);
-  ASSERT_TRUE(h.manager->close_panel("a", "closed in RViz").ok());
-  ASSERT_TRUE(h.manager->close_panel("b", "closed in RViz").ok());
+  ASSERT_TRUE(h.manager->close_panel("a", "closed by host").ok());
+  ASSERT_TRUE(h.manager->close_panel("b", "closed by host").ok());
 
   h.manager->clear();
   h.manager->clear();
@@ -648,7 +650,7 @@ TEST(PanelClose, EveryCloseIsLoggedWithKeyReasonStepsAndFramesServed)
   ASSERT_EQ(h.manager->tick(), 1u);
   const std::string stream_id = h.factory->latest()->stream_id_text();
 
-  ASSERT_TRUE(h.manager->close_panel("dock:Displays", "closed in RViz").ok());
+  ASSERT_TRUE(h.manager->close_panel("dock:Displays", "closed by host").ok());
 
   const auto * line = h.diagnostics.find("closed 'dock:Displays'");
   ASSERT_NE(line, nullptr);
@@ -656,7 +658,7 @@ TEST(PanelClose, EveryCloseIsLoggedWithKeyReasonStepsAndFramesServed)
   EXPECT_EQ(line->panel_key, "dock:Displays");
   EXPECT_NE(line->message.find("(stream " + stream_id + ")"), std::string::npos);
   EXPECT_NE(line->message.find("after 1 frame(s)"), std::string::npos);
-  EXPECT_NE(line->message.find("reason: closed in RViz"), std::string::npos);
+  EXPECT_NE(line->message.find("reason: closed by host"), std::string::npos);
   EXPECT_NE(line->message.find("input subscriptions cancelled"), std::string::npos);
   EXPECT_NE(line->message.find("close_panel ran"), std::string::npos);
   EXPECT_NE(line->message.find("video sender destroyed"), std::string::npos);
@@ -676,7 +678,7 @@ TEST(PanelClose, ClosingAPanelThatNeverServedAFrameIsAWarningNamingTheStream)
   h.manager->tick();
   const std::string stream_id = h.factory->latest()->stream_id_text();
 
-  ASSERT_TRUE(h.manager->close_panel("dock", "closed in RViz").ok());
+  ASSERT_TRUE(h.manager->close_panel("dock", "closed by host").ok());
 
   const auto * warning = h.diagnostics.find("having served it NO frames");
   ASSERT_NE(warning, nullptr);
@@ -702,11 +704,11 @@ TEST(PanelClose, ACloseAskedForFromThePanelsOwnClickRunsOnceTheClickHasReturned)
   // stack beneath it.
   int handler_runs = 0;
   bool alive_inside_handler = false;
-  qar_ar_core::Result asked;
+  seam::Result asked;
   QObject::connect(
     panel.button(), &QPushButton::clicked, [&]() {
       ++handler_runs;
-      asked = h.manager->close_panel("p", "stopped in RViz");
+      asked = h.manager->close_panel("p", "stopped by host");
       alive_inside_handler = h.manager->has_panel("p");
     });
 
@@ -737,8 +739,8 @@ TEST(PanelClose, ADeferredCloseAskedForTwiceRunsOnce)
 
   QObject::connect(
     panel.button(), &QPushButton::clicked, [&]() {
-      EXPECT_TRUE(h.manager->close_panel("p", "stopped in RViz").ok());
-      EXPECT_TRUE(h.manager->close_panel("p", "stopped in RViz").ok());
+      EXPECT_TRUE(h.manager->close_panel("p", "stopped by host").ok());
+      EXPECT_TRUE(h.manager->close_panel("p", "stopped by host").ok());
       EXPECT_TRUE(h.manager->remove_panel("p").ok());
     });
   EXPECT_TRUE(h.manager->handle_sample(centre_click("p")));
@@ -762,7 +764,7 @@ TEST(PanelClose, ACloseOfAnotherPanelFromAClickHandlerIsImmediate)
   bool victim_gone_inside_handler = false;
   QObject::connect(
     stopper.button(), &QPushButton::clicked, [&]() {
-      EXPECT_TRUE(h.manager->close_panel("victim", "stopped in RViz").ok());
+      EXPECT_TRUE(h.manager->close_panel("victim", "stopped by host").ok());
       victim_gone_inside_handler = !h.manager->has_panel("victim");
     });
   EXPECT_TRUE(h.manager->handle_sample(centre_click("stopper")));
@@ -785,14 +787,14 @@ TEST(PanelCloseNoticeMode, ACloseAskedForFromThePanelsOwnClickIsMadeOnceTheClick
   // stream's own deliver_input, with the input injector on the stack beneath it. The notice
   // drops that injector, so it must not be made until the click has returned.
   int handler_runs = 0;
-  qar_ar_core::Result asked;
+  seam::Result asked;
   bool tombstoned_inside_handler = true;
   QObject::connect(
     panel.button(), &QPushButton::clicked, [&]() {
       ++handler_runs;
-      asked = h.manager->close_panel("p", "stopped in RViz", "This window has been stopped.");
+      asked = h.manager->close_panel("p", "stopped by host", "This window has been stopped.");
       // Asked again, and by the other door: still one deferred close.
-      EXPECT_TRUE(h.manager->close_panel("p", "stopped in RViz").ok());
+      EXPECT_TRUE(h.manager->close_panel("p", "stopped by host").ok());
       EXPECT_TRUE(h.manager->remove_panel("p").ok());
       tombstoned_inside_handler = h.manager->is_tombstoned("p");
     });
@@ -833,7 +835,7 @@ TEST(PanelCloseNoticeMode, ACloseOfAnotherPanelFromAClickHandlerIsImmediate)
   bool victim_is_a_notice_inside_handler = false;
   QObject::connect(
     stopper.button(), &QPushButton::clicked, [&]() {
-      EXPECT_TRUE(h.manager->close_panel("victim", "stopped in RViz").ok());
+      EXPECT_TRUE(h.manager->close_panel("victim", "stopped by host").ok());
       victim_is_a_notice_inside_handler = h.manager->is_tombstoned("victim");
     });
   EXPECT_TRUE(h.manager->handle_sample(centre_click("stopper")));
@@ -867,7 +869,7 @@ TEST(PanelClose, ATickThatRunsMidDeliveryLeavesTheDeferredCloseAlone)
   bool still_there_after_tick = false;
   QObject::connect(
     panel.button(), &QPushButton::clicked, [&]() {
-      ASSERT_TRUE(h.manager->close_panel("p", "stopped in RViz").ok());
+      ASSERT_TRUE(h.manager->close_panel("p", "stopped by host").ok());
       h.manager->tick();  // a timer firing inside a nested loop
       still_there_after_tick = h.manager->has_panel("p");
     });
@@ -900,7 +902,7 @@ TEST(PanelClose, ARepeatedCloseAskedForWhileThePointerIsBeingReleasedIsIgnored)
   panel.button()->installEventFilter(&asker);
   asker.arm();
 
-  ASSERT_TRUE(h.manager->close_panel("p", "closed in RViz").ok());
+  ASSERT_TRUE(h.manager->close_panel("p", "closed by host").ok());
   panel.button()->removeEventFilter(&asker);
 
   const int reentrant_asks = asker.asks();
@@ -924,7 +926,7 @@ TEST(PanelCloseNoticeMode, ClosePanelIsTheTombstoneAndKeepsTheSender)
   const auto adapter = h.factory->latest();
 
   ASSERT_TRUE(
-    h.manager->close_panel("dock", "closed in RViz", "This window has been closed in RViz.").ok());
+    h.manager->close_panel("dock", "closed by host", "This window has been closed by host.").ok());
 
   EXPECT_TRUE(h.manager->has_panel("dock"));
   EXPECT_TRUE(h.manager->is_tombstoned("dock"));
@@ -933,7 +935,7 @@ TEST(PanelCloseNoticeMode, ClosePanelIsTheTombstoneAndKeepsTheSender)
   EXPECT_EQ(snapshot.tombstones_created, 1u);
   EXPECT_EQ(snapshot.panels_closed, 0u);
   ASSERT_EQ(snapshot.panels.size(), 1u);
-  EXPECT_EQ(snapshot.panels.front().tombstone_reason, "This window has been closed in RViz.")
+  EXPECT_EQ(snapshot.panels.front().tombstone_reason, "This window has been closed by host.")
     << "the notice says what the notice text says, not the log's short phrase";
 }
 
@@ -943,8 +945,8 @@ TEST(PanelCloseNoticeMode, WithoutANoticeTextTheReasonIsTheNoticeText)
   SourceWidget source;
   ASSERT_TRUE(h.manager->add_panel("dock", source.get(), options_no_pacing()).ok());
   ASSERT_EQ(h.manager->tick(), 1u);
-  ASSERT_TRUE(h.manager->close_panel("dock", "closed in RViz").ok());
-  EXPECT_EQ(h.manager->diagnostics().panels.front().tombstone_reason, "closed in RViz");
+  ASSERT_TRUE(h.manager->close_panel("dock", "closed by host").ok());
+  EXPECT_EQ(h.manager->diagnostics().panels.front().tombstone_reason, "closed by host");
 }
 
 TEST(PanelCloseNoticeMode, RemovePanelTombstonesAndClosingTwiceIsANoOp)
@@ -968,7 +970,7 @@ TEST(PanelCloseNoticeMode, ReopeningRevivesTheSameSenderAsBefore)
   ASSERT_TRUE(h.manager->add_panel("dock", first.get(), options_no_pacing()).ok());
   h.clock->advance(0.1);
   ASSERT_EQ(h.manager->tick(), 1u);
-  ASSERT_TRUE(h.manager->close_panel("dock", "closed in RViz").ok());
+  ASSERT_TRUE(h.manager->close_panel("dock", "closed by host").ok());
 
   SourceWidget second;
   ASSERT_TRUE(h.manager->add_panel("dock", second.get(), options_no_pacing()).ok());

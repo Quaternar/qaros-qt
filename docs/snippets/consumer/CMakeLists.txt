@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 3.22)
 project(qar_qt_streaming_consumer LANGUAGES CXX)
 
 # [qar-snippet:find]
-find_package(qar_qt_streaming 0.1.0 CONFIG REQUIRED)
+find_package(qar_qt_streaming 0.2.0 CONFIG REQUIRED)
 # [qar-snippet-end:find]
 
 set(consumer_targets qar_qt_streaming::qar_qt_streaming)

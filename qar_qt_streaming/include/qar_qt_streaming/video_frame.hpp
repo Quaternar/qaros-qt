@@ -5,20 +5,20 @@
 #define QAR_QT_STREAMING__VIDEO_FRAME_HPP_
 
 /// @file video_frame.hpp
-/// @brief ROS-free decoding of a camera frame into a displayable QImage.
+/// @brief Decoding of a camera frame into a displayable QImage, with no ROS dependency.
 ///
 /// This is the core both video-panel variants share: (a) a stand-alone AR
 /// panel for a video stream, and (b) substituting a live video frame for the
 /// uncapturable native window of a widget (see qt_widget_capture.hpp). Both
-/// need the SAME decode step, and neither is allowed to depend on ROS —
-/// a host that does link rclcpp, such as an RViz plugin, converts a real
+/// need the SAME decode step, and neither is allowed to depend on a middleware —
+/// a host that does link a middleware converts a real
 /// `sensor_msgs::msg::Image`/`CompressedImage` into @ref RawImageView / raw
 /// bytes and hands them here.
 ///
 /// `RawImageView` mirrors `sensor_msgs::msg::Image` field-for-field (see
 /// sensor_msgs' `image_encodings.hpp` for the encoding name constants used
 /// below) so binding the real message is a field copy, exactly the pattern
-/// `panel_input_source.hpp` already uses for gesture events.
+/// `pointer_input.hpp` already uses for gesture events.
 ///
 /// ## Thread safety
 ///
@@ -40,7 +40,7 @@
 namespace qar_qt_streaming
 {
 
-/// @brief ROS-free mirror of `sensor_msgs::msg::Image`. Borrowed: @ref data
+/// @brief Plain mirror of `sensor_msgs::msg::Image`. Borrowed: @ref data
 /// must outlive the call it is passed to.
 struct RawImageView
 {

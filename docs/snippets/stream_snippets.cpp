@@ -4,7 +4,6 @@
 // Snippets of API.md for the options of a stream, the capture, the injector and the pointer state machine. The
 // functions are compiled and linked and never run; their parameters stand for what the host owns.
 
-// The library headers come first: panel_pointer_state.hpp declares a method named emit(), which the emit macro of Qt breaks.
 #include "qar_qt_streaming/qt_panel_stream_manager.hpp"
 
 #include <QImage>
@@ -15,13 +14,14 @@
 #include <vector>
 
 namespace qqs = qar_qt_streaming;
+namespace seam = qar_qt_streaming::seam;
 
 qqs::PanelStreamOptions snippet_stream_options()
 {
   // [qar-snippet:stream_options]
   qqs::PanelStreamOptions options;
   options.display_name = "Robot status";                              // the title that QarOS shows
-  options.placement.pose.position = QarVector3{0.0f, 1.4f, -1.2f};    // only the pose is yours; the size comes from the widget
+  options.placement.pose.position = seam::Vector3{0.0f, 1.4f, -1.2f};    // only the pose is yours; the size comes from the widget
   options.meters_per_logical_px = 0.0012;      // the default: 1.2 mm in the room for each logical pixel
   options.render_scale = 1.0;                  // above 1.0 puts more pixels behind the same size
   options.buffer_alignment = 2;                // the buffer is rounded up to an even number of pixels
@@ -46,7 +46,7 @@ void snippet_capture(QWidget * widget, QWidget * camera_view, std::shared_ptr<qq
   // The size of the buffer in pixels and its pixel ratio, as compute_panel_geometry gives them.
   if (capture.capture(420, 200, 1.0)) {
     if (capture.content_changed()) {                  // the picture differs from the previous capture
-      const qar_ar_core::PanelPixels pixels = capture.pixels();   // borrowed until the next capture
+      const seam::PanelPixels pixels = capture.pixels();   // borrowed until the next capture
       std::printf("%u x %u pixels\n", static_cast<unsigned>(pixels.width), static_cast<unsigned>(pixels.height));
     }
     std::printf("visible %d, popups drawn %u, clipped %d\n", capture.widget_visible() ? 1 : 0,
@@ -86,8 +86,8 @@ void snippet_pointer_state()
   qqs::PanelPointerStateMachine machine;            // no Qt needed
   qqs::ResolvedPointerSample sample;
   sample.pointer_id = 1;
-  sample.gesture = qar_ar_core::PointerGesture::Click;
-  sample.phase = qar_ar_core::PointerPhase::Instant;   // a tap: a press, a release and a click in one sample
+  sample.gesture = seam::PointerGesture::Click;
+  sample.phase = seam::PointerPhase::Instant;   // a tap: a press, a release and a click in one sample
   sample.timestamp_s = 12.0;
   sample.target.panel_key = "settings";
   sample.target.x = 40.0;

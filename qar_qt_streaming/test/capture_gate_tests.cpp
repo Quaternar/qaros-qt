@@ -5,12 +5,9 @@
 // driven through it with a manual clock.
 //
 // The scenario behind all of it: a 30 fps video panel whose stream is ticked
-// only on Windows' default 15.625 ms timer granularity (what RViz gets once a
+// only on Windows' default 15.625 ms timer granularity (what a process gets once a
 // full-screen window covers it). A strict limiter then needs three ticks
 // (46.9 ms) between captures, so 30 fps becomes 21.3 fps.
-//
-// Include order note: qar_qt_streaming project headers first, plain Qt headers
-// after -- see the `emit` note in qt_panel_stream.hpp.
 
 #include <gtest/gtest.h>
 

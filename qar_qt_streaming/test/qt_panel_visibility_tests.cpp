@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Hiding a streamed panel in AR without closing it: QtPanelStreamManager::set_panel_ar_visible
-// records the request, the next tick carries it out through IQarPanelSenderAdapter::set_state,
+// records the request, the next tick carries it out through IPanelSender::set_state,
 // and a hidden panel is neither captured nor pointed at. MockQarPanelSenderAdapter records the
 // state calls and can refuse them, so what is asserted here is what the library owes: the
 // request is applied on the next tick and not before, the old state survives a refusal, input
@@ -28,16 +28,18 @@
 #include <string>
 #include <vector>
 
+namespace seam = qar_qt_streaming::seam;
+
 using qar_qt_streaming::PanelCloseMode;
 using qar_qt_streaming::PanelPointerEvent;
 using qar_qt_streaming::PanelStreamOptions;
 using qar_qt_streaming::QtPanelStreamingConfig;
 using qar_qt_streaming::QtPanelStreamManager;
-using qar_ar_core::PanelPointerSample;
-using qar_ar_core::PointerGesture;
-using qar_ar_core::PointerPhase;
-using qar_ar_core::QueuedPanelInputSource;
-using qar_ar_core::Status;
+using qar_qt_streaming::seam::PanelPointerSample;
+using qar_qt_streaming::seam::PointerGesture;
+using qar_qt_streaming::seam::PointerPhase;
+using qar_qt_streaming::seam::QueuedPanelInputSource;
+using qar_qt_streaming::seam::Status;
 using qar_qt_streaming::test_support::ManualClock;
 using qar_qt_streaming::test_support::MockQarPanelSenderAdapter;
 using qar_qt_streaming::test_support::MockQarPanelSenderFactory;
@@ -110,13 +112,13 @@ options_no_pacing()
   PanelStreamOptions options;
   options.max_fps = 0;              // every tick captures
   options.keepalive_seconds = 0.0;  // isolate the dirty check
-  options.placement.pose.orientation = QarQuaternion{0.0f, 0.0f, 0.0f, 1.0f};
-  options.placement.pose.position = QarVector3{0.0f, 0.0f, 0.0f};
+  options.placement.pose.orientation = seam::Quaternion{0.0f, 0.0f, 0.0f, 1.0f};
+  options.placement.pose.position = seam::Vector3{0.0f, 0.0f, 0.0f};
   return options;
 }
 
 /// A manager wired to the recording factory, a manual clock and a recording sink, with dialog
-/// promotion off and input pumped by the test (the way the RViz plugin runs it).
+/// promotion off and input pumped by the test (as a host pumping its input does).
 struct Harness
 {
   explicit Harness(PanelCloseMode mode = PanelCloseMode::Destroy)
@@ -143,14 +145,14 @@ struct Harness
   }
 
   /// The snapshot entry of @p key (a default one when there is none).
-  qar_ar_core::PanelStreamDiagnostics panel(const std::string & key) const
+  seam::PanelStreamDiagnostics panel(const std::string & key) const
   {
     for (const auto & entry : manager->diagnostics().panels) {
       if (entry.key == key) {
         return entry;
       }
     }
-    return qar_ar_core::PanelStreamDiagnostics{};
+    return seam::PanelStreamDiagnostics{};
   }
 
   std::shared_ptr<MockQarPanelSenderFactory> factory;
@@ -162,7 +164,7 @@ struct Harness
 
 /// A sender that knows nothing of panel state: it implements the pure virtuals of the interface
 /// and no more, so its set_state() and supports_state() are the interface's own defaults.
-class StatelessSender : public qar_ar_core::IQarPanelSenderAdapter
+class StatelessSender : public seam::IPanelSender
 {
 public:
   bool try_begin_frame(bool & out_ready) override
@@ -170,21 +172,21 @@ public:
     out_ready = true;
     return true;
   }
-  bool submit_frame(const qar_ar_core::PanelPixels &) override { return true; }
-  bool set_placement(const qar_ar_core::PanelPlacement &) override { return true; }
-  using qar_ar_core::IQarPanelSenderAdapter::close;
-  qar_ar_core::PanelCloseReport close(bool) override { return qar_ar_core::PanelCloseReport{}; }
+  bool submit_frame(const seam::PanelPixels &) override { return true; }
+  bool set_placement(const seam::PanelPlacement &) override { return true; }
+  using seam::IPanelSender::close;
+  seam::PanelCloseReport close(bool) override { return seam::PanelCloseReport{}; }
   const std::string & last_error() const override { return error_; }
 
 private:
   std::string error_;
 };
 
-class StatelessFactory : public qar_ar_core::IQarPanelSenderFactory
+class StatelessFactory : public seam::IPanelSenderFactory
 {
 public:
-  std::shared_ptr<qar_ar_core::IQarPanelSenderAdapter> create_panel_sender(
-    const qar_ar_core::PanelDesc &) override
+  std::shared_ptr<seam::IPanelSender> create_panel_sender(
+    const seam::PanelDesc &) override
   {
     sender = std::make_shared<StatelessSender>();
     return sender;
@@ -229,7 +231,7 @@ TEST(QtPanelVisibility, HideAppliesOnNextTickAndPausesCapture)
   const std::uint32_t submits = adapter->submit_calls();
   const std::uint64_t captured = h.panel("p").frames_captured;
   ASSERT_EQ(adapter->state_calls(), 0u);
-  EXPECT_EQ(adapter->last_state(), QAR_GUI_PANEL_STATE_VISIBLE);
+  EXPECT_EQ(adapter->last_state(), seam::PanelState::Visible);
 
   // The call records the request and nothing else: no QarOS call, nothing changes yet.
   ASSERT_TRUE(h.manager->set_panel_ar_visible("p", false).ok());
@@ -240,10 +242,10 @@ TEST(QtPanelVisibility, HideAppliesOnNextTickAndPausesCapture)
   // The next tick carries it out, first, and captures nothing.
   EXPECT_EQ(h.tick(), 0u);
   ASSERT_EQ(adapter->state_calls(), 1u);
-  EXPECT_EQ(adapter->states(), (std::vector<QarGuiPanelState>{QAR_GUI_PANEL_STATE_HIDDEN}));
-  EXPECT_EQ(adapter->last_state(), QAR_GUI_PANEL_STATE_HIDDEN);
+  EXPECT_EQ(adapter->states(), (std::vector<seam::PanelState>{seam::PanelState::Hidden}));
+  EXPECT_EQ(adapter->last_state(), seam::PanelState::Hidden);
   EXPECT_TRUE(h.manager->is_ar_hidden("p"));
-  qar_ar_core::PanelStreamDiagnostics d = h.panel("p");
+  seam::PanelStreamDiagnostics d = h.panel("p");
   EXPECT_TRUE(d.ar_hidden);
   EXPECT_EQ(d.visibility_changes, 1u);
   EXPECT_EQ(d.visibility_failures, 0u);
@@ -312,12 +314,12 @@ TEST(QtPanelVisibility, ShowResumesAndSubmitsOnce)
   ASSERT_TRUE(h.manager->set_panel_ar_visible("p", true).ok());
   EXPECT_EQ(adapter->state_calls(), 1u) << "still only a request";
   EXPECT_EQ(h.tick(), 1u);
-  EXPECT_EQ(adapter->states(), (std::vector<QarGuiPanelState>{
-      QAR_GUI_PANEL_STATE_HIDDEN, QAR_GUI_PANEL_STATE_VISIBLE}));
-  EXPECT_EQ(adapter->last_state(), QAR_GUI_PANEL_STATE_VISIBLE);
+  EXPECT_EQ(adapter->states(), (std::vector<seam::PanelState>{
+      seam::PanelState::Hidden, seam::PanelState::Visible}));
+  EXPECT_EQ(adapter->last_state(), seam::PanelState::Visible);
   EXPECT_FALSE(h.manager->is_ar_hidden("p"));
   EXPECT_EQ(adapter->submit_calls(), submits + 1u);
-  qar_ar_core::PanelStreamDiagnostics d = h.panel("p");
+  seam::PanelStreamDiagnostics d = h.panel("p");
   EXPECT_FALSE(d.ar_hidden);
   EXPECT_EQ(d.visibility_changes, 2u);
   EXPECT_EQ(d.frames_skipped_hidden, skipped) << "no tick is skipped once it is shown";
@@ -339,7 +341,7 @@ TEST(QtPanelVisibility, HiddenPanelIsNotHit)
   SourceWidget front;
   SourceWidget behind;
   PanelStreamOptions behind_options = options_no_pacing();
-  behind_options.placement.pose.position = QarVector3{0.0f, 0.0f, -0.5f};
+  behind_options.placement.pose.position = seam::Vector3{0.0f, 0.0f, -0.5f};
   ASSERT_TRUE(h.manager->add_panel("front", front.get(), options_no_pacing()).ok());
   ASSERT_TRUE(h.manager->add_panel("behind", behind.get(), behind_options).ok());
   ASSERT_EQ(h.tick(), 2u);
@@ -347,8 +349,8 @@ TEST(QtPanelVisibility, HiddenPanelIsNotHit)
   // the panel under the title bar and left of the strip at the right.
   const float panel_height_m = h.panel("front").height_meters;
   ASSERT_GT(panel_height_m, static_cast<float>(qar_qt_streaming::kDefaultArFrameTopM));
-  const QarVector3 origin{0.0f, -0.5f * panel_height_m, 1.0f};
-  const QarVector3 direction{0.0f, 0.0f, -1.0f};
+  const seam::Vector3 origin{0.0f, -0.5f * panel_height_m, 1.0f};
+  const seam::Vector3 direction{0.0f, 0.0f, -1.0f};
 
   // The ray meets the front panel first.
   ASSERT_TRUE(h.manager->route_room_ray(origin, direction, PanelPointerEvent::Kind::Click));
@@ -395,7 +397,7 @@ TEST(QtPanelVisibility, InputForHiddenPanelIsDropped)
   // The release finds the panel hidden: what the pointer state machine addresses to it is
   // dropped with the reason, counted, and never reaches the widget as a click.
   EXPECT_FALSE(h.manager->handle_sample(centre_sample("p", PointerPhase::Ended)));
-  const qar_ar_core::PanelStreamDiagnostics d = h.panel("p");
+  const seam::PanelStreamDiagnostics d = h.panel("p");
   EXPECT_GE(d.input_events_dropped, 1u);
   EXPECT_EQ(d.last_input_drop_reason, "hidden in AR");
   EXPECT_EQ(clicks, 0);
@@ -483,7 +485,7 @@ TEST(QtPanelVisibility, UnsupportedBackendFailsAndCounts)
   // failure is counted and says why, and the panel goes on being captured.
   EXPECT_EQ(adapter->state_calls(), 0u);
   EXPECT_FALSE(h.manager->is_ar_hidden("p"));
-  qar_ar_core::PanelStreamDiagnostics d = h.panel("p");
+  seam::PanelStreamDiagnostics d = h.panel("p");
   EXPECT_FALSE(d.ar_hidden);
   EXPECT_EQ(d.visibility_changes, 0u);
   EXPECT_EQ(d.visibility_failures, 1u);
@@ -512,7 +514,7 @@ TEST(QtPanelVisibility, UnsupportedBackendFailsAndCounts)
   ASSERT_EQ(manager.tick(), 1u);
   ASSERT_NE(stateless->sender, nullptr);
   EXPECT_FALSE(stateless->sender->supports_state());
-  EXPECT_FALSE(stateless->sender->set_state(QAR_GUI_PANEL_STATE_HIDDEN));
+  EXPECT_FALSE(stateless->sender->set_state(seam::PanelState::Hidden));
   ASSERT_TRUE(manager.set_panel_ar_visible("q", false).ok());
   clock->advance(0.1);
   manager.tick();
@@ -537,9 +539,9 @@ TEST(QtPanelVisibility, FailedSetStateKeepsStateAndCounts)
   ASSERT_TRUE(h.manager->set_panel_ar_visible("p", false).ok());
   h.tick();
   EXPECT_EQ(adapter->state_calls(), 1u);
-  EXPECT_EQ(adapter->last_state(), QAR_GUI_PANEL_STATE_VISIBLE);
+  EXPECT_EQ(adapter->last_state(), seam::PanelState::Visible);
   EXPECT_FALSE(h.manager->is_ar_hidden("p"));
-  qar_ar_core::PanelStreamDiagnostics d = h.panel("p");
+  seam::PanelStreamDiagnostics d = h.panel("p");
   EXPECT_EQ(d.visibility_changes, 0u);
   EXPECT_EQ(d.visibility_failures, 1u);
   EXPECT_EQ(d.last_visibility_error, "injected set_state failure");
@@ -560,7 +562,7 @@ TEST(QtPanelVisibility, FailedSetStateKeepsStateAndCounts)
   ASSERT_TRUE(h.manager->set_panel_ar_visible("p", true).ok());
   h.tick();
   EXPECT_TRUE(h.manager->is_ar_hidden("p"));
-  EXPECT_EQ(adapter->last_state(), QAR_GUI_PANEL_STATE_HIDDEN);
+  EXPECT_EQ(adapter->last_state(), seam::PanelState::Hidden);
   d = h.panel("p");
   EXPECT_EQ(d.visibility_changes, 1u);
   EXPECT_EQ(d.visibility_failures, 2u);
@@ -584,9 +586,9 @@ TEST(QtPanelVisibility, RequestBeforeAdapterIsAppliedAfterCreation)
   EXPECT_EQ(h.tick(), 0u);
   ASSERT_EQ(h.factory->create_calls(), 1u);
   const auto adapter = h.factory->latest();
-  EXPECT_EQ(adapter->states(), (std::vector<QarGuiPanelState>{QAR_GUI_PANEL_STATE_HIDDEN}));
+  EXPECT_EQ(adapter->states(), (std::vector<seam::PanelState>{seam::PanelState::Hidden}));
   EXPECT_TRUE(h.manager->is_ar_hidden("p"));
-  const qar_ar_core::PanelStreamDiagnostics d = h.panel("p");
+  const seam::PanelStreamDiagnostics d = h.panel("p");
   EXPECT_TRUE(d.active);
   EXPECT_EQ(d.visibility_changes, 1u);
   EXPECT_EQ(d.frames_captured, 0u);
@@ -649,8 +651,8 @@ TEST(QtPanelVisibility, ShowOfClosedInArPanelResumesWhenAccepted)
 
     ASSERT_TRUE(h.manager->set_panel_ar_visible("p", true).ok());
     EXPECT_EQ(h.tick(), 1u) << "capture resumes on the tick that brings the panel back";
-    EXPECT_EQ(adapter->states(), (std::vector<QarGuiPanelState>{QAR_GUI_PANEL_STATE_VISIBLE}));
-    const qar_ar_core::PanelStreamDiagnostics d = h.panel("p");
+    EXPECT_EQ(adapter->states(), (std::vector<seam::PanelState>{seam::PanelState::Visible}));
+    const seam::PanelStreamDiagnostics d = h.panel("p");
     EXPECT_FALSE(d.ar_panel_closed);
     EXPECT_FALSE(d.ar_hidden);
     EXPECT_EQ(d.visibility_changes, 1u);
@@ -675,7 +677,7 @@ TEST(QtPanelVisibility, ShowOfClosedInArPanelResumesWhenAccepted)
     adapter->fail_next_set_state();
     ASSERT_TRUE(h.manager->set_panel_ar_visible("p", true).ok());
     EXPECT_EQ(h.tick(), 0u);
-    const qar_ar_core::PanelStreamDiagnostics d = h.panel("p");
+    const seam::PanelStreamDiagnostics d = h.panel("p");
     EXPECT_TRUE(d.ar_panel_closed);
     EXPECT_EQ(d.visibility_failures, 1u);
     EXPECT_EQ(d.visibility_changes, 0u);
@@ -698,7 +700,7 @@ TEST(QtPanelVisibility, TombstonedPanelIsRefused)
   ASSERT_TRUE(h.manager->is_tombstoned("p"));
 
   // A notice has no window to hide or show, and nothing is asked of QarOS.
-  const qar_ar_core::Result hide = h.manager->set_panel_ar_visible("p", false);
+  const seam::Result hide = h.manager->set_panel_ar_visible("p", false);
   EXPECT_EQ(hide.status, Status::InvalidState);
   EXPECT_FALSE(hide.message.empty());
   EXPECT_EQ(h.manager->set_panel_ar_visible("p", true).status, Status::InvalidState);
@@ -724,7 +726,7 @@ TEST(QtPanelVisibility, TombstonedPanelIsRefused)
   const auto revived = other.factory->latest();
   EXPECT_EQ(other.tick(), 1u);
   EXPECT_FALSE(other.manager->is_ar_hidden("q"));
-  EXPECT_EQ(revived->last_state(), QAR_GUI_PANEL_STATE_VISIBLE);
+  EXPECT_EQ(revived->last_state(), seam::PanelState::Visible);
   EXPECT_EQ(other.factory->create_calls(), 1u) << "the retired slot was re-used";
 }
 
@@ -735,7 +737,7 @@ TEST(QtPanelVisibility, UnknownKeyIsNotFound)
   ASSERT_TRUE(h.manager->add_panel("p", source.get(), options_no_pacing()).ok());
   ASSERT_EQ(h.tick(), 1u);
 
-  const qar_ar_core::Result hide = h.manager->set_panel_ar_visible("nothing-here", false);
+  const seam::Result hide = h.manager->set_panel_ar_visible("nothing-here", false);
   EXPECT_EQ(hide.status, Status::NotFound);
   EXPECT_NE(hide.message.find("nothing-here"), std::string::npos);
   EXPECT_EQ(h.manager->set_panel_ar_visible("nothing-here", true).status, Status::NotFound);
@@ -760,7 +762,7 @@ TEST(QtPanelVisibility, DiagnosticsCountHiddenPanels)
 
   ASSERT_TRUE(h.manager->set_panel_ar_visible("a", false).ok());
   h.tick();
-  qar_ar_core::PanelDiagnosticsSnapshot snapshot = h.manager->diagnostics();
+  seam::PanelDiagnosticsSnapshot snapshot = h.manager->diagnostics();
   EXPECT_EQ(snapshot.hidden_panels, 1u);
   EXPECT_EQ(snapshot.panel_count, 2u);
   EXPECT_EQ(snapshot.live_panels, 2u) << "a hidden panel is still a live window";

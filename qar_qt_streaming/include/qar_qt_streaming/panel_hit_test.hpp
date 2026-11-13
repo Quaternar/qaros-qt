@@ -48,7 +48,7 @@
 /// no behaviour; it is documented here so a reader does not have to re-derive
 /// it.
 
-#include "qar_ar_core/panel_types.hpp"
+#include "qar_qt_streaming/seam/panel_types.hpp"
 
 #include <cstdint>
 #include <string>
@@ -77,14 +77,14 @@ struct PanelHit
 ///
 /// This is the path for the app-volume gesture's action point
 /// (`qar_app_volume_gesture_get_points`).
-PanelHit hit_test_panel_point(const qar_ar_core::PanelPlacement & placement, const QarVector3 & point_room);
+PanelHit hit_test_panel_point(const seam::PanelPlacement & placement, const seam::Vector3 & point_room);
 
 /// @brief Intersect a room-space ray with a panel's plane.
 ///
 /// The path for a future hand-ray source. @p direction need not be normalized;
 /// hits strictly behind the origin are reported `valid == false`.
 PanelHit intersect_panel_ray(
-  const qar_ar_core::PanelPlacement & placement, const QarVector3 & origin, const QarVector3 & direction);
+  const seam::PanelPlacement & placement, const seam::Vector3 & origin, const seam::Vector3 & direction);
 
 /// @brief Convert a hit's normalized (u, v) to widget-local LOGICAL pixels.
 ///
@@ -115,7 +115,7 @@ bool panel_hit_to_widget_point(
 /// the room-space point on the panel's plane. This is how a sample that arrives
 /// already resolved to one panel is re-projected onto another — the panel the
 /// pointer is grabbed by — through the one geometry path, not a second one.
-QarVector3 panel_uv_to_room_point(const qar_ar_core::PanelPlacement & placement, float u, float v);
+seam::Vector3 panel_uv_to_room_point(const seam::PanelPlacement & placement, float u, float v);
 
 /// @brief One panel considered for routing, flattened out of the live streams.
 ///
@@ -125,7 +125,7 @@ QarVector3 panel_uv_to_room_point(const qar_ar_core::PanelPlacement & placement,
 struct PanelHitCandidate
 {
   std::string key;
-  qar_ar_core::PanelPlacement placement{};
+  seam::PanelPlacement placement{};
   std::uint32_t logical_width = 0;
   std::uint32_t logical_height = 0;
 };
@@ -143,13 +143,13 @@ struct PanelPick
 /// @brief Pick the panel a room-space point lands on.
 /// Overlapping panels: the one whose plane the point is CLOSEST to wins.
 PanelPick pick_panel_for_point(
-  const std::vector<PanelHitCandidate> & candidates, const QarVector3 & point_room);
+  const std::vector<PanelHitCandidate> & candidates, const seam::Vector3 & point_room);
 
 /// @brief Pick the panel a room-space ray hits FIRST along its direction.
 PanelPick pick_panel_for_ray(
   const std::vector<PanelHitCandidate> & candidates,
-  const QarVector3 & origin,
-  const QarVector3 & direction);
+  const seam::Vector3 & origin,
+  const seam::Vector3 & direction);
 
 }  // namespace qar_qt_streaming
 

@@ -3,7 +3,7 @@
 //
 // A widget shown OFF-SCREEN (Qt::WA_DontShowOnScreen, offscreen_panel.hpp) has to
 // stream and take AR input exactly like a visible one, because the feature that uses
-// it - a second copy of RViz's Displays panel that never appears on the desktop -
+// it - a second copy of a host's dock panel that never appears on the desktop -
 // has no other life than in the headset. These tests pin both halves:
 //
 //  * the WINDOW STATE show_offscreen leaves behind (the attributes, the flag, the
@@ -24,6 +24,7 @@
 
 #include "qar_qt_streaming/offscreen_panel.hpp"
 #include "qar_qt_streaming/offscreen_popup_guard.hpp"
+#include "qar_qt_streaming/qt_compat.hpp"
 #include "qar_qt_streaming/qt_panel_stream_manager.hpp"
 #include "qar_qt_streaming/qt_widget_capture.hpp"
 #include "qar_qt_streaming/test_support/mock_panel_sender.hpp"
@@ -52,6 +53,9 @@
 #include <string>
 #include <vector>
 
+namespace seam = qar_qt_streaming::seam;
+
+using qar_qt_streaming::active_popup_widget;
 using qar_qt_streaming::clamp_offscreen_side;
 using qar_qt_streaming::collect_panel_overlays;
 using qar_qt_streaming::is_dialog_window;
@@ -62,11 +66,11 @@ using qar_qt_streaming::kMaxOffscreenSide;
 using qar_qt_streaming::kMinOffscreenSide;
 using qar_qt_streaming::OffscreenSizeChoice;
 using qar_qt_streaming::PanelCloseMode;
-using qar_ar_core::PanelPointerSample;
+using qar_qt_streaming::seam::PanelPointerSample;
 using qar_qt_streaming::PanelStreamOptions;
 using qar_qt_streaming::parse_offscreen_size;
-using qar_ar_core::PointerGesture;
-using qar_ar_core::PointerPhase;
+using qar_qt_streaming::seam::PointerGesture;
+using qar_qt_streaming::seam::PointerPhase;
 using qar_qt_streaming::QtPanelStream;
 using qar_qt_streaming::QtPanelStreamingConfig;
 using qar_qt_streaming::QtPanelStreamManager;
@@ -74,6 +78,7 @@ using qar_qt_streaming::QtWidgetCapture;
 using qar_qt_streaming::show_offscreen;
 using qar_qt_streaming::test_support::ManualClock;
 using qar_qt_streaming::test_support::MockQarPanelSenderFactory;
+namespace qt_compat = qar_qt_streaming::qt_compat;
 
 namespace
 {
@@ -190,8 +195,8 @@ options_at()
   PanelStreamOptions options;
   options.max_fps = 0;
   options.keepalive_seconds = 0.0;
-  options.placement.pose.orientation = QarQuaternion{0.0f, 0.0f, 0.0f, 1.0f};
-  options.placement.pose.position = QarVector3{0.0f, 0.0f, 0.0f};
+  options.placement.pose.orientation = seam::Quaternion{0.0f, 0.0f, 0.0f, 1.0f};
+  options.placement.pose.position = seam::Vector3{0.0f, 0.0f, 0.0f};
   return options;
 }
 
@@ -405,7 +410,7 @@ TEST(OffscreenPanel, TheAttributesAndTheFlagAreSetBeforeItIsShown)
   EXPECT_TRUE(widget->testAttribute(Qt::WA_DontShowOnScreen))
     << "without it the panel would appear on the operator's desktop";
   EXPECT_FALSE(widget->testAttribute(Qt::WA_QuitOnClose))
-    << "a visible parentless window with this keeps RViz from quitting";
+    << "a visible parentless window with this keeps the application from quitting";
   EXPECT_TRUE(widget->windowFlags().testFlag(Qt::WindowDoesNotAcceptFocus))
     << "activateWindow() and the panel's own shortcuts must be inert";
   EXPECT_TRUE(is_offscreen_panel(widget));
@@ -524,18 +529,18 @@ TEST(OffscreenPanel, ShowingItNeverTakesTheActiveWindowFromTheMainWindow)
   // window, and showing the off-screen panel (a Displays panel is created while the
   // operator is working in the main window) must leave the main window active.
   //
-  // What it cannot pin is the explicit activateWindow() RViz's own panels end an
+  // What it cannot pin is the explicit activateWindow() that a host's own panels end an
   // action with ("force keyboard focus back on the main window"): this host's
   // offscreen platform plugin does not act on that call for ANY window (the control
   // below shows only the show-time activation). On Windows the call reaches
   // QWindow::requestActivate(), which refuses a window carrying
   // Qt::WindowDoesNotAcceptFocus (Qt5Gui.dll 5.15.2 contains the warning it
-  // prints); that part is only observable in a running RViz.
+  // prints); that part is only observable in a running host application.
   QWidget main_window;
   main_window.resize(200, 100);
   main_window.show();
   QCoreApplication::processEvents();
-  QApplication::setActiveWindow(&main_window);
+  qt_compat::activate_window(&main_window);
   QCoreApplication::processEvents();
   ASSERT_EQ(QApplication::activeWindow(), &main_window);
 
@@ -546,7 +551,7 @@ TEST(OffscreenPanel, ShowingItNeverTakesTheActiveWindowFromTheMainWindow)
     QCoreApplication::processEvents();
     EXPECT_EQ(QApplication::activeWindow(), &ordinary)
       << "the control: an ordinary window becomes the active one when shown";
-    QApplication::setActiveWindow(&main_window);
+    qt_compat::activate_window(&main_window);
     QCoreApplication::processEvents();
   }
   ASSERT_EQ(QApplication::activeWindow(), &main_window);
@@ -704,7 +709,7 @@ TEST(OffscreenStream, AnArTapOnAComboOpensAListThatReachesTheStream)
   ASSERT_NE(factory->latest(), nullptr);
   ASSERT_EQ(factory->latest()->frames().size(), 1u) << "the closed combo, sent once";
   const std::vector<std::uint8_t> closed = factory->latest()->frames().back().rgba;
-  ASSERT_EQ(QApplication::activePopupWidget(), nullptr);
+  ASSERT_EQ(active_popup_widget(), nullptr);
 
   // Tap the middle of the combo.
   const float u = (OffscreenComboPanel::kComboX + OffscreenComboPanel::kComboW / 2.0f) /
@@ -714,7 +719,7 @@ TEST(OffscreenStream, AnArTapOnAComboOpensAListThatReachesTheStream)
   ASSERT_TRUE(manager.handle_sample(tap("off", u, v)));
   QCoreApplication::processEvents();
 
-  QWidget * list = QApplication::activePopupWidget();
+  QWidget * list = active_popup_widget();
   ASSERT_NE(list, nullptr) << "the AR tap did not open the combo's list";
   EXPECT_TRUE(qar_qt_streaming::panel_tree_owns_popup(panel.widget(), list))
     << "the list belongs to the off-screen panel's tree";
@@ -809,7 +814,7 @@ TEST(OffscreenStream, StoppingTheStreamLeavesTheWidgetShownAndItCanBeStartedAgai
   ASSERT_EQ(factory->create_calls(), 1u);
 
   // The Stop button: the generic close path. It tears down the STREAM and only that.
-  ASSERT_TRUE(manager.close_panel("off", "stopped in RViz").ok());
+  ASSERT_TRUE(manager.close_panel("off", "stopped by host").ok());
   EXPECT_FALSE(manager.has_panel("off"));
   EXPECT_EQ(manager.diagnostics().panels_closed, 1u);
   ASSERT_FALSE(guard.isNull()) << "the widget must not be deleted by a close";
@@ -833,7 +838,7 @@ TEST(OffscreenStream, StoppingAndStartingInNoticeModeRevivesTheSameSlot)
   ASSERT_TRUE(manager.add_panel("off", panel.widget(), options_at()).ok());
   manager.tick();
 
-  ASSERT_TRUE(manager.close_panel("off", "stopped in RViz", "Streaming was stopped.").ok());
+  ASSERT_TRUE(manager.close_panel("off", "stopped by host", "Streaming was stopped.").ok());
   EXPECT_TRUE(manager.is_tombstoned("off"));
   EXPECT_TRUE(panel.widget()->isVisible()) << "the notice replaces the capture, not the widget";
   EXPECT_TRUE(is_offscreen_panel(panel.widget()));
@@ -865,7 +870,7 @@ TEST(OffscreenStream, StartingAgainAfterTheOperatorClosedItInArNeedsTheStaleStre
   // So Start cannot simply add: the key is still held by the stale stream...
   EXPECT_EQ(
     manager.add_panel("off", panel.widget(), options_at()).status,
-    qar_ar_core::Status::AlreadyExists);
+    seam::Status::AlreadyExists);
 
   // ...it clears that stream first (the AR panel is already closed, so
   // qar_gui_panels_close_panel is skipped, never called twice), then adds afresh.

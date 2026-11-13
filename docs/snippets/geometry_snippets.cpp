@@ -4,7 +4,6 @@
 // Snippets of API.md for the readability of a panel, its geometry and the hit test. The functions are compiled and
 // linked and never run; their parameters stand for what the host owns.
 
-// The library headers come first: panel_pointer_state.hpp declares a method named emit(), which the emit macro of Qt breaks.
 #include "qar_qt_streaming/qt_panel_stream_manager.hpp"
 
 #include <cstdint>
@@ -12,6 +11,7 @@
 #include <string>
 
 namespace qqs = qar_qt_streaming;
+namespace seam = qar_qt_streaming::seam;
 
 void snippet_readability(qqs::PanelStreamOptions & options)
 {
@@ -56,10 +56,10 @@ void snippet_geometry()
   // [qar-snippet-end:geometry]
 }
 
-void snippet_hit_test(const qar_ar_core::PanelPlacement & placement)
+void snippet_hit_test(const seam::PanelPlacement & placement)
 {
   // [qar-snippet:hit_test]
-  const QarVector3 aim{0.1f, 1.45f, -1.0f};                     // a point in room space
+  const seam::Vector3 aim{0.1f, 1.45f, -1.0f};                     // a point in room space
   const qqs::PanelHit hit = qqs::hit_test_panel_point(placement, aim);
 
   std::int32_t x = 0;
@@ -70,7 +70,7 @@ void snippet_hit_test(const qar_ar_core::PanelPlacement & placement)
 
   // A ray instead of a point: the hit is where the ray meets the plane, and distance_m is how far along the ray that is.
   const qqs::PanelHit along =
-    qqs::intersect_panel_ray(placement, QarVector3{0.0f, 1.5f, 0.0f}, QarVector3{0.0f, 0.0f, -1.0f});
+    qqs::intersect_panel_ray(placement, seam::Vector3{0.0f, 1.5f, 0.0f}, seam::Vector3{0.0f, 0.0f, -1.0f});
   std::printf("ray: valid %d, inside %d\n", along.valid ? 1 : 0, along.inside ? 1 : 0);
   // [qar-snippet-end:hit_test]
 }

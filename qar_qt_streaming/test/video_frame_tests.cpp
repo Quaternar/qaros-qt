@@ -8,6 +8,7 @@
 
 #include <gtest/gtest.h>
 
+#include "qar_qt_streaming/qt_compat.hpp"
 #include "qar_qt_streaming/video_frame.hpp"
 
 #include <QBuffer>
@@ -21,6 +22,7 @@
 #include <limits>
 #include <vector>
 
+namespace qt_compat = qar_qt_streaming::qt_compat;
 using qar_qt_streaming::aspect_fit_rect;
 using qar_qt_streaming::decode_compressed_image;
 using qar_qt_streaming::decode_raw_image;
@@ -636,7 +638,7 @@ TEST(CompressedImageDecode, RejectsGarbageBytes)
   const QByteArray embedded_png = crafted_png_header(60000, 60000);
   QByteArray ico = QByteArray::fromHex("000001000100" "0000000001002000");
   for (int shift = 0; shift < 32; shift += 8) {
-    ico.append(static_cast<char>((embedded_png.size() >> shift) & 0xFF));
+    ico.append(static_cast<char>((qt_compat::qt_size(embedded_png) >> shift) & 0xFF));
   }
   ico.append(QByteArray::fromHex("16000000"));  // the image starts at offset 22
   ico.append(embedded_png);

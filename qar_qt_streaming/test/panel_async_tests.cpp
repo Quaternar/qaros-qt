@@ -24,9 +24,11 @@
 #include <utility>
 #include <vector>
 
-using qar_ar_core::PanelNotReadyCause;
-using qar_ar_core::PanelOpResult;
-using qar_ar_core::PanelStreamDiagnostics;
+namespace seam = qar_qt_streaming::seam;
+
+using qar_qt_streaming::seam::PanelNotReadyCause;
+using qar_qt_streaming::seam::PanelOpResult;
+using qar_qt_streaming::seam::PanelStreamDiagnostics;
 using qar_qt_streaming::PanelStreamOptions;
 using qar_qt_streaming::QtPanelStream;
 using qar_qt_streaming::QtPanelStreamingConfig;
@@ -72,8 +74,8 @@ options_no_pacing()
   PanelStreamOptions options;
   options.max_fps = 0;              // every tick captures
   options.keepalive_seconds = 0.0;  // isolate the dirty check
-  options.placement.pose.orientation = QarQuaternion{0.0f, 0.0f, 0.0f, 1.0f};
-  options.placement.pose.position = QarVector3{0.0f, 0.0f, 0.0f};
+  options.placement.pose.orientation = seam::Quaternion{0.0f, 0.0f, 0.0f, 1.0f};
+  options.placement.pose.position = seam::Vector3{0.0f, 0.0f, 0.0f};
   return options;
 }
 
@@ -88,7 +90,7 @@ create_result(bool ok, std::string error = std::string())
 }
 
 PanelOpResult
-state_result(QarGuiPanelState state, bool ok, std::string error = std::string())
+state_result(seam::PanelState state, bool ok, std::string error = std::string())
 {
   PanelOpResult result;
   result.op = PanelOpResult::Op::State;
@@ -108,11 +110,11 @@ placement_result(bool ok, std::string error)
   return result;
 }
 
-class RecordingDiagnostics : public qar_ar_core::PanelDiagnosticsSink
+class RecordingDiagnostics : public seam::PanelDiagnosticsSink
 {
 public:
   void on_message(
-    qar_ar_core::DiagnosticSeverity severity, const std::string & category,
+    seam::DiagnosticSeverity severity, const std::string & category,
     const std::string & message, const std::string & panel_key) override
   {
     (void)severity;
@@ -269,7 +271,7 @@ TEST(PanelAsync, ARefusedPlacementResultIsRecordedAsTheStreamsError)
   ASSERT_TRUE(stream.tick(0.0));
   const auto adapter = factory->latest();
   adapter->set_ready(false);  // nothing is submitted, so nothing clears the error
-  stream.set_pose(QarPose{{0.0f, 0.0f, 0.0f, 1.0f}, {1.0f, 2.0f, 3.0f}});
+  stream.set_pose(seam::Pose{{0.0f, 0.0f, 0.0f, 1.0f}, {1.0f, 2.0f, 3.0f}});
   EXPECT_EQ(adapter->placement_calls(), 1u) << "accepted at once";
   adapter->queue_result(placement_result(false, "the panel is gone"));
   EXPECT_FALSE(stream.tick(1.0));
@@ -293,7 +295,7 @@ TEST(PanelAsync, AHideThatWasAcceptedAndRefusedLaterIsUndone)
   EXPECT_EQ(changes, 1u);
 
   adapter->queue_result(
-    state_result(QAR_GUI_PANEL_STATE_HIDDEN, false, "QarOS would not hide the panel"));
+    state_result(seam::PanelState::Hidden, false, "QarOS would not hide the panel"));
   stream.tick(2.0);
   EXPECT_FALSE(stream.diagnostics().ar_hidden) << "the panel is visible after all";
   EXPECT_EQ(stream.diagnostics().visibility_failures, 1u);
@@ -315,8 +317,8 @@ TEST(PanelAsync, AShowThatWasRefusedLaterLeavesThePanelHidden)
   EXPECT_FALSE(stream.diagnostics().ar_hidden);
 
   // The hide result is the first in the queue (accepted), the show result the second.
-  adapter->queue_result(state_result(QAR_GUI_PANEL_STATE_HIDDEN, true));
-  adapter->queue_result(state_result(QAR_GUI_PANEL_STATE_VISIBLE, false, "no show"));
+  adapter->queue_result(state_result(seam::PanelState::Hidden, true));
+  adapter->queue_result(state_result(seam::PanelState::Visible, false, "no show"));
   EXPECT_FALSE(stream.tick(3.0)) << "the panel is hidden again, so nothing is captured";
   EXPECT_TRUE(stream.diagnostics().ar_hidden);
   EXPECT_EQ(stream.diagnostics().visibility_failures, 1u);
@@ -343,7 +345,7 @@ TEST(PanelAsync, AKeptPanelWhoseHideWasRefusedLaterIsAskedAgainAndTheEndIsSaid)
   EXPECT_EQ(old_panel->state_calls(), 1u);
 
   // The first refusal arrives: the hide is asked for again after the pause.
-  old_panel->queue_result(state_result(QAR_GUI_PANEL_STATE_HIDDEN, false, "hub busy"));
+  old_panel->queue_result(state_result(seam::PanelState::Hidden, false, "hub busy"));
   stream.tick(1.7);
   EXPECT_TRUE(contains(stream.take_notes(), "could not be hidden (hub busy); it is asked again"));
   stream.tick(2.0);
@@ -354,7 +356,7 @@ TEST(PanelAsync, AKeptPanelWhoseHideWasRefusedLaterIsAskedAgainAndTheEndIsSaid)
   // Every further request is accepted and refused again; after the last attempt the end is said.
   double now = 3.0;
   for (std::uint32_t attempt = 2; attempt <= QtPanelStream::kKeptHideRetries + 1; ++attempt) {
-    old_panel->queue_result(state_result(QAR_GUI_PANEL_STATE_HIDDEN, false, "hub busy"));
+    old_panel->queue_result(state_result(seam::PanelState::Hidden, false, "hub busy"));
     stream.tick(now);
     now += QtPanelStream::kKeptHideRetrySeconds + 0.01;
     stream.tick(now);
@@ -379,7 +381,7 @@ TEST(PanelAsync, AHideThatKeepsBeingAcceptedIsNotAskedAgain)
   stream.tick(1.3);
   ASSERT_TRUE(stream.tick(1.6));
   const auto old_panel = factory->created()[0];
-  old_panel->queue_result(state_result(QAR_GUI_PANEL_STATE_HIDDEN, true));
+  old_panel->queue_result(state_result(seam::PanelState::Hidden, true));
   for (int i = 0; i < 10; ++i) {
     stream.tick(2.0 + i);
   }
@@ -403,7 +405,7 @@ TEST(PanelAsync, TheEndOfASessionTakesTheRefusalOfAnAcceptedHideBeforeItDecides)
   ASSERT_EQ(adapter->state_calls(), 1u);
 
   // The refusal is queued and no tick has taken it: the stream must not think the panel hidden.
-  adapter->queue_result(state_result(QAR_GUI_PANEL_STATE_HIDDEN, false, "hub busy"));
+  adapter->queue_result(state_result(seam::PanelState::Hidden, false, "hub busy"));
   const qar_qt_streaming::SessionEndReport report = stream.end_session();
   EXPECT_EQ(adapter->state_calls(), 2u) << "the panel is hidden again before it is left";
   EXPECT_EQ(report.panels, 1u);
@@ -426,7 +428,7 @@ TEST(PanelAsync, TheEndOfASessionHidesAKeptPanelWhoseHideWasRefusedAndNotTakenYe
   ASSERT_EQ(old_panel->state_calls(), 1u);
   old_panel->set_supports_detach(true);  // it is left in place at the end, not closed
 
-  old_panel->queue_result(state_result(QAR_GUI_PANEL_STATE_HIDDEN, false, "hub busy"));
+  old_panel->queue_result(state_result(seam::PanelState::Hidden, false, "hub busy"));
   const qar_qt_streaming::SessionEndReport report = stream.end_session();
   EXPECT_EQ(old_panel->state_calls(), 2u) << "the kept panel is hidden again before it is left";
   EXPECT_EQ(report.panels, 2u);

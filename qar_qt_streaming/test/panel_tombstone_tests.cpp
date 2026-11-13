@@ -33,12 +33,14 @@
 #include <string>
 #include <vector>
 
+namespace seam = qar_qt_streaming::seam;
+
 using qar_qt_streaming::PanelCloseMode;
 using qar_qt_streaming::PanelStreamOptions;
 using qar_qt_streaming::PanelTombstoneStyle;
 using qar_qt_streaming::QtPanelStreamingConfig;
 using qar_qt_streaming::QtPanelStreamManager;
-using qar_ar_core::Status;
+using qar_qt_streaming::seam::Status;
 using qar_qt_streaming::test_support::ManualClock;
 using qar_qt_streaming::test_support::MockQarPanelSenderFactory;
 
@@ -185,7 +187,7 @@ TEST(PanelLifetime, ClosingASourceWidgetTombstonesTheStreamAndDoesNotCloseTheSen
   ASSERT_EQ(h.factory->create_calls(), 1u);
   ASSERT_EQ(h.factory->latest()->close_calls(), 0u);
 
-  ASSERT_TRUE(h.manager->tombstone_panel("dock", "the window was closed in RViz").ok());
+  ASSERT_TRUE(h.manager->tombstone_panel("dock", "the window was closed by host").ok());
 
   // THE assertion: the sender is untouched.
   EXPECT_EQ(h.factory->latest()->close_calls(), 0u);
@@ -248,7 +250,7 @@ TEST(PanelLifetime, ANoticeTakesNoInput)
   Harness h;
   SourceWidget source;
   PanelStreamOptions options = options_no_pacing();
-  options.placement.pose.position = QarVector3{0.0f, 0.0f, 0.0f};
+  options.placement.pose.position = seam::Vector3{0.0f, 0.0f, 0.0f};
   ASSERT_TRUE(h.manager->add_panel("dock", source.get(), options).ok());
   ASSERT_EQ(h.manager->tick(), 1u);
   // The middle of the panel: half its height below the pose on its top edge (QarOS centres the
@@ -258,7 +260,7 @@ TEST(PanelLifetime, ANoticeTakesNoInput)
     if (p.key == "dock") { panel_height_m = p.height_meters; }
   }
   ASSERT_GT(panel_height_m, 0.0f);
-  const QarVector3 middle{0.0f, -0.5f * panel_height_m, 0.0f};
+  const seam::Vector3 middle{0.0f, -0.5f * panel_height_m, 0.0f};
   // A point on the panel's plane resolves while it is live...
   ASSERT_TRUE(
     h.manager->route_room_point(middle, qar_qt_streaming::PanelPointerEvent::Kind::Hover));
@@ -300,7 +302,7 @@ TEST(PanelLifetime, TheArCloseArrivesThroughTheInputSourceAndIsAppliedOnTick)
 {
   auto factory = std::make_shared<MockQarPanelSenderFactory>();
   auto clock = std::make_shared<ManualClock>();
-  auto source_queue = std::make_shared<qar_ar_core::QueuedPanelInputSource>();
+  auto source_queue = std::make_shared<seam::QueuedPanelInputSource>();
   QtPanelStreamingConfig config;
   config.panel_sender_factory = factory;
   config.clock = clock;
@@ -315,7 +317,7 @@ TEST(PanelLifetime, TheArCloseArrivesThroughTheInputSourceAndIsAppliedOnTick)
   ASSERT_EQ(manager.tick(), 1u);
 
   // What QarCApiPanelInputSource pushes when qar_gui_panels_subscribe_updates
-  // reports the panel's state reaching QAR_GUI_PANEL_STATE_CLOSED.
+  // reports the panel's state reaching seam::PanelState::Closed.
   source_queue->push_closed_panel("dock");
   clock->advance(0.1);
   EXPECT_EQ(manager.tick(), 0u);
@@ -347,7 +349,7 @@ TEST(PanelLifetime, SessionShutdownClosesEveryPanelExactlyOnce)
     ASSERT_EQ(manager.tick(), 3u);
     ASSERT_EQ(factory->create_calls(), 3u);
 
-    ASSERT_TRUE(manager.tombstone_panel("closed", "closed in RViz").ok());
+    ASSERT_TRUE(manager.tombstone_panel("closed", "closed by host").ok());
     ASSERT_TRUE(manager.note_ar_panel_closed("in-ar"));
     ASSERT_EQ(total_close_calls(*factory), 0u) << "nothing closes a sender mid-session";
 

@@ -2,15 +2,82 @@
 # SPDX-License-Identifier: MIT
 #
 # qar_qt_streaming package configuration.
-#   find_package(qar_qt_streaming 0.1.0 CONFIG REQUIRED)  ->  qar_qt_streaming::qar_qt_streaming
-# Needs Qt 5 (Core, Gui, Widgets; searched on CMAKE_PREFIX_PATH and in $ENV{QAR_QT_ROOT}) and
-# qar_ogre_adapter (component qar_ar_core) from the same prefix.
+#   find_package(qar_qt_streaming 0.2.0 CONFIG REQUIRED [COMPONENTS <component>...])
+# Components (all of them when none is named):
+#   seam              qar_qt_streaming::seam              plain C++ types and interfaces; needs nothing
+#   qar_qt_streaming  qar_qt_streaming::qar_qt_streaming  the Qt core; needs Qt @QAR_QT_MAJOR@ (Core, Gui, Widgets)
+#   qaros             qar_qt_streaming::qaros             the backend over the QarOS C++ SDK; needs the SDK headers
+# Qt is searched on CMAKE_PREFIX_PATH and in $ENV{QAR_QT_ROOT}. The SDK headers are the targets
+# qar-streaming-cpp and qar-streaming-c-headers of the calling project when it defines them, else the
+# SDK folder named by QAR_STREAMING_CPP_INCLUDE_DIR or $ENV{QAR_SDK_ROOT}/include, else the copy that
+# this package installed or the folder that it was built against. The oldest SDK this version is
+# written for is QAR_QT_STREAMING_MIN_SDK (the C headers carry no version macro to check it by).
 @PACKAGE_INIT@
 
+# The Qt package files set PACKAGE_PREFIX_DIR for themselves, so this package keeps its own.
+set(_qar_qs_prefix "${PACKAGE_PREFIX_DIR}")
+
 include(CMakeFindDependencyMacro)
-file(TO_CMAKE_PATH "$ENV{QAR_QT_ROOT}" _qar_qt_hint)
-find_dependency(Qt5 COMPONENTS Core Gui Widgets HINTS "${_qar_qt_hint}")
-find_dependency(qar_ogre_adapter 0.1.0 COMPONENTS qar_ar_core)
+
+set(QAR_QT_STREAMING_MIN_SDK "@QAR_QT_STREAMING_MIN_SDK@")
+set(QAR_QT_STREAMING_QT_MAJOR "@QAR_QT_MAJOR@")
+
+set(_qar_qs_available seam qar_qt_streaming)
+if(@QAR_QT_STREAMING_QAROS_INSTALLED@)
+  list(APPEND _qar_qs_available qaros)
+endif()
+set(_qar_qs_wanted ${qar_qt_streaming_FIND_COMPONENTS})
+if(NOT _qar_qs_wanted)
+  set(_qar_qs_wanted ${_qar_qs_available})
+endif()
+foreach(_qar_qs_c IN LISTS _qar_qs_available)
+  set(qar_qt_streaming_${_qar_qs_c}_FOUND TRUE)
+endforeach()
+
+# Every component links the seam, which links Threads where the platform needs it.
+if("seam" IN_LIST _qar_qs_wanted OR "qar_qt_streaming" IN_LIST _qar_qs_wanted OR
+    "qaros" IN_LIST _qar_qs_wanted)
+  find_dependency(Threads)
+endif()
+if("qar_qt_streaming" IN_LIST _qar_qs_wanted)
+  file(TO_CMAKE_PATH "$ENV{QAR_QT_ROOT}" _qar_qt_hint)
+  find_dependency(Qt@QAR_QT_MAJOR@ COMPONENTS Core Gui Widgets HINTS "${_qar_qt_hint}")
+endif()
+
+if("qaros" IN_LIST _qar_qs_wanted AND NOT (TARGET qar-streaming-cpp AND TARGET qar-streaming-c-headers))
+  set(_qar_qs_sdk "")
+  file(TO_CMAKE_PATH "$ENV{QAR_SDK_ROOT}" _qar_qs_sdk_root)
+  foreach(_qar_qs_dir
+      "${QAR_STREAMING_CPP_INCLUDE_DIR}"
+      "${_qar_qs_sdk_root}/include"
+      "@QAR_QT_STREAMING_SDK_CONFIG_DIR@"
+      "${_qar_qs_prefix}/share/qar_qt_streaming/sdk/include")
+    if(NOT _qar_qs_sdk AND _qar_qs_dir AND EXISTS "${_qar_qs_dir}/qar_streaming_cpp/Config.hpp"
+        AND EXISTS "${_qar_qs_dir}/qar_streaming.h")
+      set(_qar_qs_sdk "${_qar_qs_dir}")
+    endif()
+  endforeach()
+  if(_qar_qs_sdk)
+    add_library(qar-streaming-c-headers INTERFACE IMPORTED)
+    set_target_properties(qar-streaming-c-headers PROPERTIES
+      INTERFACE_INCLUDE_DIRECTORIES "${_qar_qs_sdk}")
+    add_library(qar-streaming-cpp INTERFACE IMPORTED)
+    set_target_properties(qar-streaming-cpp PROPERTIES
+      INTERFACE_INCLUDE_DIRECTORIES "${_qar_qs_sdk}"
+      INTERFACE_LINK_LIBRARIES qar-streaming-c-headers)
+    target_compile_features(qar-streaming-cpp INTERFACE cxx_std_17)
+  else()
+    set(qar_qt_streaming_qaros_FOUND FALSE)
+    string(CONCAT qar_qt_streaming_NOT_FOUND_MESSAGE
+      "The component qaros needs the QarOS C++ SDK headers (qar_streaming_cpp/Config.hpp and "
+      "qar_streaming.h): set QAR_STREAMING_CPP_INCLUDE_DIR or QAR_SDK_ROOT.")
+  endif()
+endif()
+if("qaros" IN_LIST _qar_qs_wanted AND TARGET qar-streaming-cpp AND NOT TARGET qar_qt_streaming_sdk)
+  # What qar_qt_streaming::qaros links against: the SDK's targets, whoever defined them.
+  add_library(qar_qt_streaming_sdk INTERFACE IMPORTED)
+  set_target_properties(qar_qt_streaming_sdk PROPERTIES INTERFACE_LINK_LIBRARIES qar-streaming-cpp)
+endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/qar_qt_streamingTargets.cmake")
 check_required_components(qar_qt_streaming)
