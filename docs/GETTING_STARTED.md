@@ -39,31 +39,21 @@ $env:PATH = "$env:QAR_QT_ROOT\bin;$env:PATH"
 & .\build\vs2019-x64\examples\qt_panel_example\RelWithDebInfo\qar_qt_panel_example.exe --help
 ```
 ```text
-Usage: qar_qt_panel_example [--local | --rejoin | --hub HOST:PORT [--code CODE]]
-                            [--forget] [--invite CONNECTION] [--connect-only] [--seconds N]
-  --local         join the QAROS Hub of this PC (the default when no pairing is stored).
-                  QAROS asks once to allow this program, and again after each rebuild of
-                  it: click Allow in the QAROS window
-  --rejoin        join again with the pairing that an earlier --hub --code run stored (the
-                  default when one is stored)
-  --hub H:P       join the Hub of another PC at host H and port P (shown with the pairing
-                  code in the Visualizer of that PC). Without --code it joins again with
-                  the stored pairing, which names its own Hub: H:P is then not used, and
-                  without a stored pairing the program stops and asks for --code
-  --code CODE     the pairing code that Hub shows. Only the first join needs it: the
-                  pairing is stored for the next start
-  --forget        erase the stored pairing and exit
+Usage: qar_qt_panel_example [--local] [--invite CONNECTION] [--connect-only] [--seconds N]
+  --local         join the QAROS Hub of this PC as a local app (the only mode, and the
+                  default). QAROS asks once to allow this program, and again after each
+                  rebuild of it: click Allow in the QAROS window
   --invite CONN   ask QAROS to start the target app named by the connection string CONN
   --connect-only  join QAROS, print the session, and exit; no window, no panel
   --seconds N     otherwise: show two panels, stop after N s (default 60)
 Ctrl+C in this console ends the program the orderly way, also while the join waits.
 ```
 
-`--local`, the default when no pairing is stored, joins the Hub of this PC; `--hub HOST:PORT` with `--code CODE` pairs with the Hub of another PC and stores the pairing; `--rejoin` joins again with a stored pairing, and `--forget` erases it.
+`--local`, the default and the only mode, joins the Hub of this PC as a local app (`QarOnboardLocalAppExt`). The example uses no deprecated join of QAROS: it has no pairing code, no rejoin with a stored onboarding id and no erasure of one, so it joins only the Hub of the PC it runs on.
 
 ## Check the connection to QarOS without a window
 
-The example needs no path to QAROS: it loads the library `qar-streaming-c.dll` of the installed QAROS itself. With `--local`, the default when no pairing is stored, it joins the QAROS Hub of this PC as a source app: QAROS asks once to allow the program, so click Allow in the QAROS window, and it asks again after each rebuild of the program; the local join stores nothing. With `--hub HOST:PORT --code CODE` it pairs with the Hub of another PC, and the pairing is stored for the next start. With `--connect-only` the example creates no application object and no window: it joins the Hub, prints what it found, and exits.
+The example needs no path to QAROS: it loads the library `qar-streaming-c.dll` of the installed QAROS itself. It joins the QAROS Hub of this PC as a local source app: QAROS asks once to allow the program, so click Allow in the QAROS window, and it asks again after each rebuild of the program; the local join stores nothing. With `--connect-only` the example creates no application object and no window: it joins the Hub, prints what it found, and exits.
 
 ```cpp
 // Starts QAROS and joins the session. May take as long as the person at the PC takes to allow the
@@ -92,32 +82,13 @@ Joined join_qaros(const JoinPlan & plan, JoinControl & control)
   }
 
   const Options & options = plan.options;
-  if (!options.hub_text.empty() && !options.code.empty()) {
-    qaros::OnboardBuilder builder;
-    builder.WithCode(options.code, plan.hub.host, plan.hub.port).WithDisplayName(plan.display_name);
-    qaros::Result<qaros::OnboardSession> joined = out.runtime.Onboard(builder, call);
-    if (!joined.Ok()) { out.error = failure("Onboard", joined.GetStatus()); return out; }
-    write_stored_id(joined.Value().OnboardingId);  // the ticket for every later start
-    out.session = joined.Value().Session;
-    out.description = "joined the Hub at " + plan.hub.host + " and stored the pairing";
-  } else if (plan.stored && !options.local) {
-    qaros::RejoinBuilder builder(*plan.stored);
-    builder.WithDisplayName(plan.display_name);
-    qaros::Result<qaros::Session> joined = out.runtime.Rejoin(builder, call);
-    if (!joined.Ok()) { out.error = failure("Rejoin", joined.GetStatus()); return out; }
-    out.session = std::move(joined).Value();
-    out.description = "joined again with the stored pairing";
-  } else if (!options.hub_text.empty() || options.rejoin) {
-    out.error = options.rejoin ? "no pairing is stored; run with --hub HOST:PORT --code CODE"
-                               : "--hub needs --code for the first join";
-    return out;
-  } else {
-    qaros::Result<qaros::Session> joined =
-      onboard_local_app(out.runtime, call.Cancel, plan.display_name);
-    if (!joined.Ok()) { out.error = failure("local onboarding", joined.GetStatus()); return out; }
-    out.session = std::move(joined).Value();
-    out.description = "joined the Hub of this PC";
-  }
+  // The join of a source app on the PC of the Hub. The pairing code, the rejoin with a stored
+  // onboarding id and its erasure are deprecated by QAROS, so the example does not offer them.
+  qaros::Result<qaros::Session> joined =
+    onboard_local_app(out.runtime, call.Cancel, plan.display_name);
+  if (!joined.Ok()) { out.error = failure("local onboarding", joined.GetStatus()); return out; }
+  out.session = std::move(joined).Value();
+  out.description = "joined the Hub of this PC";
 
   if (!options.invite.empty()) {
     const qaros::Result<qaros::PeerId> invited = out.session.InviteTargetApp(options.invite, call);
@@ -147,7 +118,7 @@ On success the example prints a line with a description of the session, then a l
 example: session %s
 ```
 
-When the join fails, the example prints the reason after the prefix of its lines and exits with 1; a Hub that does not know the program makes QAROS ask the person at the Hub, and a Hub on another PC needs `--hub HOST:PORT --code CODE`.
+When the join fails, the example prints the reason after the prefix of its lines and exits with 1; a Hub that does not know the program makes QAROS ask the person at the Hub. The example cannot join a Hub on another PC.
 
 ## Stream one widget into AR
 

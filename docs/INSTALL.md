@@ -318,7 +318,7 @@ The runtime initialisation leaves the field `runtime_binaries_folder_path` empty
 
 Nothing in this repository links against QAROS. The library `qaros` is compiled against the headers of the QarOS C++ SDK, and a program that uses it loads `qar-streaming-c.dll` at run time. The configure step needs the headers only, not the DLL: it takes the C header and the C++ SDK headers from one revision of the public QarOS repository, the git submodule `external/qaros`, or from a folder that `QAR_STREAMING_CPP_INCLUDE_DIR` names. A build and the whole test suite therefore work without QAROS; only the programs that connect to QAROS need the installation at run time.
 
-How a program joins the QAROS Hub is described by QuaternAR: [Onboarding and sessions](https://docs.quaternar.com/docs/next/developer-guide/onboarding-and-sessions/) and [Source applications](https://docs.quaternar.com/docs/next/operator-guide/source-applications/). A program that runs on the PC of the Hub joins as a local source app, and the Hub asks its operator once to allow it; a Hub on another PC needs a pairing code.
+How a program joins the QAROS Hub is described by QuaternAR: [Onboarding and sessions](https://docs.quaternar.com/docs/next/developer-guide/onboarding-and-sessions/) and [Source applications](https://docs.quaternar.com/docs/next/operator-guide/source-applications/). A program that runs on the PC of the Hub joins as a local source app, and the Hub asks its operator once to allow it. The example of this repository joins only that way: the pairing code for a Hub on another PC is deprecated by QAROS.
 
 ## Python environment
 

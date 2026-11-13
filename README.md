@@ -21,7 +21,7 @@ The tests end with the line 100% tests passed. Your own CMake project then finds
 find_package(qar_qt_streaming 0.2.0 CONFIG REQUIRED)
 ```
 
-To use QAROS, run the example. It joins the QAROS Hub of this PC as a source app: QAROS asks to allow the program once for each build of it (and again after a rebuild), so click Allow in the QAROS window. Then open a Visualizer from QAROS and add a receiver in it if it has none, and the example streams a window and a hidden panel to it. A Hub on another PC needs `--hub HOST:PORT --code CODE` instead of `--local`.
+To use QAROS, run the example. It joins the QAROS Hub of this PC as a source app: QAROS asks to allow the program once for each build of it (and again after a rebuild), so click Allow in the QAROS window. Then open a Visualizer from QAROS and add a receiver in it if it has none, and the example streams a window and a hidden panel to it. The example joins only the Hub of the PC it runs on: the pairing code and the rejoin that joined a Hub on another PC are deprecated by QAROS, and the example no longer offers them.
 
 ```powershell
 $env:PATH = "$env:QAR_QT_ROOT\bin;$env:PATH"

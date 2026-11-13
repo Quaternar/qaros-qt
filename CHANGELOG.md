@@ -13,7 +13,8 @@ Each version lists what it adds, the compatibility it was verified with (the QAR
 
 ### Removed
 
-- the vendored copies `third_party/qar` and `third_party/qar_streaming_cpp`.
+- the vendored copies `third_party/qar` and `third_party/qar_streaming_cpp`;
+- the options `--hub`, `--code`, `--rejoin` and `--forget` of the example and the pairing it stored: they used the code onboarding, `qar_runtime_rejoin` and `qar_runtime_forget` (`Runtime::Rejoin`, `Runtime::Forget`), which QAROS deprecates. The example joins as a local app (`QarOnboardLocalAppExt`), the path QAROS recommends, and so joins only the Hub of the PC it runs on; `--local` is still accepted.
 
 ## 0.2.0
 
