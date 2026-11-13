@@ -9,8 +9,8 @@
 #   qaros             qar_qt_streaming::qaros             the backend over the QarOS C++ SDK; needs the SDK headers
 # Qt is searched on CMAKE_PREFIX_PATH and in $ENV{QAR_QT_ROOT}. The SDK headers are the targets
 # qar-streaming-cpp and qar-streaming-c-headers of the calling project when it defines them, else the
-# SDK folder named by QAR_STREAMING_CPP_INCLUDE_DIR or $ENV{QAR_SDK_ROOT}/include, else the copy that
-# this package installed or the folder that it was built against. The oldest SDK this version is
+# SDK folder named by QAR_STREAMING_CPP_INCLUDE_DIR, else the copy of the QarOS repository's headers
+# that this package installed or the folder that it was built against. The oldest SDK this version is
 # written for is QAR_QT_STREAMING_MIN_SDK (the C headers carry no version macro to check it by).
 @PACKAGE_INIT@
 
@@ -46,10 +46,8 @@ endif()
 
 if("qaros" IN_LIST _qar_qs_wanted AND NOT (TARGET qar-streaming-cpp AND TARGET qar-streaming-c-headers))
   set(_qar_qs_sdk "")
-  file(TO_CMAKE_PATH "$ENV{QAR_SDK_ROOT}" _qar_qs_sdk_root)
   foreach(_qar_qs_dir
       "${QAR_STREAMING_CPP_INCLUDE_DIR}"
-      "${_qar_qs_sdk_root}/include"
       "@QAR_QT_STREAMING_SDK_CONFIG_DIR@"
       "${_qar_qs_prefix}/share/qar_qt_streaming/sdk/include")
     if(NOT _qar_qs_sdk AND _qar_qs_dir AND EXISTS "${_qar_qs_dir}/qar_streaming_cpp/Config.hpp"
@@ -70,7 +68,7 @@ if("qaros" IN_LIST _qar_qs_wanted AND NOT (TARGET qar-streaming-cpp AND TARGET q
     set(qar_qt_streaming_qaros_FOUND FALSE)
     string(CONCAT qar_qt_streaming_NOT_FOUND_MESSAGE
       "The component qaros needs the QarOS C++ SDK headers (qar_streaming_cpp/Config.hpp and "
-      "qar_streaming.h): set QAR_STREAMING_CPP_INCLUDE_DIR or QAR_SDK_ROOT.")
+      "qar_streaming.h): set QAR_STREAMING_CPP_INCLUDE_DIR.")
   endif()
 endif()
 if("qaros" IN_LIST _qar_qs_wanted AND TARGET qar-streaming-cpp AND NOT TARGET qar_qt_streaming_sdk)

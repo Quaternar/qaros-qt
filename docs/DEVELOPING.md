@@ -10,7 +10,7 @@ The code of this repository is one library in three layers, in a folder of its o
 | `qar_qt_streaming/seam/` | the seam: headers in `qar_qt_streaming/seam/include/qar_qt_streaming/seam/`, sources in `qar_qt_streaming/seam/src/`, tests in `qar_qt_streaming/seam/test/` |
 | `qar_qt_streaming/qaros/` | the backend over the QarOS C++ SDK: headers in `qar_qt_streaming/qaros/include/qar_qt_streaming/qaros/`, sources in `qar_qt_streaming/qaros/src/`, tests with the fake function tables in `qar_qt_streaming/qaros/test/` |
 | `examples/qt_panel_example/` | the example that streams a window and a hidden panel to a QarOS Visualizer |
-| `third_party/` | the headers of the QarOS C API and of the QarOS C++ SDK that the backend compiles against, with their licence and README |
+| `external/qaros/` | the git submodule of the public QarOS repository: the headers of the QarOS C API (`qar-streaming-c/`) and of the QarOS C++ SDK (`qar-streaming-cpp/`) that the backend compiles against, with their CMake targets and licence |
 | `scripts/` | the layering guard `check_layering.py` |
 | `cmake/` | `QarBuildSupport.cmake`, the build services that the top-level project calls |
 | `docs/` | these documents, `docs/snippets/` with the compile-checked snippets, and `docs/snippets/consumer/`, the install smoke test |

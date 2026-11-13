@@ -25,7 +25,7 @@ target_link_libraries(qar_qt_streaming_doc_snippets PRIVATE
 | `qar_qt_streaming` | `qar_qt_streaming::qar_qt_streaming` | C++17, the include folder of the Qt core, `qar_qt_streaming::seam`, and the Qt targets `Qt5::Core`, `Qt5::Gui` and `Qt5::Widgets`, or `Qt6::Core`, `Qt6::Gui` and `Qt6::Widgets` |
 | `qaros` | `qar_qt_streaming::qaros` | the include folder of the backend, `qar_qt_streaming::seam`, the QarOS C++ SDK headers, and the compiler option `/permissive-` |
 
-Without a `COMPONENTS` list the package provides every component that it was built with. The component `qaros` needs the QarOS C++ SDK headers: the targets `qar-streaming-cpp` and `qar-streaming-c-headers` of your project when it defines them, else the `include` folder of `QAR_STREAMING_CPP_INCLUDE_DIR` or of the environment variable `QAR_SDK_ROOT`, else the copy that the package installed or the folder that it was built against. A program that links `qaros` expands the function tables of the QarOS C header once, in one source file, with `QAR_IMPLEMENT_DYNAMIC_LOADING()`, and it is compiled with the same `QAR_ENABLE_*` macros as the backend; the header `sdk_config_check.hpp` records them, and a difference is a link error. The example links exactly these libraries:
+Without a `COMPONENTS` list the package provides every component that it was built with. The component `qaros` needs the QarOS C++ SDK headers: the targets `qar-streaming-cpp` and `qar-streaming-c-headers` of your project when it defines them, else the folder `QAR_STREAMING_CPP_INCLUDE_DIR`, else the copy that the package installed or the folder that it was built against. A program that links `qaros` expands the function tables of the QarOS C header once, in one source file, with `QAR_IMPLEMENT_DYNAMIC_LOADING()`, and it is compiled with the same `QAR_ENABLE_*` macros as the backend; the header `sdk_config_check.hpp` records them, and a difference is a link error. The example links exactly these libraries:
 
 ```cmake
 target_link_libraries(qar_qt_panel_example PRIVATE
@@ -554,4 +554,4 @@ share\qar_qt_streaming\sdk\include\qar_streaming.h
 share\qar_qt_streaming\sdk\include\qar_streaming_cpp\detail\VideoSender.inl
 ```
 
-The command lists the files of this package below the install prefix, relative to it. The package puts the headers of the three libraries below `include`, the static libraries below `lib`, the CMake package files and the licence below `share/qar_qt_streaming`, and, when the build used the copies of `third_party`, the QarOS headers and their licence below `share/qar_qt_streaming/sdk`.
+The command lists the files of this package below the install prefix, relative to it. The package puts the headers of the three libraries below `include`, the static libraries below `lib`, the CMake package files and the licence below `share/qar_qt_streaming`, and, when the build used the submodule `external/qaros`, the QarOS headers and their licence below `share/qar_qt_streaming/sdk`.

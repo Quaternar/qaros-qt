@@ -6,12 +6,12 @@ QAROS has a product version. The setup program records it in the registry value 
 
 | QAROS version | Status | Meaning |
 |---|---|---|
-| 0.9.0-dev.3008+65dc9aeb | verified | The installation that this stack was built, tested and run against. The vendored C header is the header of this installation. |
+| 0.9.0-dev.3008+65dc9aeb | verified | The installation that this stack was run against in the desktop checks. The headers that the build compiles against come from the public QarOS repository, the submodule `external/qaros`; see below. |
 | any other version | not verified | The stack may work with it, but nobody has checked. |
 
-The oldest QAROS that this version is written for is QAROS 0.9 with the onboarding C API; the package configuration records it as `QAR_QT_STREAMING_MIN_SDK`, and the C headers carry no version macro to check it by. The C++ headers in `third_party/qar_streaming_cpp` are the revision `1914bc2` of the branch `feature/cpp-api` of the public QarOS repository, and they compile against the C header of the installation that is named above.
+The oldest QAROS that this version is written for is QAROS 0.9 with the onboarding C API; the package configuration records it as `QAR_QT_STREAMING_MIN_SDK`, and the C headers carry no version macro to check it by. The C header and the C++ headers come from one revision of the public QarOS repository <https://github.com/Quaternar/qaros>, the git submodule `external/qaros`, pinned to the revision `a507034` of the branch `staging/main-with-headset`.
 
-The vendored header declares these three parts of the C API, all of which the code uses through the QarOS C++ SDK or in the example:
+The header of the submodule declares these three parts of the C API, all of which the code uses through the QarOS C++ SDK or in the example:
 
 - the function `qar_gui_panels_subscribe_all_gesture_events`, which subscribes to all gesture events of a GUI panel;
 - the function `qar_runtime_onboard`, which joins the QAROS Hub, with the extension `QarOnboardLocalAppExt` for a program on the PC of the Hub;
@@ -34,7 +34,7 @@ $qaros.Version
 ```
 
 The header that this stack compiles against is the header of the verified installation, and the second command prints its hash.
-This repository vendors the header as `third_party\qar\include\qar_streaming.h`, so the command reads it from there, relative to the folder of the clone.
+This repository takes the header from the submodule as `external\qaros\qar-streaming-c\include\qar_streaming.h`, so the command reads it from there, relative to the folder of the clone. The header of the submodule need not be byte for byte the header of the verified installation, so the hashes may differ; the check of the declarations below is what matters.
 
 Go to the folder of the clone first:
 
@@ -43,10 +43,7 @@ Set-Location "$env:QAR_ROOT\src\qar_qt_streaming"
 ```
 
 ```powershell
-(Get-FileHash -LiteralPath 'third_party\qar\include\qar_streaming.h' -Algorithm SHA256).Hash
-```
-```text
-55E6E3F48D940CA29331F0528FE475C1B7230FB19A59C31D5525C6E90B097F6C
+(Get-FileHash -LiteralPath 'external\qaros\qar-streaming-c\include\qar_streaming.h' -Algorithm SHA256).Hash
 ```
 
 If the two hashes are equal, your QAROS has the C API of the verified version. If they differ, your installation is another one. The third command checks whether the header of your installation still declares the parts of the C API that the code uses; it prints True for each item that the header declares.
@@ -66,11 +63,17 @@ qar_onboard_local_app_ext_default              True
 
 An installation that has all the items and a different header is not verified: the stack may work with it, but nobody has checked. Build the repositories, run the tests, and read the changes listed for each version before you rely on it.
 
-## Updating the QarOS header
+## Updating the QarOS headers
 
-This repository holds the QarOS C header and the headers of the QarOS C++ SDK that it compiles against: the C header is `third_party\qar\include\qar_streaming.h`, next to `third_party\qar\LICENSE`, and the C++ headers are the folder `third_party\qar_streaming_cpp\include`, whose README `third_party\qar_streaming_cpp\README.md` names where they come from. They are the only parts of QAROS that are copied into the repository, and the configure step prefers the `include` folder of `QAR_SDK_ROOT` when that folder holds both.
+This repository copies no part of QAROS. The QarOS C header (`qar-streaming-c/include/qar_streaming.h`) and the headers of the QarOS C++ SDK (`qar-streaming-cpp/include`) come from the public QarOS repository, the git submodule `external/qaros`, through its CMake targets `qar-streaming-c-headers` and `qar-streaming-cpp`, so the C++ wrapper and the C header always come from one revision. A folder that `QAR_STREAMING_CPP_INCLUDE_DIR` names, holding both, takes precedence.
 
-To move to another QAROS version, install it as described in [The QarOS SDK](INSTALL.md#the-qaros-sdk), copy the file `include\qar_streaming.h` of its installation over the vendored C header, replace the C++ headers with those of the matching revision of the C++ SDK, byte for byte, and build and test every combination of Qt version and toolset that you support ([Testing](TESTING.md#tested-configurations)). The repository has no script for this step.
+To move to another QarOS revision, check it out in the submodule and commit the new pointer, then build and test every combination of Qt version and toolset that you support ([Testing](TESTING.md#tested-configurations)):
+
+```powershell
+git -C external\qaros fetch origin
+git -C external\qaros checkout <revision>
+git add external\qaros
+```
 
 ### Rebuild order
 

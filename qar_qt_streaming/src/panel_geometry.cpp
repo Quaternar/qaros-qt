@@ -161,7 +161,7 @@ compute_panel_geometry(
   out_geometry.frame = frame;
   out_geometry.height_meters = static_cast<float>(height_m);
   out_geometry.narrowing = narrowing;
-  // QarGuiPanelSize::content_scale (third_party/qar/include/qar_streaming.h) is
+  // QarGuiPanelSize::content_scale (external/qaros/qar-streaming-c/include/qar_streaming.h) is
   // documented as a ZOOM: "1.0 fits the content across the full panel surface,
   // 2.0 shows it at twice the size so only half of it fits, and 0.5 shows it at
   // half size." `ratio` here is a RESOLUTION (our HiDPI/readability

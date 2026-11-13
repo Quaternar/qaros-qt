@@ -734,7 +734,7 @@ TEST(PanelGeometry, RejectsANonsenseRenderScale)
 
 TEST(PanelGeometry, ContentScaleSentToQarOsIsAlwaysOneRegardlessOfSupersampling)
 {
-  // QarGuiPanelSize::content_scale is a ZOOM (third_party/qar/include/
+  // QarGuiPanelSize::content_scale is a ZOOM (external/qaros/qar-streaming-c/include/
   // qar_streaming.h): "1.0 fits the content across the full panel surface,
   // 2.0 shows it at twice the size so only half of it fits". QarOS already
   // learns the raster's resolution from the video image itself, so this must

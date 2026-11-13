@@ -231,11 +231,11 @@ C:\Program Files\Quaternar\QAROS   QAR_SDK_ROOT: the install folder of QAROS (ma
 | `QAR_QT_ROOT` | The Qt kit that the build uses, the folder that holds `bin` and `lib\cmake`: the Qt 5.15.2 kit `msvc2019_64` here, or a Qt 6 kit. The presets pass it on to CMake as the cache variable `QAR_QT_ROOT`. | `C:\qar\deps\Qt\5.15.2\msvc2019_64` |
 | `QAR_VENV` | The Python 3.10 virtual environment, the folder that holds `Scripts\python.exe`. | `C:\qar\venv` |
 | `QAR_PREFIX` | The install prefix: the documented install command writes the library and its CMake package into it, and the consumer project finds them there. | `C:\qar\install` |
-| `QAR_SDK_ROOT` | The install folder of QAROS, the folder that holds `bin` and `include`; set it to the `InstallFolder` that the registry names. The configure step uses its `include` folder for the QarOS headers when that folder holds both `qar_streaming_cpp\Config.hpp` and `qar_streaming.h`, and the copies in `third_party` otherwise. | `C:\Program Files\Quaternar\QAROS` |
+| `QAR_SDK_ROOT` | The install folder of QAROS, the folder that holds `bin` and `include`; set it to the `InstallFolder` that the registry names. The build does not read it: the QarOS headers come from the submodule `external/qaros`. | `C:\Program Files\Quaternar\QAROS` |
 
 The outputs shown in this documentation were recorded in another folder layout on a machine of the same kind; the folder names in them were replaced by the names of the layout above.
 
-CMake takes a location from the option `-D<NAME>=<folder>` first and from the environment variable of the same name second, and the presets of this repository pass `QAR_QT_ROOT` and `QAR_SDK_ROOT` on from the environment. A folder that does not exist, or that lacks the file that identifies it, stops the configure step with an error that names the variable.
+CMake takes a location from the option `-D<NAME>=<folder>` first and from the environment variable of the same name second, and the presets of this repository pass `QAR_QT_ROOT` on from the environment. A folder that does not exist, or that lacks the file that identifies it, stops the configure step with an error that names the variable.
 
 
 ### Create the folders and set the variables
@@ -316,7 +316,7 @@ A program calls `qar_library_load` with no path. The C header documents the orde
 
 The runtime initialisation leaves the field `runtime_binaries_folder_path` empty: the runtime then uses the folder that the loaded library came from, which is the `bin` folder of the installation and holds the launcher.
 
-Nothing in this repository links against QAROS. The library `qaros` is compiled against the headers of the QarOS C++ SDK, and a program that uses it loads `qar-streaming-c.dll` at run time. The configure step needs the headers only, not the DLL: it uses the `include` folder of `QAR_SDK_ROOT` when that folder holds both `qar_streaming_cpp\Config.hpp` and `qar_streaming.h`, and the copies in `third_party` of the repository otherwise. A build and the whole test suite therefore work without QAROS; only the programs that connect to QAROS need the installation at run time.
+Nothing in this repository links against QAROS. The library `qaros` is compiled against the headers of the QarOS C++ SDK, and a program that uses it loads `qar-streaming-c.dll` at run time. The configure step needs the headers only, not the DLL: it takes the C header and the C++ SDK headers from one revision of the public QarOS repository, the git submodule `external/qaros`, or from a folder that `QAR_STREAMING_CPP_INCLUDE_DIR` names. A build and the whole test suite therefore work without QAROS; only the programs that connect to QAROS need the installation at run time.
 
 How a program joins the QAROS Hub is described by QuaternAR: [Onboarding and sessions](https://docs.quaternar.com/docs/next/developer-guide/onboarding-and-sessions/) and [Source applications](https://docs.quaternar.com/docs/next/operator-guide/source-applications/). A program that runs on the PC of the Hub joins as a local source app, and the Hub asks its operator once to allow it; a Hub on another PC needs a pairing code.
 
@@ -324,10 +324,10 @@ How a program joins the QAROS Hub is described by QuaternAR: [Onboarding and ses
 
 ### Clone this repository
 
-The next steps use the `requirements.txt` of this repository, so clone it first.
+The next steps use the `requirements.txt` of this repository, so clone it first. The clone also fetches the git submodule `external/qaros`, the public QarOS repository that provides the QarOS C header and the C++ SDK headers. In a clone made without `--recurse-submodules`, fetch it with `git submodule update --init`. The QarOS repository stores some documentation images with Git LFS; the build needs none of them, so a machine without Git LFS, or `$env:GIT_LFS_SKIP_SMUDGE = '1'` before the clone, is fine.
 
 ```powershell
-git clone https://github.com/Quaternar/qaros-qt "$env:QAR_ROOT\src\qar_qt_streaming"
+git clone --recurse-submodules https://github.com/Quaternar/qaros-qt "$env:QAR_ROOT\src\qar_qt_streaming"
 ```
 ```text
 Cloning into 'C:\qar\src\qar_qt_streaming'...
@@ -421,10 +421,9 @@ Preset CMake variables:
 
   QAR_BUILD_TESTS="ON"
   QAR_QT_ROOT="C:\qar\deps\Qt\5.15.2\msvc2019_64"
-  QAR_SDK_ROOT="C:\Program Files\Quaternar\QAROS"
 ...
 -- Qt 5.15.2: C:/qar/deps/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5
--- QarOS SDK headers: third_party/
+-- QarOS SDK headers: QarOS repository C:/qar/src/qar_qt_streaming/external/qaros
 ...
 -- Configuring done (12.5s)
 -- Generating done (0.3s)
@@ -477,7 +476,7 @@ The following tests did not run:
 	627 - OffscreenPopupGuard.TheWindows11StyleListOfAVisiblePanelReachesThePanelImage (Skipped)
 ```
 
-Install it into the prefix. The install puts the libraries `qar_qt_streaming_seam`, `qar_qt_streaming` and `qar_qt_streaming_qaros` below `$env:QAR_PREFIX`, together with their headers, the QarOS headers of `third_party` when the build used them, and the CMake package that your own project finds there.
+Install it into the prefix. The install puts the libraries `qar_qt_streaming_seam`, `qar_qt_streaming` and `qar_qt_streaming_qaros` below `$env:QAR_PREFIX`, together with their headers, the QarOS headers of the submodule `external/qaros` when the build used them, and the CMake package that your own project finds there.
 
 ```powershell
 cmake --install build\vs2019-x64 --config RelWithDebInfo --prefix $env:QAR_PREFIX

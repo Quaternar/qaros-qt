@@ -50,7 +50,7 @@ include\qar_streaming.h        True
 3. Clone this repository and go to the folder of the clone; the next steps run there until a step names another folder ([Clone this repository](INSTALL.md#clone-this-repository)).
 
 ```powershell
-git clone https://github.com/Quaternar/qaros-qt "$env:QAR_ROOT\src\qar_qt_streaming"
+git clone --recurse-submodules https://github.com/Quaternar/qaros-qt "$env:QAR_ROOT\src\qar_qt_streaming"
 ```
 ```text
 Cloning into 'C:\qar\src\qar_qt_streaming'...
@@ -116,10 +116,9 @@ Preset CMake variables:
 
   QAR_BUILD_TESTS="ON"
   QAR_QT_ROOT="C:\qar\deps\Qt\5.15.2\msvc2019_64"
-  QAR_SDK_ROOT="C:\Program Files\Quaternar\QAROS"
 ...
 -- Qt 5.15.2: C:/qar/deps/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5
--- QarOS SDK headers: third_party/
+-- QarOS SDK headers: QarOS repository C:/qar/src/qar_qt_streaming/external/qaros
 ...
 -- Configuring done (12.5s)
 -- Generating done (0.3s)
