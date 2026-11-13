@@ -9,7 +9,7 @@ QAROS has a product version. The setup program records it in the registry value 
 | 0.9.0-dev.3008+65dc9aeb | verified | The installation that this stack was run against in the desktop checks. The headers that the build compiles against come from the public QarOS repository, the submodule `external/qaros`; see below. |
 | any other version | not verified | The stack may work with it, but nobody has checked. |
 
-The oldest QAROS that this version is written for is QAROS 0.9 with the onboarding C API; the package configuration records it as `QAR_QT_STREAMING_MIN_SDK`, and the C headers carry no version macro to check it by. The C header and the C++ headers come from one revision of the public QarOS repository <https://github.com/Quaternar/qaros>, the git submodule `external/qaros`, pinned to the revision `a507034` of the branch `staging/main-with-headset`.
+The oldest QAROS that this version is written for is QAROS 0.9 with the onboarding C API; the package configuration records it as `QAR_QT_STREAMING_MIN_SDK`, and the C headers carry no version macro to check it by. The C header and the C++ headers come from one revision of the public QarOS repository <https://github.com/Quaternar/qaros>, the git submodule `external/qaros`, pinned to the revision `0f2cb2e` of the branch `staging/main-with-headset`.
 
 The header of the submodule declares these three parts of the C API, all of which the code uses through the QarOS C++ SDK or in the example:
 

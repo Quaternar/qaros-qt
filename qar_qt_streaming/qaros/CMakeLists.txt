@@ -43,13 +43,6 @@ target_link_libraries(qar_qt_streaming_qaros PUBLIC
 # qar_qt_streaming/qaros/sdk_config_check.hpp, which turns a difference into a link error).
 target_compile_definitions(qar_qt_streaming_qaros PRIVATE ${QAR_QT_STREAMING_SDK_DEFINES})
 
-# The SDK's headers use the alternative token `not`, which MSVC reads only in its conforming mode.
-# The public headers include the SDK, so every program that includes them needs the option: it is
-# PUBLIC. Programs built with C++20 or newer would not need it, but the option does no harm there.
-if(MSVC)
-  target_compile_options(qar_qt_streaming_qaros PUBLIC /permissive-)
-endif()
-
 # A static library that is linked into a shared library (a plugin, for example)
 # must be position-independent on the platforms where that matters (not Windows).
 set_target_properties(qar_qt_streaming_qaros PROPERTIES POSITION_INDEPENDENT_CODE ON)

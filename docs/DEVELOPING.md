@@ -32,7 +32,7 @@ The Qt core may therefore not include Ogre, RViz, ROS, a platform header or a Qa
 
 ## Build conventions
 
-- **Language level and warnings.** The library requires C++17 as a compile feature, and the warning flags `/W4 /permissive-` come from `qar_apply_warning_flags`, which the library, its tests and the snippets call.
+- **Language level and warnings.** The library requires C++17 as a compile feature, and the warning flags `/W4 /permissive- /we4996` (a call of a deprecated API is an error) come from `qar_apply_warning_flags`, which the library, its tests and the snippets call.
 - **Static libraries.** The three layers are static libraries with position-independent code, and consumers link the aliases `qar_qt_streaming::seam`, `qar_qt_streaming::qar_qt_streaming` and `qar_qt_streaming::qaros`; the test doubles are the alias `qar_qt_streaming::test_support`.
 - **Qt is a public dependency.** The public headers take `QWidget` pointers and `QtWidgetCapture` holds a `QImage` by value, so Qt Core, Gui and Widgets are linked publicly, and so is the seam, whose types appear in the public headers. The major version of Qt follows the variable `QAR_QT_MAJOR`.
 - **Build type.** Build `RelWithDebInfo`: a single-configuration generator defaults to it, and the reason is the release runtime of the prebuilt Qt binaries, which a debug runtime in the same process cannot share.

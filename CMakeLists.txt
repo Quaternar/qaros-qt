@@ -88,10 +88,8 @@ if(QAR_QT_STREAMING_WITH_QAROS)
           "or set QAR_STREAMING_CPP_INCLUDE_DIR.")
       endif()
     endforeach()
-    # The C target of the QarOS repository also adds its C examples unless they are switched off,
-    # and it asks for the compile feature c_std_11, which needs the language C.
-    set(BUILD_CORE_EXAMPLES OFF CACHE BOOL "Build the C examples of the QarOS repository")
-    enable_language(C)
+    # Added as a subdirectory, the QarOS repository builds none of its C examples
+    # (QAROS_BUILD_EXAMPLES is OFF), and its targets need no C language.
     add_subdirectory("${QAR_QAROS_SOURCE_DIR}/qar-streaming-c" "${CMAKE_CURRENT_BINARY_DIR}/qaros/qar-streaming-c"
       EXCLUDE_FROM_ALL)
     add_subdirectory("${QAR_QAROS_SOURCE_DIR}/qar-streaming-cpp" "${CMAKE_CURRENT_BINARY_DIR}/qaros/qar-streaming-cpp"

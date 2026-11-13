@@ -49,7 +49,7 @@ Usage: qar_qt_panel_example [--local] [--invite CONNECTION] [--connect-only] [--
 Ctrl+C in this console ends the program the orderly way, also while the join waits.
 ```
 
-`--local`, the default and the only mode, joins the Hub of this PC as a local app (`QarOnboardLocalAppExt`). The example uses no deprecated join of QAROS: it has no pairing code, no rejoin with a stored onboarding id and no erasure of one, so it joins only the Hub of the PC it runs on.
+`--local`, the default and the only mode, joins the Hub of this PC as a local app (`OnboardBuilder::WithLocalApp`, the extension `QarOnboardLocalAppExt` of the C API). The example uses no deprecated join of QAROS: it has no pairing code, no rejoin with a stored onboarding id and no erasure of one, so it joins only the Hub of the PC it runs on.
 
 ## Check the connection to QarOS without a window
 
@@ -82,12 +82,17 @@ Joined join_qaros(const JoinPlan & plan, JoinControl & control)
   }
 
   const Options & options = plan.options;
-  // The join of a source app on the PC of the Hub. The pairing code, the rejoin with a stored
-  // onboarding id and its erasure are deprecated by QAROS, so the example does not offer them.
-  qaros::Result<qaros::Session> joined =
-    onboard_local_app(out.runtime, call.Cancel, plan.display_name);
+  // The join of a source app on the PC of the Hub. It blocks until the Hub has answered, which
+  // includes the time the person at the PC takes to allow the program on its first start (the Hub
+  // waits 120 s by default). The mode is stateless: nothing is stored, and the Hub recognises the
+  // program on its next start while it matches what was allowed. The pairing code, the rejoin with
+  // a stored onboarding id and its erasure are deprecated by QAROS, so the example does not offer
+  // them.
+  qaros::OnboardBuilder builder;
+  builder.WithLocalApp().WithDisplayName(plan.display_name);
+  qaros::Result<qaros::OnboardSession> joined = out.runtime.Onboard(builder, call);
   if (!joined.Ok()) { out.error = failure("local onboarding", joined.GetStatus()); return out; }
-  out.session = std::move(joined).Value();
+  out.session = std::move(joined).Value().Session;
   out.description = "joined the Hub of this PC";
 
   if (!options.invite.empty()) {
@@ -431,7 +436,6 @@ The includes, the link line and the shutdown of the example are regions of its s
 #include <QApplication>
 #include <QComboBox>
 #include <QDir>
-#include <QFile>
 #include <QLabel>
 #include <QPushButton>
 #include <QSysInfo>
@@ -441,17 +445,13 @@ The includes, the link line and the shutdown of the example are regions of its s
 #include <atomic>
 #include <chrono>
 #include <csignal>
-#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <future>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <string>
 #include <utility>
-
-#include "local_app_onboarding.hpp"
 ```
 
 ```cmake

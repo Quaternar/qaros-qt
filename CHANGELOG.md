@@ -8,13 +8,16 @@ Each version lists what it adds, the compatibility it was verified with (the QAR
 
 ### Changed
 
-- the QarOS C header and the QarOS C++ SDK headers come from the public QarOS repository <https://github.com/Quaternar/qaros>, the git submodule `external/qaros` (pinned to `a507034` of `staging/main-with-headset`), through its CMake targets `qar-streaming-c-headers` and `qar-streaming-cpp`, so both always come from one QarOS revision; clone with `--recurse-submodules` or run `git submodule update --init`;
+- the QarOS C header and the QarOS C++ SDK headers come from the public QarOS repository <https://github.com/Quaternar/qaros>, the git submodule `external/qaros` (pinned to `0f2cb2e` of `staging/main-with-headset`), through its CMake targets `qar-streaming-c-headers` and `qar-streaming-cpp`, so both always come from one QarOS revision; clone with `--recurse-submodules` or run `git submodule update --init`;
+- a call of a deprecated API is a compile error: the targets of this repository are compiled with `/we4996` (`-Werror=deprecated-declarations` with other compilers);
+- the library `qar_qt_streaming::qaros` no longer passes `/permissive-` to the programs that link it: the C++ SDK headers no longer use alternative tokens;
+- the example joins with the builder of the C++ SDK (`OnboardBuilder::WithLocalApp`) instead of the C API, and the files `local_app_onboarding.cpp` and `local_app_onboarding.hpp` are gone;
 - the build no longer looks for the QarOS headers in the `include` folder of `QAR_SDK_ROOT`; `QAR_STREAMING_CPP_INCLUDE_DIR` still names a folder with both headers, and the new cache variable `QAR_QAROS_SOURCE_DIR` names another checkout of the QarOS repository.
 
 ### Removed
 
 - the vendored copies `third_party/qar` and `third_party/qar_streaming_cpp`;
-- the options `--hub`, `--code`, `--rejoin` and `--forget` of the example and the pairing it stored: they used the code onboarding, `qar_runtime_rejoin` and `qar_runtime_forget` (`Runtime::Rejoin`, `Runtime::Forget`), which QAROS deprecates. The example joins as a local app (`QarOnboardLocalAppExt`), the path QAROS recommends, and so joins only the Hub of the PC it runs on; `--local` is still accepted.
+- the options `--hub`, `--code`, `--rejoin` and `--forget` of the example and the pairing it stored: they used the code onboarding, `qar_runtime_rejoin` and `qar_runtime_forget` (`Runtime::Rejoin`, `Runtime::Forget`), which QAROS deprecates. The example joins as a local app (`OnboardBuilder::WithLocalApp`, `QarOnboardLocalAppExt` in the C API), the path QAROS recommends, and so joins only the Hub of the PC it runs on; `--local` is still accepted.
 
 ## 0.2.0
 

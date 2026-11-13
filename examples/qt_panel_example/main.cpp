@@ -4,8 +4,9 @@
 // Streams two Qt widgets to QAROS as AR GUI panels: a window with a button and a counter, and a
 // panel that is shown off-screen and never reaches the desktop. The program joins the QAROS Hub
 // before it shows any window. On the PC that runs the Hub, QAROS asks once to allow the program
-// (and again after each rebuild of it). The program joins as a local app (QarOnboardLocalAppExt),
-// the way QAROS recommends; it uses no deprecated join (no pairing code, no rejoin, no forget).
+// (and again after each rebuild of it). The program joins as a local app
+// (OnboardBuilder::WithLocalApp, QarOnboardLocalAppExt in the C API), the way QAROS recommends; it
+// uses no deprecated join (no pairing code, no rejoin, no forget).
 //
 // Every call that can wait on QAROS runs off the Qt thread: the join on a thread of its own, the
 // panels' calls on the worker of the backend. The Qt thread polls the join and runs the tick.
@@ -43,8 +44,6 @@
 #include <mutex>
 #include <string>
 #include <utility>
-
-#include "local_app_onboarding.hpp"
 // [qar-snippet-end:includes]
 
 // The program expands the function tables of the QAROS C header, once. The library that makes
@@ -194,12 +193,17 @@ Joined join_qaros(const JoinPlan & plan, JoinControl & control)
   }
 
   const Options & options = plan.options;
-  // The join of a source app on the PC of the Hub. The pairing code, the rejoin with a stored
-  // onboarding id and its erasure are deprecated by QAROS, so the example does not offer them.
-  qaros::Result<qaros::Session> joined =
-    onboard_local_app(out.runtime, call.Cancel, plan.display_name);
+  // The join of a source app on the PC of the Hub. It blocks until the Hub has answered, which
+  // includes the time the person at the PC takes to allow the program on its first start (the Hub
+  // waits 120 s by default). The mode is stateless: nothing is stored, and the Hub recognises the
+  // program on its next start while it matches what was allowed. The pairing code, the rejoin with
+  // a stored onboarding id and its erasure are deprecated by QAROS, so the example does not offer
+  // them.
+  qaros::OnboardBuilder builder;
+  builder.WithLocalApp().WithDisplayName(plan.display_name);
+  qaros::Result<qaros::OnboardSession> joined = out.runtime.Onboard(builder, call);
   if (!joined.Ok()) { out.error = failure("local onboarding", joined.GetStatus()); return out; }
-  out.session = std::move(joined).Value();
+  out.session = std::move(joined).Value().Session;
   out.description = "joined the Hub of this PC";
 
   if (!options.invite.empty()) {

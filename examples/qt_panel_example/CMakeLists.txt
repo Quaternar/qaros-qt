@@ -13,7 +13,6 @@
 
 add_executable(qar_qt_panel_example
   main.cpp
-  local_app_onboarding.cpp
 )
 
 target_compile_features(qar_qt_panel_example PRIVATE cxx_std_17)
@@ -30,8 +29,9 @@ target_link_libraries(qar_qt_panel_example PRIVATE
 )
 # [qar-snippet-end:link]
 
+# A call of a deprecated API of the QarOS SDK is an error (C4996), as in qar_apply_warning_flags.
 if(MSVC)
-  target_compile_options(qar_qt_panel_example PRIVATE /W4 /permissive-)
+  target_compile_options(qar_qt_panel_example PRIVATE /W4 /permissive- /we4996)
 else()
-  target_compile_options(qar_qt_panel_example PRIVATE -Wall -Wextra)
+  target_compile_options(qar_qt_panel_example PRIVATE -Wall -Wextra -Werror=deprecated-declarations)
 endif()
