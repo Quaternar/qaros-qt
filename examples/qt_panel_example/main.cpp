@@ -4,8 +4,9 @@
 // Streams two Qt widgets to QAROS as AR GUI panels: a window with a button and a counter, and a
 // panel that is shown off-screen and never reaches the desktop. The program joins the QAROS Hub
 // before it shows any window. On the PC that runs the Hub, QAROS asks once to allow the program
-// (and again after each rebuild of it); a Hub on another PC is joined with a pairing code, and the
-// pairing is stored for the next start.
+// (and again after each rebuild of it). The program joins as a local app
+// (OnboardBuilder::WithLocalApp, QarOnboardLocalAppExt in the C API), the way QAROS recommends; it
+// uses no deprecated join (no pairing code, no rejoin, no forget).
 //
 // Every call that can wait on QAROS runs off the Qt thread: the join on a thread of its own, the
 // panels' calls on the worker of the backend. The Qt thread polls the join and runs the tick.
@@ -20,6 +21,7 @@
 #include "qar_qt_streaming/qt_panel_stream_manager.hpp"
 #include "qar_qt_streaming/seam/common_name.hpp"
 #include "qar_qt_streaming/seam/timing_log.hpp"
+#include "qar_qt_streaming/seam/version.hpp"
 
 #include <qar_streaming_cpp/Library.hpp>
 #include <qar_streaming_cpp/Runtime.hpp>
@@ -27,7 +29,6 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QDir>
-#include <QFile>
 #include <QLabel>
 #include <QPushButton>
 #include <QSysInfo>
@@ -37,17 +38,13 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
-#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <future>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <string>
 #include <utility>
-
-#include "local_app_onboarding.hpp"
 // [qar-snippet-end:includes]
 
 // The program expands the function tables of the QAROS C header, once. The library that makes
@@ -102,58 +99,26 @@ void on_interrupt(int) { g_stop_requested.store(true); }
 void print_usage()
 {
   std::printf(
-    "Usage: qar_qt_panel_example [--local | --rejoin | --hub HOST:PORT [--code CODE]]\n"
-    "                            [--forget] [--invite CONNECTION] [--connect-only] [--seconds N]\n"
-    "  --local         join the QAROS Hub of this PC (the default when no pairing is stored).\n"
-    "                  QAROS asks once to allow this program, and again after each rebuild of\n"
-    "                  it: click Allow in the QAROS window\n"
-    "  --rejoin        join again with the pairing that an earlier --hub --code run stored (the\n"
-    "                  default when one is stored)\n"
-    "  --hub H:P       join the Hub of another PC at host H and port P (shown with the pairing\n"
-    "                  code in the Visualizer of that PC). Without --code it joins again with\n"
-    "                  the stored pairing, which names its own Hub: H:P is then not used, and\n"
-    "                  without a stored pairing the program stops and asks for --code\n"
-    "  --code CODE     the pairing code that Hub shows. Only the first join needs it: the\n"
-    "                  pairing is stored for the next start\n"
-    "  --forget        erase the stored pairing and exit\n"
+    "Usage: qar_qt_panel_example [--local] [--invite CONNECTION] [--connect-only] [--seconds N] | --version\n"
+    "  --local        join the QAROS Hub of this PC as a local app (the only mode, and the\n"
+    "                  default). QAROS asks once to allow this program, and again after each\n"
+    "                  rebuild of it: click Allow in the QAROS window\n"
     "  --invite CONN   ask QAROS to start the target app named by the connection string CONN\n"
     "  --connect-only  join QAROS, print the session, and exit; no window, no panel\n"
     "  --seconds N     otherwise: show two panels, stop after N s (default 60)\n"
+    "  --version       print the qar_qt_streaming version and exit\n"
     "Ctrl+C in this console ends the program the orderly way, also while the join waits.\n");
-}
-
-struct HubEndpoint
-{
-  std::string host;
-  std::uint16_t port = 0;
-};
-
-// "HOST:PORT" with a port from 1 to 65535.
-bool parse_hub(const std::string & text, HubEndpoint & hub)
-{
-  const std::size_t colon = text.rfind(':');
-  if (colon == std::string::npos || colon == 0 || colon + 1 >= text.size()) { return false; }
-  const long port = std::strtol(text.c_str() + colon + 1, nullptr, 10);
-  if (port < 1 || port > 65535) { return false; }
-  hub.host = text.substr(0, colon);
-  hub.port = static_cast<std::uint16_t>(port);
-  return true;
 }
 
 struct Options
 {
   bool connect_only = false;
-  bool forget = false;
-  bool local = false;
-  bool rejoin = false;
-  std::string hub_text;
-  std::string code;
   std::string invite;
   int seconds = 60;
 };
 
-// The folder of this program's QAROS identities and of the stored pairing, below the local
-// application data of the Windows account and apart from the data of the Hub.
+// The folder of this program's QAROS identities, below the local application data of the Windows
+// account and apart from the data of the Hub.
 QString identity_folder()
 {
   QString base = qEnvironmentVariable("LOCALAPPDATA");
@@ -161,29 +126,6 @@ QString identity_folder()
   const QString path = QDir(base).filePath(QString("Quaternar/QarOS-Qt/") + kProgramTag);
   QDir().mkpath(path);
   return path;
-}
-
-QString stored_id_path() { return QDir(identity_folder()).filePath("onboarding_id.txt"); }
-
-std::optional<qaros::OnboardingId> read_stored_id()
-{
-  QFile file(stored_id_path());
-  if (!file.open(QIODevice::ReadOnly)) { return std::nullopt; }
-  const std::string text = QString::fromUtf8(file.readAll()).trimmed().toStdString();
-  const qaros::Result<qaros::OnboardingId> id = qaros::OnboardingId::FromString(text);
-  if (!id.Ok() || id.Value().IsZero()) { return std::nullopt; }
-  return id.Value();
-}
-
-void write_stored_id(const qaros::OnboardingId & id)
-{
-  const qaros::Result<std::string> text = id.ToString();
-  QFile file(stored_id_path());
-  if (text.Ok() && file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-    file.write(QByteArray::fromStdString(text.Value()));
-  } else {
-    std::printf("example: the pairing could not be stored\n");
-  }
 }
 
 // What the join leaves behind. The members go in the reverse order of their declaration: the
@@ -218,8 +160,6 @@ struct JoinControl
 struct JoinPlan
 {
   Options options;
-  HubEndpoint hub;
-  std::optional<qaros::OnboardingId> stored;
   std::string display_name;
 };
 
@@ -255,32 +195,18 @@ Joined join_qaros(const JoinPlan & plan, JoinControl & control)
   }
 
   const Options & options = plan.options;
-  if (!options.hub_text.empty() && !options.code.empty()) {
-    qaros::OnboardBuilder builder;
-    builder.WithCode(options.code, plan.hub.host, plan.hub.port).WithDisplayName(plan.display_name);
-    qaros::Result<qaros::OnboardSession> joined = out.runtime.Onboard(builder, call);
-    if (!joined.Ok()) { out.error = failure("Onboard", joined.GetStatus()); return out; }
-    write_stored_id(joined.Value().OnboardingId);  // the ticket for every later start
-    out.session = joined.Value().Session;
-    out.description = "joined the Hub at " + plan.hub.host + " and stored the pairing";
-  } else if (plan.stored && !options.local) {
-    qaros::RejoinBuilder builder(*plan.stored);
-    builder.WithDisplayName(plan.display_name);
-    qaros::Result<qaros::Session> joined = out.runtime.Rejoin(builder, call);
-    if (!joined.Ok()) { out.error = failure("Rejoin", joined.GetStatus()); return out; }
-    out.session = std::move(joined).Value();
-    out.description = "joined again with the stored pairing";
-  } else if (!options.hub_text.empty() || options.rejoin) {
-    out.error = options.rejoin ? "no pairing is stored; run with --hub HOST:PORT --code CODE"
-                               : "--hub needs --code for the first join";
-    return out;
-  } else {
-    qaros::Result<qaros::Session> joined =
-      onboard_local_app(out.runtime, call.Cancel, plan.display_name);
-    if (!joined.Ok()) { out.error = failure("local onboarding", joined.GetStatus()); return out; }
-    out.session = std::move(joined).Value();
-    out.description = "joined the Hub of this PC";
-  }
+  // The join of a source app on the PC of the Hub. It blocks until the Hub has answered, which
+  // includes the time the person at the PC takes to allow the program on its first start (the Hub
+  // waits 120 s by default). The mode is stateless: nothing is stored, and the Hub recognises the
+  // program on its next start while it matches what was allowed. The pairing code, the rejoin with
+  // a stored onboarding id and its erasure are deprecated by QAROS, so the example does not offer
+  // them.
+  qaros::OnboardBuilder builder;
+  builder.WithLocalApp().WithDisplayName(plan.display_name).WithAppVersion(qar_qt_streaming::kLibraryVersion);
+  qaros::Result<qaros::OnboardSession> joined = out.runtime.Onboard(builder, call);
+  if (!joined.Ok()) { out.error = failure("local onboarding", joined.GetStatus()); return out; }
+  out.session = std::move(joined).Value().Session;
+  out.description = "joined the Hub of this PC";
 
   if (!options.invite.empty()) {
     const qaros::Result<qaros::PeerId> invited = out.session.InviteTargetApp(options.invite, call);
@@ -299,33 +225,21 @@ int main(int argc, char ** argv)
 {
   std::setvbuf(stdout, nullptr, _IONBF, 0);
   Options options;
+  if (argc == 2 && std::string(argv[1]) == "--version") {
+    std::printf("qar_qt_panel_example %s\n", qar_qt_streaming::kLibraryVersion);
+    return 0;
+  }
   const bool help = argc == 2 && std::string(argv[1]) == "--help";
   bool bad_usage = false;
   for (int i = 1; i < argc && !help && !bad_usage; ++i) {
     const std::string arg = argv[i];
     if (arg == "--connect-only") { options.connect_only = true; }
-    else if (arg == "--local") { options.local = true; }
-    else if (arg == "--rejoin") { options.rejoin = true; }
-    else if (arg == "--forget") { options.forget = true; }
-    else if (arg == "--hub" && i + 1 < argc) { options.hub_text = argv[++i]; }
-    else if (arg == "--code" && i + 1 < argc) { options.code = argv[++i]; }
+    else if (arg == "--local") {}  // the only mode; accepted so that existing commands keep working
     else if (arg == "--invite" && i + 1 < argc) { options.invite = argv[++i]; }
     else if (arg == "--seconds" && i + 1 < argc) { options.seconds = std::atoi(argv[++i]); }
     else { bad_usage = true; }
   }
-  HubEndpoint hub;
-  if (!help && !bad_usage && !options.hub_text.empty() && !parse_hub(options.hub_text, hub)) {
-    std::printf("example: --hub needs HOST:PORT with a port from 1 to 65535\n");
-    bad_usage = true;
-  }
-  const bool conflicting = (options.local && (!options.hub_text.empty() || options.rejoin)) ||
-    (options.rejoin && !options.hub_text.empty()) ||
-    (options.forget && (options.local || !options.code.empty()));
-  if (!help && !bad_usage &&
-    (conflicting || (!options.code.empty() && options.hub_text.empty()) || options.seconds < 1))
-  {
-    bad_usage = true;
-  }
+  if (!help && !bad_usage && options.seconds < 1) { bad_usage = true; }
   if (help || bad_usage) {
     print_usage();
     return help ? 0 : 2;
@@ -342,40 +256,7 @@ int main(int argc, char ** argv)
   const std::string host = QSysInfo::machineHostName().toStdString();
   JoinPlan plan;
   plan.options = options;
-  plan.hub = hub;
-  plan.stored = read_stored_id();
   plan.display_name = std::string("Qt panel example on ") + host;
-  if (options.code.empty() == false && plan.stored) { plan.stored.reset(); }  // a new pairing wins
-  if (!options.hub_text.empty() && options.code.empty() && plan.stored) {
-    std::printf("example: --hub without --code joins again with the stored pairing; "
-      "%s is not used\n", options.hub_text.c_str());
-  }
-
-  if (options.forget) {
-    if (!plan.stored) {
-      std::printf("example: no pairing is stored (the local join stores nothing)\n");
-      return 0;
-    }
-    qaros::Result<qaros::Library> library =
-      qaros::Library::Init(qaros::LibraryBuilder().WithConsoleLogging(false));
-    qaros::RuntimeBuilder runtime_builder;
-    runtime_builder.WithStorageFolder(identity_folder().toStdString());
-    qaros::Result<qaros::Runtime> runtime = qaros::Runtime::Create(runtime_builder);
-    if (!library.Ok() || !runtime.Ok()) {
-      std::printf("example: QAROS could not be started\n");
-      return 1;
-    }
-    const qaros::Result<void> forgotten = runtime.Value().Forget(*plan.stored);
-    if (!forgotten.Ok()) {
-      std::printf("example: %s\n", failure("Forget", forgotten.GetStatus()).c_str());
-      return 1;
-    }
-    QFile::remove(stored_id_path());
-    std::printf("example: the stored pairing is erased\n");
-    runtime.Value() = qaros::Runtime();
-    (void)library.Value().Shutdown();
-    return 0;
-  }
 
   if (options.connect_only) {
     JoinControl control;

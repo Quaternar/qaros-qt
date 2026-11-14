@@ -18,8 +18,17 @@ add_library(qar_qt_streaming::seam ALIAS qar_qt_streaming_seam)
 
 target_compile_features(qar_qt_streaming_seam PUBLIC cxx_std_17)
 
+# qar_qt_streaming/seam/version.hpp: the version of this build (cmake/QarQtVersion.cmake), generated
+# into the build folder and installed with the other headers.
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/QarQtVersion.cmake")
+set(QAR_QT_STREAMING_GENERATED_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/include"
+  CACHE INTERNAL "Generated headers of the seam of qar_qt_streaming")
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/version.hpp.in"
+  "${QAR_QT_STREAMING_GENERATED_INCLUDE_DIR}/qar_qt_streaming/seam/version.hpp" @ONLY)
+
 target_include_directories(qar_qt_streaming_seam PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+  "$<BUILD_INTERFACE:${QAR_QT_STREAMING_GENERATED_INCLUDE_DIR}>"
   "$<INSTALL_INTERFACE:include>"
 )
 

@@ -82,11 +82,13 @@ function(qar_resolve_location var)
   set(${var} "${_value}" CACHE PATH "${_qrl_WHAT}" FORCE)
 endfunction()
 
+# A call of a deprecated API (of the QarOS SDK, among others) is an error, not a warning: C4996 on
+# MSVC, -Wdeprecated-declarations elsewhere.
 function(qar_apply_warning_flags target)
   if(MSVC)
-    target_compile_options(${target} PRIVATE /W4 /permissive-)
+    target_compile_options(${target} PRIVATE /W4 /permissive- /we4996)
   else()
-    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror=deprecated-declarations)
   endif()
 endfunction()
 

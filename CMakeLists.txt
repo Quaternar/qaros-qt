@@ -14,7 +14,9 @@
 # The project is also a subproject: add_subdirectory(<this folder>) or FetchContent_Declare with the
 # source ZIP builds only the libraries (tests, examples and install rules are off unless asked for).
 cmake_minimum_required(VERSION 3.22)
-project(qar_qt_streaming VERSION 0.2.0
+# The version comes from the file VERSION and git (cmake/QarQtVersion.cmake).
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/QarQtVersion.cmake")
+project(qar_qt_streaming VERSION ${QAR_QT_STREAMING_VERSION_CORE}
   DESCRIPTION "Qt widgets as QarOS AR GUI panels"
   LANGUAGES CXX)
 
@@ -39,64 +41,63 @@ qar_use_qt(COMPONENTS Core Gui Widgets)
 
 # ---------------------------------------------------------------------------------------------
 # The QarOS SDK headers for the qaros backend: the targets qar-streaming-c-headers (the C header
-# qar_streaming.h) and qar-streaming-cpp (the C++ wrapper over it, header only). Where they come
-# from, first match wins:
+# qar_streaming.h) and qar-streaming-cpp (the C++ wrapper over it, header only). Both come from one
+# QarOS revision, so the C++ wrapper always matches the C header. Where they come from, first match
+# wins:
 #   1. targets of these names that a parent project already defines;
-#   2. -DQAR_STREAMING_CPP_INCLUDE_DIR=<folder>, else <QAR_SDK_ROOT>/include (-D, else the
-#      environment variable), when the folder holds qar_streaming_cpp/Config.hpp and qar_streaming.h;
-#   3. the copies in third_party/ of this repository.
+#   2. -DQAR_STREAMING_CPP_INCLUDE_DIR=<folder>, a folder that holds both
+#      qar_streaming_cpp/Config.hpp and qar_streaming.h (an SDK installation, for example);
+#   3. the public QarOS repository, the git submodule external/qaros (QAR_QAROS_SOURCE_DIR): its
+#      own targets, from qar-streaming-c/ and qar-streaming-cpp/.
 # The library defines no QAR_ENABLE_* macro of the C header itself; the backend gets
-# QAR_QT_STREAMING_SDK_DEFINES privately.
+# QAR_QT_STREAMING_SDK_DEFINES privately. The target qar-streaming-c-headers of the QarOS
+# repository adds QAR_ENABLE_DYNAMIC_LOADING to everything that links it.
 # ---------------------------------------------------------------------------------------------
 set(QAR_STREAMING_CPP_INCLUDE_DIR "" CACHE PATH
-  "Folder with qar_streaming_cpp/Config.hpp (default: <QAR_SDK_ROOT>/include, else third_party/)")
+  "Folder with qar_streaming_cpp/Config.hpp and qar_streaming.h (default: the submodule external/qaros)")
+set(QAR_QAROS_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/qaros" CACHE PATH
+  "Source folder of the public QarOS repository (default: the submodule external/qaros)")
 set(QAR_QT_STREAMING_SDK_DEFINES "QAR_ENABLE_DYNAMIC_LOADING" CACHE STRING
   "Macros of the QarOS C header that the qaros backend is compiled with")
 if(QAR_QT_STREAMING_WITH_QAROS)
   if(TARGET qar-streaming-cpp AND TARGET qar-streaming-c-headers)
     set(QAR_QT_STREAMING_SDK_SOURCE "targets of the parent project")
-  else()
-    qar_resolve_location(QAR_SDK_ROOT ENV QAR_SDK_ROOT WHAT "QarOS SDK")
-    set(_qar_sdk_dirs "${QAR_STREAMING_CPP_INCLUDE_DIR}")
-    if(QAR_SDK_ROOT)
-      list(APPEND _qar_sdk_dirs "${QAR_SDK_ROOT}/include")
-    endif()
-    set(_qar_sdk_cpp_dir "")
-    foreach(_qar_candidate IN LISTS _qar_sdk_dirs)
-      if(NOT _qar_sdk_cpp_dir AND EXISTS "${_qar_candidate}/qar_streaming_cpp/Config.hpp"
-          AND EXISTS "${_qar_candidate}/qar_streaming.h")
-        set(_qar_sdk_cpp_dir "${_qar_candidate}")
-      endif()
-    endforeach()
-    if(QAR_STREAMING_CPP_INCLUDE_DIR AND NOT _qar_sdk_cpp_dir)
+  elseif(QAR_STREAMING_CPP_INCLUDE_DIR)
+    if(NOT EXISTS "${QAR_STREAMING_CPP_INCLUDE_DIR}/qar_streaming_cpp/Config.hpp"
+        OR NOT EXISTS "${QAR_STREAMING_CPP_INCLUDE_DIR}/qar_streaming.h")
       message(FATAL_ERROR
         "QAR_STREAMING_CPP_INCLUDE_DIR (${QAR_STREAMING_CPP_INCLUDE_DIR}) has no "
         "qar_streaming_cpp/Config.hpp and qar_streaming.h.")
     endif()
-    if(_qar_sdk_cpp_dir)
-      set(_qar_sdk_c_dir "${_qar_sdk_cpp_dir}")
-      set(QAR_QT_STREAMING_SDK_SOURCE "${_qar_sdk_cpp_dir}")
-    else()
-      set(_qar_sdk_cpp_dir "${CMAKE_CURRENT_SOURCE_DIR}/third_party/qar_streaming_cpp/include")
-      set(_qar_sdk_c_dir "${CMAKE_CURRENT_SOURCE_DIR}/third_party/qar/include")
-      set(QAR_QT_STREAMING_SDK_SOURCE "third_party/")
-    endif()
-    foreach(_qar_check
-        "${_qar_sdk_cpp_dir}/qar_streaming_cpp/Config.hpp" "${_qar_sdk_c_dir}/qar_streaming.h")
-      if(NOT EXISTS "${_qar_check}")
-        message(FATAL_ERROR "QarOS SDK header not found: ${_qar_check}")
-      endif()
-    endforeach()
     add_library(qar-streaming-c-headers INTERFACE)
     target_include_directories(qar-streaming-c-headers INTERFACE
-      "$<BUILD_INTERFACE:${_qar_sdk_c_dir}>")
+      "$<BUILD_INTERFACE:${QAR_STREAMING_CPP_INCLUDE_DIR}>")
     add_library(qar-streaming-cpp INTERFACE)
     target_include_directories(qar-streaming-cpp INTERFACE
-      "$<BUILD_INTERFACE:${_qar_sdk_cpp_dir}>")
+      "$<BUILD_INTERFACE:${QAR_STREAMING_CPP_INCLUDE_DIR}>")
     target_link_libraries(qar-streaming-cpp INTERFACE qar-streaming-c-headers)
     target_compile_features(qar-streaming-cpp INTERFACE cxx_std_17)
-    set(QAR_QT_STREAMING_SDK_CPP_DIR "${_qar_sdk_cpp_dir}")
-    set(QAR_QT_STREAMING_SDK_C_DIR "${_qar_sdk_c_dir}")
+    set(QAR_QT_STREAMING_SDK_SOURCE "${QAR_STREAMING_CPP_INCLUDE_DIR}")
+    set(QAR_QT_STREAMING_SDK_CPP_DIR "${QAR_STREAMING_CPP_INCLUDE_DIR}")
+  else()
+    foreach(_qar_check
+        "${QAR_QAROS_SOURCE_DIR}/qar-streaming-c/include/qar_streaming.h"
+        "${QAR_QAROS_SOURCE_DIR}/qar-streaming-cpp/CMakeLists.txt")
+      if(NOT EXISTS "${_qar_check}")
+        message(FATAL_ERROR
+          "QarOS SDK header not found: ${_qar_check}. Fetch the submodule with "
+          "`git submodule update --init external/qaros` (or clone with --recurse-submodules), "
+          "or set QAR_STREAMING_CPP_INCLUDE_DIR.")
+      endif()
+    endforeach()
+    # Added as a subdirectory, the QarOS repository builds none of its C examples
+    # (QAROS_BUILD_EXAMPLES is OFF), and its targets need no C language.
+    add_subdirectory("${QAR_QAROS_SOURCE_DIR}/qar-streaming-c" "${CMAKE_CURRENT_BINARY_DIR}/qaros/qar-streaming-c"
+      EXCLUDE_FROM_ALL)
+    add_subdirectory("${QAR_QAROS_SOURCE_DIR}/qar-streaming-cpp" "${CMAKE_CURRENT_BINARY_DIR}/qaros/qar-streaming-cpp"
+      EXCLUDE_FROM_ALL)
+    set(QAR_QT_STREAMING_SDK_SOURCE "QarOS repository ${QAR_QAROS_SOURCE_DIR}")
+    set(QAR_QT_STREAMING_SDK_FROM_QAROS ON)
   endif()
   message(STATUS "QarOS SDK headers: ${QAR_QT_STREAMING_SDK_SOURCE}")
 endif()
@@ -127,7 +128,7 @@ endif()
 if(PROJECT_IS_TOP_LEVEL)
   string(REGEX REPLACE "([][+.*()^$?|\\\\])" "\\\\\\1" _qar_src_re "${CMAKE_CURRENT_SOURCE_DIR}")
   set(CPACK_SOURCE_GENERATOR "ZIP")
-  set(CPACK_SOURCE_PACKAGE_FILE_NAME "qar_qt_streaming-${PROJECT_VERSION}-src")
+  set(CPACK_SOURCE_PACKAGE_FILE_NAME "qar_qt_streaming-${QAR_QT_STREAMING_VERSION_RESOLVED}-src")
   set(CPACK_PACKAGE_NAME "qar_qt_streaming")
   set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
   set(CPACK_SOURCE_IGNORE_FILES
@@ -150,16 +151,19 @@ if(_qar_install)
     ARCHIVE DESTINATION lib
     INCLUDES DESTINATION include)
   install(DIRECTORY ${_qar_install_headers} DESTINATION include)
-  # The SDK headers are installed with the package only when they come from third_party/; headers
-  # from an SDK installation stay where they are and the package configuration records the folder.
+  install(FILES "${QAR_QT_STREAMING_GENERATED_INCLUDE_DIR}/qar_qt_streaming/seam/version.hpp"
+    DESTINATION include/qar_qt_streaming/seam)
+  # The SDK headers are installed with the package only when they come from the QarOS repository
+  # (the submodule external/qaros); headers from a folder named by QAR_STREAMING_CPP_INCLUDE_DIR
+  # stay where they are and the package configuration records the folder.
   set(QAR_QT_STREAMING_SDK_CONFIG_DIR "")
-  if(QAR_QT_STREAMING_WITH_QAROS AND DEFINED QAR_QT_STREAMING_SDK_CPP_DIR)
-    if(QAR_QT_STREAMING_SDK_SOURCE STREQUAL "third_party/")
-      install(DIRECTORY third_party/qar_streaming_cpp/include/ third_party/qar/include/
+  if(QAR_QT_STREAMING_WITH_QAROS)
+    if(QAR_QT_STREAMING_SDK_FROM_QAROS)
+      install(DIRECTORY "${QAR_QAROS_SOURCE_DIR}/qar-streaming-cpp/include/"
+        "${QAR_QAROS_SOURCE_DIR}/qar-streaming-c/include/"
         DESTINATION share/qar_qt_streaming/sdk/include)
-      install(FILES third_party/qar_streaming_cpp/README.md third_party/qar/LICENSE
-        DESTINATION share/qar_qt_streaming/sdk)
-    else()
+      install(FILES "${QAR_QAROS_SOURCE_DIR}/LICENSE" DESTINATION share/qar_qt_streaming/sdk)
+    elseif(DEFINED QAR_QT_STREAMING_SDK_CPP_DIR)
       set(QAR_QT_STREAMING_SDK_CONFIG_DIR "${QAR_QT_STREAMING_SDK_CPP_DIR}")
     endif()
   endif()

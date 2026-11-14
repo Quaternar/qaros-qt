@@ -10,7 +10,7 @@ The code of this repository is one library in three layers, in a folder of its o
 | `qar_qt_streaming/seam/` | the seam: headers in `qar_qt_streaming/seam/include/qar_qt_streaming/seam/`, sources in `qar_qt_streaming/seam/src/`, tests in `qar_qt_streaming/seam/test/` |
 | `qar_qt_streaming/qaros/` | the backend over the QarOS C++ SDK: headers in `qar_qt_streaming/qaros/include/qar_qt_streaming/qaros/`, sources in `qar_qt_streaming/qaros/src/`, tests with the fake function tables in `qar_qt_streaming/qaros/test/` |
 | `examples/qt_panel_example/` | the example that streams a window and a hidden panel to a QarOS Visualizer |
-| `third_party/` | the headers of the QarOS C API and of the QarOS C++ SDK that the backend compiles against, with their licence and README |
+| `external/qaros/` | the git submodule of the public QarOS repository: the headers of the QarOS C API (`qar-streaming-c/`) and of the QarOS C++ SDK (`qar-streaming-cpp/`) that the backend compiles against, with their CMake targets and licence |
 | `scripts/` | the layering guard `check_layering.py` |
 | `cmake/` | `QarBuildSupport.cmake`, the build services that the top-level project calls |
 | `docs/` | these documents, `docs/snippets/` with the compile-checked snippets, and `docs/snippets/consumer/`, the install smoke test |
@@ -32,7 +32,7 @@ The Qt core may therefore not include Ogre, RViz, ROS, a platform header or a Qa
 
 ## Build conventions
 
-- **Language level and warnings.** The library requires C++17 as a compile feature, and the warning flags `/W4 /permissive-` come from `qar_apply_warning_flags`, which the library, its tests and the snippets call.
+- **Language level and warnings.** The library requires C++17 as a compile feature, and the warning flags `/W4 /permissive- /we4996` (a call of a deprecated API is an error) come from `qar_apply_warning_flags`, which the library, its tests and the snippets call.
 - **Static libraries.** The three layers are static libraries with position-independent code, and consumers link the aliases `qar_qt_streaming::seam`, `qar_qt_streaming::qar_qt_streaming` and `qar_qt_streaming::qaros`; the test doubles are the alias `qar_qt_streaming::test_support`.
 - **Qt is a public dependency.** The public headers take `QWidget` pointers and `QtWidgetCapture` holds a `QImage` by value, so Qt Core, Gui and Widgets are linked publicly, and so is the seam, whose types appear in the public headers. The major version of Qt follows the variable `QAR_QT_MAJOR`.
 - **Build type.** Build `RelWithDebInfo`: a single-configuration generator defaults to it, and the reason is the release runtime of the prebuilt Qt binaries, which a debug runtime in the same process cannot share.

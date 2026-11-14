@@ -126,7 +126,7 @@ The tests that are specific to Qt 6 run only there, and the two tests that need 
 
 The imports of the executables were read with the tool `dumpbin`: the tests and the example import only the Qt libraries, the Microsoft runtime and the system libraries, and none of them imports `qar-streaming-c.dll`. The installed package was used by a consumer project with Qt 5.15.2, 6.5.3 and 6.8.3, and the source ZIP and `add_subdirectory` by consumers with Qt 5.15.2 and 6.8.3. Not run: Qt before 5.15 and between the versions above, Visual Studio 2026, and the Debug configuration.
 
-The live checks on the desktop Visualizer ran the example with Qt 5.15 and Qt 6.8 (taps, a combo list, resizing, Ctrl+C, joining again without a second Allow); no live check ran with Qt 6.5 or Qt 6.10, with a headset, or with a pairing code.
+The live checks on the desktop Visualizer ran the example with Qt 5.15 and Qt 6.8 (taps, a combo list, resizing, Ctrl+C, joining again without a second Allow); no live check ran with Qt 6.5 or Qt 6.10, or with a headset.
 
 ## Test doubles
 

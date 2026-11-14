@@ -11,8 +11,7 @@
       "binaryDir": "${sourceDir}/build/vs2019-x64",
       "cacheVariables": {
         "QAR_BUILD_TESTS": "ON",
-        "QAR_QT_ROOT": "$env{QAR_QT_ROOT}",
-        "QAR_SDK_ROOT": "$env{QAR_SDK_ROOT}"
+        "QAR_QT_ROOT": "$env{QAR_QT_ROOT}"
       }
     },
     {
@@ -24,8 +23,7 @@
       "binaryDir": "${sourceDir}/build/vs2022-x64",
       "cacheVariables": {
         "QAR_BUILD_TESTS": "ON",
-        "QAR_QT_ROOT": "$env{QAR_QT_ROOT}",
-        "QAR_SDK_ROOT": "$env{QAR_SDK_ROOT}"
+        "QAR_QT_ROOT": "$env{QAR_QT_ROOT}"
       }
     }
   ],

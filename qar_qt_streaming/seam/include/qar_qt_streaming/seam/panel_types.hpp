@@ -149,7 +149,7 @@ struct PanelStreamDiagnostics
   float width_meters = 0.0f;
   float height_meters = 0.0f;
   /// What was last sent to QarOS as QarGuiPanelSize::content_scale, which is a
-  /// ZOOM (see third_party/qar/include/qar_streaming.h). Always 1.0: a zoom
+  /// ZOOM (see external/qaros/qar-streaming-c/include/qar_streaming.h). Always 1.0: a zoom
   /// above 1.0 pushes the content past the panel edge (hover and click land
   /// offset), so the HiDPI/supersample ratio is never sent as content_scale.
   float content_scale = 1.0f;

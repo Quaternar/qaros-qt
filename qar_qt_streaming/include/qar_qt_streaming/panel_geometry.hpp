@@ -38,7 +38,7 @@
 /// ## The frame: the video must fit the area QarOS draws it into
 ///
 /// QarOS draws a stream panel as a window with a frame of its own: a title bar across the top of
-/// the panel, which the SDK header does not size (third_party/qar/include/qar_streaming.h,
+/// the panel, which the SDK header does not size (external/qaros/qar-streaming-c/include/qar_streaming.h,
 /// QarGuiPanelSize::content_scale). The video it draws is the whole BUFFER, padding included. It
 /// is drawn at the width of the panel less the left and right insets (the default frame has a
 /// border of 0.003 m on each side), and centred vertically in the area between the top and the
@@ -75,7 +75,7 @@
 /// content_scale.
 ///
 /// `content_scale` is NOT a resolution knob: the SDK header
-/// (third_party/qar/include/qar_streaming.h, `QarGuiPanelSize::content_scale`)
+/// (external/qaros/qar-streaming-c/include/qar_streaming.h, `QarGuiPanelSize::content_scale`)
 /// defines it as a ZOOM — "1.0 fits the content across the full panel surface,
 /// 2.0 shows it at twice the size so only half of it fits, and 0.5 shows it at
 /// half size" — and a contact is mapped back to content pixels through it.
