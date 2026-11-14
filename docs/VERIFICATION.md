@@ -165,7 +165,7 @@ cmake --build build\consumer --config RelWithDebInfo
 .\build\consumer\RelWithDebInfo\qar_qt_streaming_consumer.exe
 ```
 ```text
-qar_qt_streaming 0.3.0
+qar_qt_streaming 0.2.1
 targets: qar_qt_streaming::qar_qt_streaming
 arm's-length preset: 0.50 mm per logical pixel, render scale 2.0
 a 420 x 200 widget: buffer 420 x 200 px, panel 0.504 x 0.309 m

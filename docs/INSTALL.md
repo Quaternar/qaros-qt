@@ -499,10 +499,10 @@ cmake --install build\vs2019-x64 --config RelWithDebInfo --prefix $env:QAR_PREFI
 
 ## Install smoke test
 
-The folder `docs/snippets/consumer` of the repository holds a small project that uses the installed package the way your own project does. It is not part of the repository build; it configures on its own against the install prefix. It asks for the version 0.3.0 of the package and links its one target. The installed headers are UTF-8 text without a byte order mark, and some comments contain characters outside ASCII; compile your own code with `/utf-8`, as this repository does.
+The folder `docs/snippets/consumer` of the repository holds a small project that uses the installed package the way your own project does. It is not part of the repository build; it configures on its own against the install prefix. It asks for the version 0.2.1 of the package and links its one target. The installed headers are UTF-8 text without a byte order mark, and some comments contain characters outside ASCII; compile your own code with `/utf-8`, as this repository does.
 
 ```cmake
-find_package(qar_qt_streaming 0.3.0 CONFIG REQUIRED)
+find_package(qar_qt_streaming 0.2.1 CONFIG REQUIRED)
 ```
 
 The package needs Qt as well, because the public headers of the library take `QWidget` pointers and the library links the Qt modules publicly. The configure command therefore lists the Qt folder next to `QAR_PREFIX` in `CMAKE_PREFIX_PATH`, so that the package finds the Qt modules.
@@ -534,7 +534,7 @@ cmake --build build\consumer --config RelWithDebInfo
 .\build\consumer\RelWithDebInfo\qar_qt_streaming_consumer.exe
 ```
 ```text
-qar_qt_streaming 0.3.0
+qar_qt_streaming 0.2.1
 targets: qar_qt_streaming::qar_qt_streaming
 arm's-length preset: 0.50 mm per logical pixel, render scale 2.0
 a 420 x 200 widget: buffer 420 x 200 px, panel 0.504 x 0.309 m

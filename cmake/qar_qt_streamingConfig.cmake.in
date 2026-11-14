@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 #
 # qar_qt_streaming package configuration.
-#   find_package(qar_qt_streaming 0.3.0 CONFIG REQUIRED [COMPONENTS <component>...])
+#   find_package(qar_qt_streaming 0.2.1 CONFIG REQUIRED [COMPONENTS <component>...])
 # Components (all of them when none is named):
 #   seam              qar_qt_streaming::seam              plain C++ types and interfaces; needs nothing
 #   qar_qt_streaming  qar_qt_streaming::qar_qt_streaming  the Qt core; needs Qt @QAR_QT_MAJOR@ (Core, Gui, Widgets)

@@ -1,6 +1,6 @@
 # qar_qt_streaming - Qt widgets as QarOS AR GUI panels
 
-qar_qt_streaming 0.3.0 turns Qt widgets into QarOS AR GUI panels. It draws a `QWidget` into a pixel buffer with the paint path of Qt, streams the picture to QarOS as the content of a GUI panel, and turns the gestures that QarOS reports on the panel into Qt events for the widget, so that a widget that works on the desktop works in AR. It is a C++17 static library for Windows 11 and MSVC that builds on Qt 5.15 or Qt 6.5 and newer and on the headers of the QarOS C++ SDK, and it needs no ROS 2, no RViz and no Ogre. It is delivered as the CMake package `qar_qt_streaming`, with an example, `qar_qt_panel_example`, that you can run.
+qar_qt_streaming 0.2.1 turns Qt widgets into QarOS AR GUI panels. It draws a `QWidget` into a pixel buffer with the paint path of Qt, streams the picture to QarOS as the content of a GUI panel, and turns the gestures that QarOS reports on the panel into Qt events for the widget, so that a widget that works on the desktop works in AR. It is a C++17 static library for Windows 11 and MSVC that builds on Qt 5.15 or Qt 6.5 and newer and on the headers of the QarOS C++ SDK, and it needs no ROS 2, no RViz and no Ogre. It is delivered as the CMake package `qar_qt_streaming`, with an example, `qar_qt_panel_example`, that you can run.
 
 ## TL;DR
 
@@ -18,7 +18,7 @@ cmake --install build\vs2019-x64 --config RelWithDebInfo --prefix $env:QAR_PREFI
 The tests end with the line 100% tests passed. Your own CMake project then finds the installed package and links the libraries that it needs, `qar_qt_streaming::qar_qt_streaming` for the Qt core and `qar_qt_streaming::qaros` for the backend that talks to QarOS ([API reference](docs/API.md#linking-the-package) lists the targets and the other ways to use the sources):
 
 ```cmake
-find_package(qar_qt_streaming 0.3.0 CONFIG REQUIRED)
+find_package(qar_qt_streaming 0.2.1 CONFIG REQUIRED)
 ```
 
 To use QAROS, run the example. It joins the QAROS Hub of this PC as a source app: QAROS asks to allow the program once for each build of it (and again after a rebuild), so click Allow in the QAROS window. Then open a Visualizer from QAROS and add a receiver in it if it has none, and the example streams a window and a hidden panel to it. The example joins only the Hub of the PC it runs on: the pairing code and the rejoin that joined a Hub on another PC are deprecated by QAROS, and the example no longer offers them.
@@ -59,13 +59,13 @@ Each feature is described in [Feature details](docs/ARCHITECTURE.md#feature-deta
 
 ## Where this fits
 
-This repository is one of three that together stream an Ogre scene, Qt widgets, web pages and RViz into QarOS. Each repository has its own version, the file `VERSION` at its root, which is 0.3.0 in all three for this documentation; a repository asks for the same minor version of the repositories it builds on, so the three have to be at matching minor versions. What changed in each version is in its `CHANGELOG.md`. The table lists the three in the order in which they are installed: `qar_ogre_adapter` and `qar_qt_streaming` are independent of each other, and `qar_rviz_plugin` comes last because it builds on both.
+This repository is one of three that together stream an Ogre scene, Qt widgets, web pages and RViz into QarOS. Each repository has its own version, the file `VERSION` at its root, which is 0.2.1 in all three for this documentation; a repository asks for the same minor version of the repositories it builds on, so the three have to be at matching minor versions. What changed in each version is in its `CHANGELOG.md`. The table lists the three in the order in which they are installed: `qar_ogre_adapter` and `qar_qt_streaming` are independent of each other, and `qar_rviz_plugin` comes last because it builds on both.
 
 | Repository | Version | What it provides | Depends on | Also needs |
 |---|---|---|---|---|
-| qar_ogre_adapter | 0.3.0 | The QarOS integration layer: renders an Ogre scene for each eye and streams it to QarOS; the adapter for the QarOS C API; the vendored C header | none | The ROS 2 distribution, for Ogre only |
-| **qar_qt_streaming** (this repository) | 0.3.0 | Qt widgets as QarOS AR GUI panels, as a Qt library that needs no ROS 2, no RViz and no Ogre | none | Qt 5.15.2 or Qt 6.5 and newer, the QarOS C++ SDK headers (the submodule `external/qaros`) |
-| qar_rviz_plugin | 0.3.0 | The RViz2 plugin that streams RViz into QarOS, and web AR panels from a UI model and from the ROS 2 graph | qar_ogre_adapter, qar_qt_streaming | The ROS 2 distribution with its repairs, Qt 5.15.2, colcon |
+| qar_ogre_adapter | 0.2.1 | The QarOS integration layer: renders an Ogre scene for each eye and streams it to QarOS; the adapter for the QarOS C API; the vendored C header | none | The ROS 2 distribution, for Ogre only |
+| **qar_qt_streaming** (this repository) | 0.2.1 | Qt widgets as QarOS AR GUI panels, as a Qt library that needs no ROS 2, no RViz and no Ogre | none | Qt 5.15.2 or Qt 6.5 and newer, the QarOS C++ SDK headers (the submodule `external/qaros`) |
+| qar_rviz_plugin | 0.2.1 | The RViz2 plugin that streams RViz into QarOS, and web AR panels from a UI model and from the ROS 2 graph | qar_ogre_adapter, qar_qt_streaming | The ROS 2 distribution with its repairs, Qt 5.15.2, colcon |
 
 The installation document of each repository installs the repositories it depends on, with the commands for each, so you can start from any of them.
 
