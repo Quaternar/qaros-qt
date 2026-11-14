@@ -21,6 +21,7 @@
 #include "qar_qt_streaming/qt_panel_stream_manager.hpp"
 #include "qar_qt_streaming/seam/common_name.hpp"
 #include "qar_qt_streaming/seam/timing_log.hpp"
+#include "qar_qt_streaming/seam/version.hpp"
 
 #include <qar_streaming_cpp/Library.hpp>
 #include <qar_streaming_cpp/Runtime.hpp>
@@ -98,13 +99,14 @@ void on_interrupt(int) { g_stop_requested.store(true); }
 void print_usage()
 {
   std::printf(
-    "Usage: qar_qt_panel_example [--local] [--invite CONNECTION] [--connect-only] [--seconds N]\n"
-    "  --local         join the QAROS Hub of this PC as a local app (the only mode, and the\n"
+    "Usage: qar_qt_panel_example [--local] [--invite CONNECTION] [--connect-only] [--seconds N] | --version\n"
+    "  --local        join the QAROS Hub of this PC as a local app (the only mode, and the\n"
     "                  default). QAROS asks once to allow this program, and again after each\n"
     "                  rebuild of it: click Allow in the QAROS window\n"
     "  --invite CONN   ask QAROS to start the target app named by the connection string CONN\n"
     "  --connect-only  join QAROS, print the session, and exit; no window, no panel\n"
     "  --seconds N     otherwise: show two panels, stop after N s (default 60)\n"
+    "  --version       print the qar_qt_streaming version and exit\n"
     "Ctrl+C in this console ends the program the orderly way, also while the join waits.\n");
 }
 
@@ -200,7 +202,7 @@ Joined join_qaros(const JoinPlan & plan, JoinControl & control)
   // a stored onboarding id and its erasure are deprecated by QAROS, so the example does not offer
   // them.
   qaros::OnboardBuilder builder;
-  builder.WithLocalApp().WithDisplayName(plan.display_name);
+  builder.WithLocalApp().WithDisplayName(plan.display_name).WithAppVersion(qar_qt_streaming::kLibraryVersion);
   qaros::Result<qaros::OnboardSession> joined = out.runtime.Onboard(builder, call);
   if (!joined.Ok()) { out.error = failure("local onboarding", joined.GetStatus()); return out; }
   out.session = std::move(joined).Value().Session;
@@ -223,6 +225,10 @@ int main(int argc, char ** argv)
 {
   std::setvbuf(stdout, nullptr, _IONBF, 0);
   Options options;
+  if (argc == 2 && std::string(argv[1]) == "--version") {
+    std::printf("qar_qt_panel_example %s\n", qar_qt_streaming::kLibraryVersion);
+    return 0;
+  }
   const bool help = argc == 2 && std::string(argv[1]) == "--help";
   bool bad_usage = false;
   for (int i = 1; i < argc && !help && !bad_usage; ++i) {

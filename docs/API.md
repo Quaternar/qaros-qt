@@ -4,11 +4,11 @@ This page lists the public headers of the library, the types and functions that 
 
 ## Linking the package
 
-A consumer finds the package with `find_package` and links the imported targets of the components that it needs. The package version is compatible with the versions of the same minor number while the major number is 0, so a request for 0.2.0 is met by 0.2.x:
+A consumer finds the package with `find_package` and links the imported targets of the components that it needs. The package version is compatible with the versions of the same minor number while the major number is 0, so a request for 0.3.0 is met by 0.3.x:
 
 
 ```cmake
-find_package(qar_qt_streaming 0.2.0 CONFIG REQUIRED)
+find_package(qar_qt_streaming 0.3.0 CONFIG REQUIRED)
 ```
 
 The target that compiles the code of this page links it in the same way:

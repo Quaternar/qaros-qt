@@ -14,7 +14,9 @@
 # The project is also a subproject: add_subdirectory(<this folder>) or FetchContent_Declare with the
 # source ZIP builds only the libraries (tests, examples and install rules are off unless asked for).
 cmake_minimum_required(VERSION 3.22)
-project(qar_qt_streaming VERSION 0.2.0
+# The version comes from the file VERSION and git (cmake/QarQtVersion.cmake).
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/QarQtVersion.cmake")
+project(qar_qt_streaming VERSION ${QAR_QT_STREAMING_VERSION_CORE}
   DESCRIPTION "Qt widgets as QarOS AR GUI panels"
   LANGUAGES CXX)
 
@@ -126,7 +128,7 @@ endif()
 if(PROJECT_IS_TOP_LEVEL)
   string(REGEX REPLACE "([][+.*()^$?|\\\\])" "\\\\\\1" _qar_src_re "${CMAKE_CURRENT_SOURCE_DIR}")
   set(CPACK_SOURCE_GENERATOR "ZIP")
-  set(CPACK_SOURCE_PACKAGE_FILE_NAME "qar_qt_streaming-${PROJECT_VERSION}-src")
+  set(CPACK_SOURCE_PACKAGE_FILE_NAME "qar_qt_streaming-${QAR_QT_STREAMING_VERSION_RESOLVED}-src")
   set(CPACK_PACKAGE_NAME "qar_qt_streaming")
   set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
   set(CPACK_SOURCE_IGNORE_FILES
@@ -149,6 +151,8 @@ if(_qar_install)
     ARCHIVE DESTINATION lib
     INCLUDES DESTINATION include)
   install(DIRECTORY ${_qar_install_headers} DESTINATION include)
+  install(FILES "${QAR_QT_STREAMING_GENERATED_INCLUDE_DIR}/qar_qt_streaming/seam/version.hpp"
+    DESTINATION include/qar_qt_streaming/seam)
   # The SDK headers are installed with the package only when they come from the QarOS repository
   # (the submodule external/qaros); headers from a folder named by QAR_STREAMING_CPP_INCLUDE_DIR
   # stay where they are and the package configuration records the folder.
