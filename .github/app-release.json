@@ -1,0 +1,38 @@
+{
+  "version_files": [
+    {
+      "path": "VERSION",
+      "pattern": "^(?P<version>\\d+\\.\\d+\\.\\d+)$"
+    },
+    {
+      "path": "README.md",
+      "pattern": "(?:^qar_qt_streaming |^find_package\\(qar_qt_streaming )(?P<version>\\d+\\.\\d+\\.\\d+) ",
+      "count": 2
+    },
+    {
+      "path": "cmake/qar_qt_streamingConfig.cmake.in",
+      "pattern": "find_package\\(qar_qt_streaming (?P<version>\\d+\\.\\d+\\.\\d+) CONFIG"
+    },
+    {
+      "path": "docs/API.md",
+      "pattern": "find_package\\(qar_qt_streaming (?P<version>\\d+\\.\\d+\\.\\d+) CONFIG"
+    },
+    {
+      "path": "docs/INSTALL.md",
+      "pattern": "(?:find_package\\(qar_qt_streaming |^qar_qt_streaming |asks for the version )(?P<version>\\d+\\.\\d+\\.\\d+)",
+      "count": 3
+    },
+    {
+      "path": "docs/VERIFICATION.md",
+      "pattern": "^qar_qt_streaming (?P<version>\\d+\\.\\d+\\.\\d+)$"
+    },
+    {
+      "path": "docs/snippets/consumer/CMakeLists.txt",
+      "pattern": "find_package\\(qar_qt_streaming (?P<version>\\d+\\.\\d+\\.\\d+) CONFIG"
+    }
+  ],
+  "changelog": "CHANGELOG.md",
+  "release": {
+    "github_release": true
+  }
+}

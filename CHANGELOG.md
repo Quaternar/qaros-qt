@@ -16,7 +16,7 @@ written and how a version is released is in [AGENTS.md](AGENTS.md).
 
 ### Features
 
-- The version of a build comes from the file `VERSION` and git tags (`X.Y.Z`, `X.Y.Z-rc.N`, `X.Y.Z-dev.N+<sha>`); `qar_qt_streaming/seam/version.hpp` reports it as `QAR_QT_STREAMING_VERSION` and `qar_qt_streaming::kLibraryVersion`, the example prints it with `--version` and tells it to the Hub as its app version ([#5](https://github.com/Quaternar/qaros-qt/pull/5)).
+- The version of a build comes from the file `VERSION`, the last release, and git tags (`X.Y.Z` on a release tag, the next patch `X.Y.(Z+1)-dev.N+<sha>` on any other commit); `qar_qt_streaming/seam/version.hpp` reports it as `QAR_QT_STREAMING_VERSION` and `qar_qt_streaming::kLibraryVersion`, the example prints it with `--version` and tells it to the Hub as its app version ([#5](https://github.com/Quaternar/qaros-qt/pull/5)).
 
 ### Enhancements
 
