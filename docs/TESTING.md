@@ -23,20 +23,21 @@ ctest --preset vs2019-x64
 ```text
 Test project C:/qar/src/qar_qt_streaming/build/vs2019-x64
         Start   1: check_layering_qar_qt_streaming
-  1/832 Test   #1: check_layering_qar_qt_streaming ................................................................   Passed    0.36 sec
+  1/958 Test   #1: check_layering_qar_qt_streaming ................................................................   Passed    0.38 sec
         Start   2: check_layering_examples
-  2/832 Test   #2: check_layering_examples ........................................................................   Passed    0.08 sec
+  2/958 Test   #2: check_layering_examples ........................................................................   Passed    0.06 sec
         Start   3: check_layering_selftest
-  3/832 Test   #3: check_layering_selftest ........................................................................   Passed    0.14 sec
+  3/958 Test   #3: check_layering_selftest ........................................................................   Passed    0.21 sec
         Start   4: CommonName.SanitizeKeepsLowerCaseLettersDigitsAndDashesAndMapsTheRestToDash
 ...
-100% tests passed, 0 tests failed out of 832
 
-Total Test time (real) =  72.63 sec
+100% tests passed, 0 tests failed out of 958
 
+Total Test time (real) =  80.70 sec
+...
 The following tests did not run:
-	626 - OffscreenPopupGuard.TheWindows11StyleComboListReachesThePanelImage (Skipped)
-	627 - OffscreenPopupGuard.TheWindows11StyleListOfAVisiblePanelReachesThePanelImage (Skipped)
+	659 - OffscreenPopupGuard.TheWindows11StyleComboListReachesThePanelImage (Skipped)
+	660 - OffscreenPopupGuard.TheWindows11StyleListOfAVisiblePanelReachesThePanelImage (Skipped)
 ```
 
 The last lines are the summary: how many tests passed, and the names of those that failed. A test that is skipped is reported as skipped and does not count as a failure.
@@ -59,9 +60,9 @@ Test project C:/qar/src/qar_qt_streaming/build/vs2019-x64
   Test   #6: CommonName.SanitizeCutsToTheLimit
   Test   #7: CommonName.Fnv1aMatchesTheReferenceVectors
 ...
-  Test #832: qar_qt_streaming_fractional_dpr_1.5
+  Test #958: qar_qt_streaming_fractional_dpr_3.0
 
-Total Tests: 832
+Total Tests: 958
 ```
 
 ```powershell
@@ -70,11 +71,11 @@ ctest --preset vs2019-x64 -R check_layering_selftest
 ```text
 Test project C:/qar/src/qar_qt_streaming/build/vs2019-x64
     Start 3: check_layering_selftest
-1/1 Test #3: check_layering_selftest ..........   Passed    0.09 sec
+1/1 Test #3: check_layering_selftest ..........   Passed    0.07 sec
 
 100% tests passed, 0 tests failed out of 1
 
-Total Test time (real) =   0.12 sec
+Total Test time (real) =   0.10 sec
 ```
 
 Use `-R` with a part of a suite name to run one suite, and add `-j` followed by a number to run tests in parallel. When a test fails, its output is printed by the preset; add the option `--rerun-failed` to the command to run only the tests that failed in the last run.
@@ -183,8 +184,8 @@ The first command checks all modules of this repository and prints one summary l
 & "$env:QAR_VENV\Scripts\python.exe" scripts\check_layering.py --all
 ```
 ```text
-check_layering examples: OK (3 files)
-check_layering qar_qt_streaming: OK (103 files)
+check_layering examples: OK (1 files)
+check_layering qar_qt_streaming: OK (111 files)
 ```
 
 ```powershell

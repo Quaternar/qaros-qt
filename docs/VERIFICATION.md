@@ -43,12 +43,11 @@ Preset CMake variables:
 
   QAR_BUILD_TESTS="ON"
   QAR_QT_ROOT="C:\qar\deps\Qt\5.15.2\msvc2019_64"
-  QAR_SDK_ROOT="C:\Program Files\Quaternar\QAROS"
 ...
 -- Qt 5.15.2: C:/qar/deps/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5
--- QarOS SDK headers: third_party/
+-- QarOS SDK headers: QarOS repository C:/qar/src/qar_qt_streaming/external/qaros
 ...
--- Configuring done (12.5s)
+-- Configuring done (10.5s)
 -- Generating done (0.3s)
 -- Build files have been written to: C:/qar/src/qar_qt_streaming/build/vs2019-x64
 ```
@@ -61,8 +60,8 @@ cmake --build --preset vs2019-x64
 ...
   qar_qt_streaming_qaros.vcxproj -> C:\qar\src\qar_qt_streaming\build\vs2019-x64\qar_qt_streaming\qaros\RelWithDebInfo\qar_qt_streaming_qaros.lib
 ...
-  qar_qt_streaming_seam_tests.vcxproj -> C:\qar\src\qar_qt_streaming\build\vs2019-x64\qar_qt_streaming\seam\test\RelWithDebInfo\qar_qt_streaming_seam_tests.exe
   qar_qt_streaming_qaros_tests.vcxproj -> C:\qar\src\qar_qt_streaming\build\vs2019-x64\qar_qt_streaming\qaros\test\RelWithDebInfo\qar_qt_streaming_qaros_tests.exe
+  qar_qt_streaming_seam_tests.vcxproj -> C:\qar\src\qar_qt_streaming\build\vs2019-x64\qar_qt_streaming\seam\test\RelWithDebInfo\qar_qt_streaming_seam_tests.exe
 ...
   qar_qt_streaming.vcxproj -> C:\qar\src\qar_qt_streaming\build\vs2019-x64\qar_qt_streaming\RelWithDebInfo\qar_qt_streaming.lib
 ...
@@ -83,20 +82,21 @@ ctest --preset vs2019-x64
 ```text
 Test project C:/qar/src/qar_qt_streaming/build/vs2019-x64
         Start   1: check_layering_qar_qt_streaming
-  1/832 Test   #1: check_layering_qar_qt_streaming ................................................................   Passed    0.36 sec
+  1/958 Test   #1: check_layering_qar_qt_streaming ................................................................   Passed    0.38 sec
         Start   2: check_layering_examples
-  2/832 Test   #2: check_layering_examples ........................................................................   Passed    0.08 sec
+  2/958 Test   #2: check_layering_examples ........................................................................   Passed    0.06 sec
         Start   3: check_layering_selftest
-  3/832 Test   #3: check_layering_selftest ........................................................................   Passed    0.14 sec
+  3/958 Test   #3: check_layering_selftest ........................................................................   Passed    0.21 sec
         Start   4: CommonName.SanitizeKeepsLowerCaseLettersDigitsAndDashesAndMapsTheRestToDash
 ...
-100% tests passed, 0 tests failed out of 832
 
-Total Test time (real) =  72.63 sec
+100% tests passed, 0 tests failed out of 958
 
+Total Test time (real) =  80.70 sec
+...
 The following tests did not run:
-	626 - OffscreenPopupGuard.TheWindows11StyleComboListReachesThePanelImage (Skipped)
-	627 - OffscreenPopupGuard.TheWindows11StyleListOfAVisiblePanelReachesThePanelImage (Skipped)
+	659 - OffscreenPopupGuard.TheWindows11StyleComboListReachesThePanelImage (Skipped)
+	660 - OffscreenPopupGuard.TheWindows11StyleListOfAVisiblePanelReachesThePanelImage (Skipped)
 ```
 
 [Testing](TESTING.md#what-the-automated-tests-do-not-cover) lists what these tests leave out: every call into QarOS and the live desktop. Of the checks of the next levels, none was run for this document: `--connect-only` of Level 1 starts the QAROS Hub. The calls that create and drive panels were exercised against the real runtime only in the live checks on the desktop Visualizer.
@@ -109,8 +109,8 @@ The guard checks the include rules of the library and of the example, and its se
 & "$env:QAR_VENV\Scripts\python.exe" scripts\check_layering.py --all
 ```
 ```text
-check_layering examples: OK (3 files)
-check_layering qar_qt_streaming: OK (103 files)
+check_layering examples: OK (1 files)
+check_layering qar_qt_streaming: OK (111 files)
 ```
 
 ```powershell
@@ -131,7 +131,7 @@ cmake --install build\vs2019-x64 --config RelWithDebInfo --prefix $env:QAR_PREFI
 -- Installing: C:\qar\install/lib/qar_qt_streaming_seam.lib
 -- Installing: C:\qar\install/lib/qar_qt_streaming.lib
 -- Installing: C:\qar\install/lib/qar_qt_streaming_qaros.lib
--- Installing: C:\qar\install/include
+-- Up-to-date: C:\qar\install/include
 -- Installing: C:\qar\install/include/qar_qt_streaming
 -- Installing: C:\qar\install/include/qar_qt_streaming/seam
 ...
@@ -151,7 +151,7 @@ cmake -S docs\snippets\consumer -B build\consumer -G "Visual Studio 16 2019" -A 
 -- The CXX compiler identification is MSVC 19.29.30151.0
 ...
 -- Found Threads: TRUE
--- Configuring done (3.9s)
+-- Configuring done (3.7s)
 -- Generating done (0.0s)
 ```
 

@@ -543,6 +543,7 @@ Get-ChildItem -Recurse -File "$env:QAR_PREFIX" | Where-Object { $_.FullName -lik
 include\qar_qt_streaming\ar_readability.hpp
 include\qar_qt_streaming\capture_gate.hpp
 include\qar_qt_streaming\clock.hpp
+...
 include\qar_qt_streaming\frame_luminance.hpp
 ...
 include\qar_qt_streaming\qaros\sdk_config_check.hpp
@@ -556,6 +557,7 @@ include\qar_qt_streaming\seam\panel_types.hpp
 include\qar_qt_streaming\seam\pointer_input.hpp
 include\qar_qt_streaming\seam\timing_log.hpp
 include\qar_qt_streaming\seam\values.hpp
+...
 lib\qar_qt_streaming.lib
 lib\qar_qt_streaming_qaros.lib
 lib\qar_qt_streaming_seam.lib
@@ -565,7 +567,6 @@ share\qar_qt_streaming\cmake\qar_qt_streamingConfigVersion.cmake
 share\qar_qt_streaming\cmake\qar_qt_streamingTargets-relwithdebinfo.cmake
 share\qar_qt_streaming\cmake\qar_qt_streamingTargets.cmake
 share\qar_qt_streaming\sdk\LICENSE
-share\qar_qt_streaming\sdk\README.md
 share\qar_qt_streaming\sdk\include\qar_streaming.h
 ...
 share\qar_qt_streaming\sdk\include\qar_streaming_cpp\detail\VideoSender.inl

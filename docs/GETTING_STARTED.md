@@ -39,23 +39,14 @@ $env:PATH = "$env:QAR_QT_ROOT\bin;$env:PATH"
 & .\build\vs2019-x64\examples\qt_panel_example\RelWithDebInfo\qar_qt_panel_example.exe --help
 ```
 ```text
-Usage: qar_qt_panel_example [--local | --rejoin | --hub HOST:PORT [--code CODE]]
-                            [--forget] [--invite CONNECTION] [--connect-only] [--seconds N]
-  --local         join the QAROS Hub of this PC (the default when no pairing is stored).
-                  QAROS asks once to allow this program, and again after each rebuild of
-                  it: click Allow in the QAROS window
-  --rejoin        join again with the pairing that an earlier --hub --code run stored (the
-                  default when one is stored)
-  --hub H:P       join the Hub of another PC at host H and port P (shown with the pairing
-                  code in the Visualizer of that PC). Without --code it joins again with
-                  the stored pairing, which names its own Hub: H:P is then not used, and
-                  without a stored pairing the program stops and asks for --code
-  --code CODE     the pairing code that Hub shows. Only the first join needs it: the
-                  pairing is stored for the next start
-  --forget        erase the stored pairing and exit
+Usage: qar_qt_panel_example [--local] [--invite CONNECTION] [--connect-only] [--seconds N] | --version
+  --local        join the QAROS Hub of this PC as a local app (the only mode, and the
+                  default). QAROS asks once to allow this program, and again after each
+                  rebuild of it: click Allow in the QAROS window
   --invite CONN   ask QAROS to start the target app named by the connection string CONN
   --connect-only  join QAROS, print the session, and exit; no window, no panel
   --seconds N     otherwise: show two panels, stop after N s (default 60)
+  --version       print the qar_qt_streaming version and exit
 Ctrl+C in this console ends the program the orderly way, also while the join waits.
 ```
 
