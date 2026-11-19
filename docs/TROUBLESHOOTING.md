@@ -15,6 +15,7 @@ This page lists the problems that you may meet with this library, by what you se
 | A panel is white where an embedded native window should be | [A panel is white where a native window should be](#a-panel-is-white-where-a-native-window-should-be) |
 | The AR view stops while a dialog is open | [The AR view stops while a dialog is open](#the-ar-view-stops-while-a-dialog-is-open) |
 | The panel is built again and again | [The panel keeps rebuilding](#the-panel-keeps-rebuilding) |
+| A window was resized and its AR panel keeps its old size for a while | [A resized window is not adopted at once](#a-resized-window-is-not-adopted-at-once) |
 | A tap lands beside the target | [Clicks land beside the target](#clicks-land-beside-the-target) |
 | The panel streams and nothing reacts to AR input | [The panel streams but takes no AR input](#the-panel-streams-but-takes-no-ar-input) |
 | A pointer does nothing, and the injector says why | [An AR action is dropped](#an-ar-action-is-dropped) |
@@ -254,6 +255,10 @@ Send, in addition:
 ### The panel keeps rebuilding
 
 **Symptom.** The picture of a panel flickers or stops, `adapter_rebuilds` in its diagnostics keeps climbing, and the manager logs the geometry line of the panel again and again. **Cause.** Every adopted change of the widget size is a new sender, a new panel and a new input subscription. A splitter that is dragged passes through every size on the way, and a widget that resizes itself, such as a status label inside the streamed widget whose text grows, changes the buffer on every update. **Fix.** Keep the size of the streamed widget steady: do not let a label inside it change the size hint, or give it a fixed width. The library already ignores a change below `resize_threshold_px` and waits for a larger one to hold for `resize_settle_seconds` and `resize_settle_ticks`; raise them for a widget that changes slowly, and look at `resizes_ignored_small` and `resize_pending` to see what the hysteresis did. A widget that never changes size, such as a panel that was shown with `show_offscreen`, never rebuilds.
+
+### A resized window is not adopted at once
+
+**Symptom.** A streamed window was resized, and its AR panel keeps its old size for seconds, or for as long as the panel is shown, and the log of the stream says that a resize is held. **Cause.** A new size is adopted only when it has held for 1.5 seconds and for three ticks, so a drag that pauses is not taken for the end of the drag; then only while no mouse button is held; and then at most once every 10 seconds for one panel, because every adoption is a new video sender or a new QarOS panel. With `QAR_PANEL_RESIZE=defer` a panel that is shown in AR is never swapped, and takes the new size the next time it is hidden. The stream notes each size that has to wait once, with the reason, for the first 5 notes and then for every 100th. **Fix.** Let go of the mouse and wait for the interval, or hide and show the panel in AR for `defer`. A host that wants every change adopted at once sets `resize_settle_seconds` and `resize_settle_ticks` to zero, `resize_wait_for_mouse_release` to false and `resize_min_swap_interval_seconds` to zero, and accepts the rebuilds that follow.
 
 ### Clicks land beside the target
 

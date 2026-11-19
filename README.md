@@ -63,7 +63,7 @@ This repository is one of three that together stream an Ogre scene, Qt widgets, 
 
 | Repository | What it provides | Depends on | Also needs |
 |---|---|---|---|
-| qar_ogre_adapter | The QarOS integration layer: renders an Ogre scene for each eye and streams it to QarOS; the adapter for the QarOS C API; the vendored C header | none | The ROS 2 distribution, for Ogre only |
+| qar_ogre_adapter | The QarOS integration layer: renders an Ogre scene for each eye and streams it to QarOS; the adapter for the QarOS C API; the QarOS headers of the qaros submodule | none | The ROS 2 distribution, for Ogre only |
 | **qar_qt_streaming** (this repository) | Qt widgets as QarOS AR GUI panels, as a Qt library that needs no ROS 2, no RViz and no Ogre | none | Qt 5.15.2 or Qt 6.5 and newer, the QarOS C++ SDK headers (the submodule `external/qaros`) |
 | qar_rviz_plugin | The RViz2 plugin that streams RViz into QarOS, and web AR panels from a UI model and from the ROS 2 graph | qar_ogre_adapter, qar_qt_streaming | The ROS 2 distribution with its repairs, Qt 5.15.2, colcon |
 

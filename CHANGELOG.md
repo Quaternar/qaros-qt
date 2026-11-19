@@ -17,12 +17,24 @@ written and how a version is released is in [AGENTS.md](AGENTS.md).
 ### Features
 
 - The version of a build comes from the file `VERSION`, the last release, and git tags (`X.Y.Z` on a release tag, the next patch `X.Y.(Z+1)-dev.N+<sha>` on any other commit); `qar_qt_streaming/seam/version.hpp` reports it as `QAR_QT_STREAMING_VERSION` and `qar_qt_streaming::kLibraryVersion`, the example prints it with `--version` and tells it to the Hub as its app version ([#5](https://github.com/Quaternar/qaros-qt/pull/5)).
+- The resize mode `defer` (`QAR_PANEL_RESIZE=defer`) keeps the size of the sender of a panel that is visible in a QarOS session and adopts a settled size while the panel is hidden.
+- A size change is adopted only when no mouse button is held (`resize_wait_for_mouse_release`) and the last rebuild of the sender is at least `resize_min_swap_interval_seconds`, 10 seconds, old.
+- `active_popup_for` gives the injector the popup that belongs to a panel and never a popup of the host application, so that AR input cannot move the highlight of a menu of the host or close it.
+- `abandoned_workers()` of the backend returns the number of workers of the process that were left running at the end of a factory, for a host that releases nothing of QarOS under such a worker.
+- `QtPanelStream::set_scale()` and `QtPanelStreamManager::set_panel_scale()` change the metres that one logical pixel covers and the supersampling of one stream, with a placement sent once for a change of the metres alone.
+- `EnlargedControlsStyle` draws the controls of a widget tree a factor larger and keeps the text; `apply_style_to_tree`, `remove_style_from_tree` and `enlarged_controls_style_of` go with it.
+- `WidgetTwinBinder` keeps a second widget tree showing the state of the first and carries the input of the second out on the first.
+- `set_dialog_scale_provider()` and `set_dialog_scale_reporter()` of the manager let a host give the panel of a dialog a scale of its own and learn what the panel got; the bounds `kMaxMetersPerLogicalPx`, `kMinRenderScale` and `kMaxRenderScale` and `scale_within_limits()` go with them.
+- `IPanelSender::ensure_input()` is called by the stream for a kept panel that is shown again, so that it takes AR input again, and `ReplacedPanelFate::Revived` with the flag `revived` appears in the report of a size change.
 
 ### Enhancements
 
 - A call of a deprecated API is a compile error in this repository's targets (`/we4996`, `-Werror=deprecated-declarations` with other compilers) ([#5](https://github.com/Quaternar/qaros-qt/pull/5)).
 - `qar_qt_streaming::qaros` no longer passes `/permissive-` to the programs that link it ([#5](https://github.com/Quaternar/qaros-qt/pull/5)).
 - The example joins with the C++ SDK builder `OnboardBuilder::WithLocalApp` instead of the C API; `local_app_onboarding.cpp` and `local_app_onboarding.hpp` are gone ([#5](https://github.com/Quaternar/qaros-qt/pull/5)).
+- In the resize mode `new-panel` the old panels of a stream are kept as a ring of at most `max_replaced_panels` hidden panels, and with the ring full the sender of the next size is made on the oldest hidden panel: no QarOS panel is closed while the session runs, in every close mode.
+- The step of a dialog panel from its owner grows with the larger of the metres per logical pixel of the owner and of the dialog, so the dialogs of a scaled panel do not overlap it.
+- A size has to hold for 1.5 seconds (`resize_settle_seconds`) before it is adopted.
 
 ### Removed
 

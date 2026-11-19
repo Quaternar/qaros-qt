@@ -116,9 +116,10 @@ Preset CMake variables:
 
   QAR_BUILD_TESTS="ON"
   QAR_QT_ROOT="C:\qar\deps\Qt\5.15.2\msvc2019_64"
+  QAR_SDK_ROOT="C:\Program Files\Quaternar\QAROS"
 ...
 -- Qt 5.15.2: C:/qar/deps/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5
--- QarOS SDK headers: QarOS repository C:/qar/src/qar_qt_streaming/external/qaros
+-- QarOS SDK headers: third_party/
 ...
 -- Configuring done (12.5s)
 -- Generating done (0.3s)

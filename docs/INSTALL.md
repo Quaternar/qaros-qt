@@ -312,13 +312,13 @@ include\qar_streaming.h        True
 
 ### How the stack finds QAROS
 
-A program calls `qar_library_load` with no path. The C header documents the order in which that call looks for the library and takes the first hit: a library that is already loaded in the process; `qar-streaming-c.dll` beside the module that calls it; the folder that the environment variable `QAROS_RUNTIME_DIR` names; the install folder of the installed QAROS; a folder on `PATH`. A library found beside the program is loaded before the installed one, which is why a program must not ship its own copy. Each candidate is loaded with its dependencies taken from its own folder and from `System32` only.
+A program calls `qar_library_load` with no path. The C header documents the order in which that call looks for the library and takes the first hit: a library that is already loaded in the process; `qar-streaming-c.dll` beside the module that calls it; the runtime folder of the QAROS instance that the environment variable `QAR_INSTANCE` names, when it is set (`default` is the installed QAROS); the install folder of the installed QAROS; a folder on `PATH`. A library found beside the program is loaded before the installed one, which is why a program must not ship its own copy. Each candidate is loaded with its dependencies taken from its own folder and from `System32` only.
 
 The runtime initialisation leaves the field `runtime_binaries_folder_path` empty: the runtime then uses the folder that the loaded library came from, which is the `bin` folder of the installation and holds the launcher.
 
 Nothing in this repository links against QAROS. The library `qaros` is compiled against the headers of the QarOS C++ SDK, and a program that uses it loads `qar-streaming-c.dll` at run time. The configure step needs the headers only, not the DLL: it takes the C header and the C++ SDK headers from one revision of the public QarOS repository, the git submodule `external/qaros`, or from a folder that `QAR_STREAMING_CPP_INCLUDE_DIR` names. A build and the whole test suite therefore work without QAROS; only the programs that connect to QAROS need the installation at run time.
 
-How a program joins the QAROS Hub is described by QuaternAR: [Onboarding and sessions](https://docs.quaternar.com/docs/next/developer-guide/onboarding-and-sessions/) and [Source applications](https://docs.quaternar.com/docs/next/operator-guide/source-applications/). A program that runs on the PC of the Hub joins as a local source app, and the Hub asks its operator once to allow it. The example of this repository joins only that way: the pairing code for a Hub on another PC is deprecated by QAROS.
+How a program joins the QAROS Hub is described by QuaternAR: [Onboarding and sessions](https://docs.quaternar.com/docs/next/developer-guide/onboarding-and-sessions/) and [Source applications](https://docs.quaternar.com/docs/next/operator-guide/source-applications/). A program that runs on the PC of the Hub joins as a local source app, and the Hub asks its operator once to allow it. For a Hub on another PC, make the Hub of this PC a member of that Hub; the program still joins the Hub of its own PC.
 
 ## Python environment
 
@@ -421,9 +421,10 @@ Preset CMake variables:
 
   QAR_BUILD_TESTS="ON"
   QAR_QT_ROOT="C:\qar\deps\Qt\5.15.2\msvc2019_64"
+  QAR_SDK_ROOT="C:\Program Files\Quaternar\QAROS"
 ...
 -- Qt 5.15.2: C:/qar/deps/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5
--- QarOS SDK headers: QarOS repository C:/qar/src/qar_qt_streaming/external/qaros
+-- QarOS SDK headers: third_party/
 ...
 -- Configuring done (12.5s)
 -- Generating done (0.3s)
