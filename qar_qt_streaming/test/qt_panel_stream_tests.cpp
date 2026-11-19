@@ -23,6 +23,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace seam = qar_qt_streaming::seam;
@@ -671,8 +672,8 @@ TEST(PanelStream, AResizeRebuildsTheSenderBecauseTheLayoutIsFixedAtCreation)
   // past both gates (>= resize_settle_seconds AND >= resize_settle_ticks). The
   // hysteresis tests below are where that rule is pinned down.
   stream.tick(1.0);
-  stream.tick(1.3);
-  ASSERT_TRUE(stream.tick(1.6));
+  stream.tick(1.8);
+  ASSERT_TRUE(stream.tick(2.6));
 
   EXPECT_EQ(factory->create_calls(), 2u);
   EXPECT_EQ(factory->created().front()->close_calls(), 1u) << "the old sender must be closed";
@@ -758,11 +759,11 @@ TEST(PanelStream, ASustainedResizeIsAdoptedOnlyOnceBothSettleGatesArePassed)
 
   // Enough SECONDS but only two ticks: still not adopted. The tick gate is what
   // stops one stray sample from a slowly ticked panel counting as "held".
-  stream.tick(2.0);
+  stream.tick(3.0);
   EXPECT_EQ(factory->create_calls(), 1u) << "two ticks is not resize_settle_ticks";
 
   // Third consecutive tick on the same size, well past the settle seconds.
-  ASSERT_TRUE(stream.tick(3.0));
+  ASSERT_TRUE(stream.tick(4.0));
   EXPECT_EQ(factory->create_calls(), 2u);
   EXPECT_FALSE(stream.diagnostics().resize_pending);
   EXPECT_EQ(stream.diagnostics().adapter_rebuilds, 2u);
@@ -788,8 +789,377 @@ TEST(PanelStream, EnoughTicksButNotEnoughSecondsDoesNotAdoptEither)
   EXPECT_TRUE(stream.diagnostics().resize_pending);
 
   // Hold the same size past resize_settle_seconds and it goes through.
-  ASSERT_TRUE(stream.tick(1.0));
+  ASSERT_TRUE(stream.tick(2.0));
   EXPECT_EQ(factory->create_calls(), 2u);
+}
+
+// --- Fewer stream swaps while a panel is resized -----------------------------------------------
+
+/// The "resize held" notes the stream has made since the last call (other notes, such as the
+/// luminance of a first frame, are dropped).
+static std::vector<std::string>
+held_notes(QtPanelStream & stream)
+{
+  std::vector<std::string> held;
+  for (std::string & note : stream.take_notes()) {
+    if (note.find("resize held") != std::string::npos) {
+      held.push_back(std::move(note));
+    }
+  }
+  return held;
+}
+
+TEST(PanelStreamSwapGates, ASizeIsAdoptedAfterOneAndAHalfSecondsAndNotBefore)
+{
+  EXPECT_EQ(PanelStreamOptions{}.resize_settle_seconds, 1.5);
+  Fixture fixture;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  QtPanelStream stream("panel", fixture.widget(), options_no_pacing(), factory);
+  ASSERT_TRUE(stream.tick(0.0));
+
+  fixture.widget()->resize(320, 200);
+  fixture.widget()->layout()->activate();
+  stream.tick(1.0);  // the size is seen for the first time
+  stream.tick(1.5);
+  stream.tick(2.0);
+  stream.tick(2.49);
+  EXPECT_EQ(factory->create_calls(), 1u) << "held for 1.49 s";
+  EXPECT_TRUE(stream.diagnostics().resize_pending);
+  ASSERT_TRUE(stream.tick(2.5));
+  EXPECT_EQ(factory->create_calls(), 2u) << "held for 1.5 s";
+  EXPECT_EQ(factory->latest()->desc().buffer_width, 320u);
+}
+
+TEST(PanelStreamSwapGates, AHeldMouseButtonDelaysTheAdoptionUntilItIsReleased)
+{
+  Fixture fixture;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  bool released = false;
+  PanelStreamOptions options = options_no_pacing();
+  options.mouse_buttons_released = [&released]() { return released; };
+  QtPanelStream stream("panel", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+
+  fixture.widget()->resize(320, 200);
+  fixture.widget()->layout()->activate();
+  for (int i = 1; i <= 30; ++i) {
+    stream.tick(static_cast<double>(i));
+  }
+  EXPECT_EQ(factory->create_calls(), 1u) << "the size has settled, the button is down";
+  EXPECT_TRUE(stream.diagnostics().resize_pending);
+  EXPECT_EQ(stream.diagnostics().buffer_width, 200u);
+  const std::vector<std::string> notes = held_notes(stream);
+  ASSERT_EQ(notes.size(), 1u) << "a wait is said once, not once per tick";
+  EXPECT_EQ(notes[0], "'panel' resize held: mouse button held (320x200 waits)");
+
+  released = true;
+  ASSERT_TRUE(stream.tick(31.0));
+  EXPECT_EQ(factory->create_calls(), 2u);
+  EXPECT_EQ(factory->latest()->desc().buffer_width, 320u);
+  EXPECT_FALSE(stream.diagnostics().resize_pending);
+}
+
+TEST(PanelStreamSwapGates, TheMouseGateCanBeSwitchedOff)
+{
+  Fixture fixture;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  PanelStreamOptions options = options_no_pacing();
+  options.mouse_buttons_released = []() { return false; };
+  options.resize_wait_for_mouse_release = false;
+  QtPanelStream stream("panel", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+  fixture.widget()->resize(320, 200);
+  fixture.widget()->layout()->activate();
+  stream.tick(1.0);
+  stream.tick(2.0);
+  ASSERT_TRUE(stream.tick(3.0));
+  EXPECT_EQ(factory->create_calls(), 2u);
+}
+
+TEST(PanelStreamSwapGates, AtMostOneSwapPerTenSecondsAndTheNewestSizeWins)
+{
+  Fixture fixture;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  QtPanelStream stream("panel", fixture.widget(), options_no_pacing(), factory);
+  ASSERT_TRUE(stream.tick(0.0));
+
+  fixture.widget()->resize(320, 200);
+  fixture.widget()->layout()->activate();
+  stream.tick(1.0);
+  stream.tick(2.0);
+  ASSERT_TRUE(stream.tick(3.0));  // the swap, at t = 3
+  ASSERT_EQ(factory->create_calls(), 2u);
+  EXPECT_TRUE(held_notes(stream).empty());
+
+  // A second size settles at once but has to wait for t = 13; a third one replaces it.
+  fixture.widget()->resize(400, 240);
+  fixture.widget()->layout()->activate();
+  for (double t = 4.0; t <= 7.0; t += 1.0) {
+    stream.tick(t);
+  }
+  fixture.widget()->resize(440, 260);
+  fixture.widget()->layout()->activate();
+  for (double t = 8.0; t < 13.0; t += 1.0) {
+    stream.tick(t);
+  }
+  EXPECT_EQ(factory->create_calls(), 2u) << "inside the window of 10 s";
+  EXPECT_EQ(stream.diagnostics().buffer_width, 320u);
+  EXPECT_TRUE(stream.diagnostics().resize_pending);
+  EXPECT_EQ(stream.diagnostics().pending_buffer_width, 440u);
+  const std::vector<std::string> notes = held_notes(stream);
+  ASSERT_EQ(notes.size(), 2u);
+  EXPECT_EQ(notes[0], "'panel' resize held: swap rate limit (400x240 waits)");
+  EXPECT_EQ(notes[1], "'panel' resize held: swap rate limit (440x260 waits)");
+
+  ASSERT_TRUE(stream.tick(13.0));
+  EXPECT_EQ(factory->create_calls(), 3u) << "one swap, to the newest size";
+  EXPECT_EQ(factory->latest()->desc().buffer_width, 440u);
+  EXPECT_EQ(factory->latest()->desc().buffer_height, 260u);
+}
+
+TEST(PanelStreamSwapGates, TheRateLimitCanBeSwitchedOff)
+{
+  Fixture fixture;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  PanelStreamOptions options = options_no_pacing();
+  options.resize_min_swap_interval_seconds = 0.0;
+  QtPanelStream stream("panel", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+  fixture.widget()->resize(320, 200);
+  fixture.widget()->layout()->activate();
+  stream.tick(1.0);
+  stream.tick(2.0);
+  ASSERT_TRUE(stream.tick(3.0));
+  fixture.widget()->resize(400, 240);
+  fixture.widget()->layout()->activate();
+  stream.tick(4.0);
+  stream.tick(5.0);
+  ASSERT_TRUE(stream.tick(6.0));
+  EXPECT_EQ(factory->create_calls(), 3u);
+}
+
+TEST(PanelStreamSwapGates, TheHeldNotesAreRateLimitedToTheFirstFiveAndThenOneInAHundred)
+{
+  Fixture fixture;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  PanelStreamOptions options = options_no_pacing();
+  options.mouse_buttons_released = []() { return false; };
+  QtPanelStream stream("panel", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+
+  // Every new size that settles makes one note: 250 sizes, 5 + 2 lines (the 100th and 200th).
+  double now = 0.0;
+  std::size_t lines = 0;
+  for (int i = 0; i < 250; ++i) {
+    fixture.widget()->resize(300 + 10 * (i % 2), 200);
+    fixture.widget()->layout()->activate();
+    for (int k = 0; k < 4; ++k) {
+      now += 1.0;
+      stream.tick(now);
+    }
+    lines += held_notes(stream).size();
+  }
+  EXPECT_EQ(factory->create_calls(), 1u);
+  EXPECT_EQ(lines, 7u);
+}
+
+TEST(PanelStreamDefer, AVisiblePanelKeepsItsSizeUntilItIsHiddenAndTheSwapHappensWhileItIsHidden)
+{
+  Fixture fixture;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  factory->set_senders_support_detach(true);
+  PanelStreamOptions options = options_no_pacing();
+  options.resize_mode = qar_qt_streaming::PanelResizeMode::Defer;
+  QtPanelStream stream("panel", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+
+  fixture.widget()->resize(320, 200);
+  fixture.widget()->layout()->activate();
+  for (int i = 1; i <= 60; ++i) {
+    stream.tick(static_cast<double>(i));
+  }
+  EXPECT_EQ(factory->create_calls(), 1u);
+  EXPECT_EQ(stream.diagnostics().buffer_width, 200u);
+  const std::vector<std::string> notes = held_notes(stream);
+  ASSERT_EQ(notes.size(), 1u);
+  EXPECT_EQ(notes[0], "'panel' resize held: defer mode, panel visible (320x200 waits)");
+
+  // The hide comes first and the settled size is adopted on the hidden panel: the old sender is
+  // told to hide, detaches, and the sender of the new size is attached to the hidden panel.
+  const auto first = factory->latest();
+  stream.request_ar_visible(false);
+  stream.tick(61.0);
+  EXPECT_TRUE(stream.diagnostics().ar_hidden);
+  EXPECT_EQ(first->state_calls(), 1u);
+  EXPECT_EQ(first->last_state(), qar_qt_streaming::seam::PanelState::Hidden);
+  ASSERT_EQ(factory->create_calls(), 2u) << "the swap happens while the panel is hidden";
+  EXPECT_EQ(first->detach_calls(), 1u);
+  EXPECT_EQ(factory->latest()->desc().buffer_width, 320u);
+  const auto second = factory->latest();
+  EXPECT_EQ(second->state_calls(), 0u) << "nothing was shown";
+  EXPECT_EQ(second->submit_calls(), 0u) << "a hidden stream captures nothing";
+
+  // The show finds the new sender in place and swaps nothing.
+  stream.request_ar_visible(true);
+  ASSERT_TRUE(stream.tick(62.0));
+  EXPECT_EQ(factory->create_calls(), 2u);
+  EXPECT_EQ(second->state_calls(), 1u);
+  EXPECT_EQ(second->last_state(), qar_qt_streaming::seam::PanelState::Visible);
+  EXPECT_FALSE(stream.diagnostics().ar_hidden);
+}
+
+TEST(PanelStreamDefer, AShowAskedForWhileASettledSizePendsAdoptsFirstAndShowsAtTheNextTick)
+{
+  Fixture fixture;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  factory->set_senders_support_detach(true);
+  PanelStreamOptions options = options_no_pacing();
+  options.resize_mode = qar_qt_streaming::PanelResizeMode::Defer;
+  QtPanelStream stream("panel", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+  const auto first = factory->latest();
+  stream.request_ar_visible(false);
+  stream.tick(0.5);
+  ASSERT_TRUE(stream.diagnostics().ar_hidden);
+
+  // Two hidden ticks of the new size: not settled yet (three ticks are needed).
+  fixture.widget()->resize(320, 200);
+  fixture.widget()->layout()->activate();
+  stream.tick(1.0);
+  stream.tick(2.0);
+  EXPECT_EQ(factory->create_calls(), 1u);
+
+  // The show comes with the tick that settles the size: the swap goes first, the show waits.
+  stream.request_ar_visible(true);
+  stream.tick(3.0);
+  ASSERT_EQ(factory->create_calls(), 2u);
+  const auto second = factory->latest();
+  EXPECT_EQ(first->detach_calls(), 1u);
+  EXPECT_EQ(second->desc().buffer_width, 320u);
+  EXPECT_EQ(second->state_calls(), 0u) << "the panel is not shown in the tick of the swap";
+  EXPECT_TRUE(stream.diagnostics().ar_hidden);
+
+  ASSERT_TRUE(stream.tick(4.0));
+  EXPECT_EQ(second->state_calls(), 1u);
+  EXPECT_EQ(second->last_state(), qar_qt_streaming::seam::PanelState::Visible);
+  EXPECT_FALSE(stream.diagnostics().ar_hidden);
+  EXPECT_EQ(factory->create_calls(), 2u);
+}
+
+TEST(PanelStreamDefer, ASizeThatHasNotSettledDoesNotHoldTheShowBack)
+{
+  Fixture fixture;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  factory->set_senders_support_detach(true);
+  PanelStreamOptions options = options_no_pacing();
+  options.resize_mode = qar_qt_streaming::PanelResizeMode::Defer;
+  QtPanelStream stream("panel", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+  stream.request_ar_visible(false);
+  stream.tick(0.5);
+  fixture.widget()->resize(320, 200);
+  fixture.widget()->layout()->activate();
+  stream.tick(1.0);
+
+  stream.request_ar_visible(true);
+  ASSERT_TRUE(stream.tick(1.1));
+  EXPECT_FALSE(stream.diagnostics().ar_hidden) << "shown at once";
+  EXPECT_EQ(factory->create_calls(), 1u) << "and the unsettled size waits for the next hide";
+}
+
+TEST(PanelStreamDefer, ASenderThatCannotBeMadeWhileHiddenIsRetriedAndThenHidden)
+{
+  Fixture fixture;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  factory->set_senders_support_detach(true);
+  PanelStreamOptions options = options_no_pacing();
+  options.resize_mode = qar_qt_streaming::PanelResizeMode::Defer;
+  QtPanelStream stream("panel", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+  stream.request_ar_visible(false);
+  stream.tick(0.5);
+  ASSERT_TRUE(stream.diagnostics().ar_hidden);
+
+  factory->set_fails(true);
+  fixture.widget()->resize(320, 200);
+  fixture.widget()->layout()->activate();
+  stream.tick(1.0);
+  stream.tick(2.0);
+  stream.tick(3.0);  // the swap: the old sender is gone and the new one is refused
+  EXPECT_EQ(factory->create_calls(), 2u);
+  EXPECT_FALSE(stream.diagnostics().ar_hidden) << "no sender: the hide waits for the next one";
+
+  factory->set_fails(false);
+  stream.tick(5.0);
+  ASSERT_EQ(factory->create_calls(), 3u);
+  EXPECT_EQ(factory->latest()->desc().buffer_width, 320u);
+  EXPECT_TRUE(stream.diagnostics().ar_hidden) << "the new sender was hidden";
+  EXPECT_EQ(factory->latest()->last_state(), qar_qt_streaming::seam::PanelState::Hidden);
+}
+
+TEST(PanelStreamDefer, AShowThatWaitsForASenderMakesOneAndShowsIt)
+{
+  Fixture fixture;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  factory->set_senders_support_detach(true);
+  PanelStreamOptions options = options_no_pacing();
+  options.resize_mode = qar_qt_streaming::PanelResizeMode::Defer;
+  QtPanelStream stream("panel", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+  stream.request_ar_visible(false);
+  stream.tick(0.5);
+
+  factory->set_fails(true);
+  fixture.widget()->resize(320, 200);
+  fixture.widget()->layout()->activate();
+  stream.tick(1.0);
+  stream.tick(2.0);
+  stream.request_ar_visible(true);
+  stream.tick(3.0);  // the swap is refused; the show waits and the tick asks for a sender again
+  const std::uint32_t refused = factory->create_calls();
+  ASSERT_GE(refused, 2u);
+  EXPECT_TRUE(stream.diagnostics().ar_hidden);
+
+  factory->set_fails(false);
+  ASSERT_TRUE(stream.tick(5.0));
+  ASSERT_EQ(factory->create_calls(), refused + 1u);
+  EXPECT_FALSE(stream.diagnostics().ar_hidden);
+  EXPECT_EQ(factory->latest()->last_state(), qar_qt_streaming::seam::PanelState::Visible);
+  EXPECT_EQ(factory->latest()->state_calls(), 1u);
+}
+
+TEST(PanelStreamDefer, ASenderMadeAgainTakesTheCurrentSize)
+{
+  Fixture fixture;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  PanelStreamOptions options = options_no_pacing();
+  options.resize_mode = qar_qt_streaming::PanelResizeMode::Defer;
+  QtPanelStream stream("panel", fixture.widget(), options, factory);
+  ASSERT_TRUE(stream.tick(0.0));
+  fixture.widget()->resize(320, 200);
+  fixture.widget()->layout()->activate();
+  stream.tick(1.0);
+  EXPECT_EQ(factory->create_calls(), 1u);
+
+  stream.close();  // the session ended
+  ASSERT_TRUE(stream.tick(2.0));  // and a new one began
+  EXPECT_EQ(factory->create_calls(), 2u);
+  EXPECT_EQ(factory->latest()->desc().buffer_width, 320u);
+}
+
+TEST(PanelStreamDefer, TheDefaultModeAdoptsAVisiblePanelWithoutAHideOrShow)
+{
+  Fixture fixture;
+  auto factory = std::make_shared<MockQarPanelSenderFactory>();
+  QtPanelStream stream("panel", fixture.widget(), options_no_pacing(), factory);
+  ASSERT_TRUE(stream.tick(0.0));
+  fixture.widget()->resize(320, 200);
+  fixture.widget()->layout()->activate();
+  stream.tick(1.0);
+  stream.tick(2.0);
+  ASSERT_TRUE(stream.tick(3.0));
+  EXPECT_EQ(factory->create_calls(), 2u);
+  EXPECT_TRUE(held_notes(stream).empty());
 }
 
 TEST(PanelStream, WhileAResizeSettlesTheSubmittedFrameStillMatchesTheLiveSender)
@@ -1014,8 +1384,8 @@ TEST(PanelStream, AResizeRebuildStillClosesThePanelBecauseNothingClosedItInAr)
   fixture.widget()->resize(320, 200);
   fixture.widget()->layout()->activate();
   stream.tick(1.0);
-  stream.tick(1.3);
-  ASSERT_TRUE(stream.tick(1.6));  // settled: the sender is rebuilt
+  stream.tick(1.8);
+  ASSERT_TRUE(stream.tick(2.6));  // settled: the sender is rebuilt
 
   ASSERT_EQ(factory->created().size(), 2u);
   const auto old_adapter = factory->created().front();

@@ -84,6 +84,11 @@ public:
   /// @brief Whether a subscription for @p panel_key exists. Any thread.
   bool has_panel(const std::string & panel_key) const;
 
+  /// @brief Whether the subscription of @p panel_key is the one of the panel @p id. A panel that
+  /// a size change replaced and a later size shows again is not: the key follows the panel made
+  /// last. Any thread.
+  bool is_subscribed_to(const std::string & panel_key, const qaros::GuiPanelId & id) const;
+
   /// @brief The operator closed the panel @p panel_key in AR; reported once per subscription.
   /// Any thread (the sender's update callback calls it).
   void report_closed(const std::string & panel_key);
@@ -124,6 +129,7 @@ private:
   seam::PanelDiagnosticsSink * sink_ = nullptr;
   seam::PanelGestureMapper mapper_;
   std::map<std::string, qaros::Subscription> panels_;
+  std::map<std::string, qaros::GuiPanelId> panel_ids_;  ///< the panel each subscription is on
   std::set<std::string> closed_;
   std::vector<TraceRecord> pending_trace_;
 };

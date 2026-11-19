@@ -87,6 +87,15 @@ bool is_owned_by_offscreen_panel(const QWidget * window);
 /// Null when no popup is open. GUI thread only.
 QWidget * active_popup_widget();
 
+/// @brief The popup of THIS panel that takes its AR input: QApplication's active popup or,
+/// when Qt names none, the most recently shown kept popup - but only one that belongs to the
+/// widget tree of @p panel_root (its parent chain reaches the root, or it is an off-screen
+/// popup opened from it, such as a completer list reached through its focus proxy). A popup
+/// of the host application (its own menus, another panel's menu) is never returned, so AR
+/// input of a streamed panel can neither move its highlight nor close it. Null when this
+/// panel has no open popup or @p panel_root is null. GUI thread only.
+QWidget * active_popup_for(const QWidget * panel_root);
+
 /// @brief Did the guard keep @p widget off the desktop (marker set, WA_DontShowOnScreen on)?
 bool is_offscreen_popup(const QWidget * widget);
 

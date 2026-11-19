@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //
 // Widgets at a fractional device pixel ratio. The ctest entries of this suite run the test
-// executable with QT_SCALE_FACTOR=1.25 and 1.5 (and the environment variable that makes
+// executable with QT_SCALE_FACTOR=1.25, 1.5, 2.0 and 3.0 (and the environment variable that makes
 // test_main.cpp let a fractional ratio through); a plain run sees the ratio of the platform
 // plugin, which is 1.0, and the same expectations hold with that ratio.
 
@@ -173,6 +173,23 @@ TEST(FractionalDpr, TheBufferSizeIsTheLogicalSizeTimesTheRatioRoundedAndAligned)
   EXPECT_EQ(desc.buffer_height, align_even(scaled(121, ratio)));
   // The physical size follows the logical size alone.
   EXPECT_NEAR(desc.placement.size.width_meters, 201 * 0.0012f, 1e-4f);
+
+  // The supersampling of a scaled panel (render_scale 2 and 3, the ratios of an enlarged copy)
+  // multiplies the ratio of the display; the physical size still follows the logical size alone.
+  for (const double render_scale : {2.0, 3.0}) {
+    PanelStreamOptions options = options_no_pacing();
+    options.render_scale = render_scale;
+    auto supersampled_factory = std::make_shared<MockQarPanelSenderFactory>();
+    QtPanelStream supersampled("panel", panel.widget(), options, supersampled_factory);
+    ASSERT_TRUE(supersampled.tick(0.0)) << render_scale;
+    const auto & supersampled_desc = supersampled_factory->latest()->desc();
+    EXPECT_EQ(supersampled_desc.buffer_width, align_even(scaled(201, ratio * render_scale)))
+      << render_scale;
+    EXPECT_EQ(supersampled_desc.buffer_height, align_even(scaled(121, ratio * render_scale)))
+      << render_scale;
+    EXPECT_NEAR(supersampled_desc.placement.size.width_meters, 201 * 0.0012f, 1e-4f)
+      << render_scale;
+  }
 }
 
 TEST(FractionalDpr, TheDiagnosticsNameTheDevicePixelRatio)
@@ -223,6 +240,28 @@ TEST(FractionalDpr, TheCapturePaintsLogicalGeometryAcrossTheDevicePixelBuffer)
   EXPECT_EQ(left[1], 255);
   const std::uint8_t * right = pixel_at(104.0, y);
   EXPECT_EQ(right[1], 255);
+
+  // The same widget at the ratio of a supersampled stream (the display's ratio times 2 and 3):
+  // the stripe is still painted at logical 100 to 102 across the larger buffer.
+  for (const double extra : {2.0, 3.0}) {
+    const std::uint32_t big_width = scaled(200, ratio * extra);
+    const std::uint32_t big_height = scaled(100, ratio * extra);
+    QtWidgetCapture big(panel.widget());
+    ASSERT_TRUE(big.capture(big_width, big_height, ratio * extra)) << big.last_error();
+    const PanelPixels big_pixels = big.pixels();
+    ASSERT_EQ(big_pixels.width, big_width) << extra;
+    ASSERT_EQ(big_pixels.height, big_height) << extra;
+    const auto big_pixel_at = [&big_pixels](double logical_x, std::uint32_t row) {
+        const auto x =
+          static_cast<std::uint32_t>(std::floor(logical_x * big_pixels.width / 200.0));
+        return big_pixels.data + row * big_pixels.stride_bytes + x * 4u;
+      };
+    const std::uint32_t big_y = big_height / 2;
+    EXPECT_EQ(big_pixel_at(101.0, big_y)[0], 255) << extra;
+    EXPECT_EQ(big_pixel_at(101.0, big_y)[1], 0) << extra;
+    EXPECT_EQ(big_pixel_at(98.0, big_y)[1], 255) << extra;
+    EXPECT_EQ(big_pixel_at(104.0, big_y)[1], 255) << extra;
+  }
 }
 
 TEST(FractionalDpr, TheInjectorKeepsTheSubPixelPartOfAPanelPosition)

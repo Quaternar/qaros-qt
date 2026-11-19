@@ -74,6 +74,10 @@ options_no_pacing()
   PanelStreamOptions options;
   options.max_fps = 0;              // every tick captures
   options.keepalive_seconds = 0.0;  // isolate the dirty check
+  // These tests are about what a swap does, not when it happens: a size is adopted after half a
+  // second and without the limit of one swap per 10 s.
+  options.resize_settle_seconds = 0.5;
+  options.resize_min_swap_interval_seconds = 0.0;
   options.placement.pose.orientation = seam::Quaternion{0.0f, 0.0f, 0.0f, 1.0f};
   options.placement.pose.position = seam::Vector3{0.0f, 0.0f, 0.0f};
   return options;

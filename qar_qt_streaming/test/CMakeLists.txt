@@ -37,6 +37,8 @@ add_executable(qar_qt_streaming_tests
   offscreen_panel_tests.cpp
   offscreen_popup_guard_tests.cpp
   ar_readability_tests.cpp
+  enlarged_controls_style_tests.cpp
+  widget_twin_tests.cpp
   panel_pointer_state_tests.cpp
   qt_panel_input_injector_tests.cpp
   qt_panel_stream_input_tests.cpp
@@ -47,6 +49,7 @@ add_executable(qar_qt_streaming_tests
   capture_gate_tests.cpp
   stream_timing_tests.cpp
   fractional_dpr_tests.cpp
+  panel_scale_tests.cpp
 )
 
 target_link_libraries(qar_qt_streaming_tests PRIVATE
@@ -130,7 +133,7 @@ gtest_discover_tests(qar_qt_streaming_tests DISCOVERY_TIMEOUT 60)
 # (rounding policy PassThrough; in Qt 5 also AA_EnableHighDpiScaling). QT_FONT_DPI=96 keeps the
 # logical DPI of the offscreen screen from adding a factor of its own: without it Qt 5.15 reports
 # a ratio of 1.3021 for a scale factor of 1.25.
-foreach(_qar_dpr 1.25 1.5)
+foreach(_qar_dpr 1.25 1.5 2.0 3.0)
   add_test(
     NAME qar_qt_streaming_fractional_dpr_${_qar_dpr}
     COMMAND qar_qt_streaming_tests --gtest_filter=FractionalDpr*

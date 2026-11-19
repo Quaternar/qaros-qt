@@ -1354,3 +1354,35 @@ TEST(DialogFit, TheFreeFunctionAndTheStaticMakeTheSameKindOfAdjuster)
   EXPECT_EQ(second.note, "no scroll bar");
   EXPECT_EQ(second.size, QSize(200, 100));
 }
+
+// --- the name of a dialog's QarOS panel -------------------------------------------------------
+
+TEST(DialogFit, TheSameDialogOpenedThreeTimesHasOneQarOSPanelNameAndOneSender)
+{
+  DialogGuard guard;
+  Harness h;
+  Owner owner;
+  ASSERT_TRUE(h.manager->add_panel("p", owner.get(), options_no_pacing()).ok());
+  h.tick();
+
+  std::vector<std::string> names;
+  for (int opening = 0; opening < 3; ++opening) {
+    QDialog * dialog = show_tree_dialog(owner.get(), QSize(240, 140), "Select Color", 3);
+    h.tick();
+    h.tick_until("dialog:Select Color");
+    ASSERT_TRUE(h.manager->has_panel("dialog:Select Color")) << "opening " << opening;
+    const auto adapter = h.adapter("dialog:Select Color");
+    ASSERT_NE(adapter, nullptr) << "opening " << opening;
+    names.push_back(adapter->common_name());
+    close_dialog(dialog);
+    for (int i = 0; i < 4; ++i) {
+      h.tick();
+    }
+  }
+  ASSERT_EQ(names.size(), 3u);
+  EXPECT_FALSE(names[0].empty());
+  EXPECT_EQ(names[1], names[0]) << "the second opening finds the panel of the first";
+  EXPECT_EQ(names[2], names[0]) << "and so does the third";
+  EXPECT_EQ(h.factory->create_calls(), 2u) << "the owner's panel and one panel of the dialog";
+}
+

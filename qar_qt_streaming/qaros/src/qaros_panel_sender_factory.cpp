@@ -49,6 +49,12 @@ QarosPanelSenderFactory::worker_abandoned() const
   return executor_->abandoned();
 }
 
+int
+abandoned_workers()
+{
+  return detail::SessionExecutor::abandoned_workers();
+}
+
 std::shared_ptr<seam::IPanelSender>
 QarosPanelSenderFactory::create_panel_sender(const seam::PanelDesc & desc)
 {

@@ -260,6 +260,57 @@ active_popup_widget()
   return nullptr;
 }
 
+namespace
+{
+
+/// Does @p popup belong to the widget tree of @p root? The parent walk first
+/// (panel_tree_owns_popup), then - for a popup the guard keeps off the desktop - the focus
+/// proxy of its parentless top, through popups (QCompleter re-parents its list to nothing).
+bool
+popup_belongs_to(const QWidget * root, const QWidget * popup)
+{
+  const QWidget * current = popup;
+  for (int depth = 0; current != nullptr && depth < 16; ++depth) {
+    if (panel_tree_owns_popup(root, current)) {
+      return true;
+    }
+    const QWidget * top = current;
+    while (top->parentWidget() != nullptr) {
+      top = top->parentWidget();
+    }
+    if (!is_offscreen_popup(top)) {
+      return false;  // a desktop popup without a parent is attributable to nobody
+    }
+    current = top->focusProxy();
+  }
+  return false;
+}
+
+}  // namespace
+
+QWidget *
+active_popup_for(const QWidget * panel_root)
+{
+  if (panel_root == nullptr) {
+    return nullptr;
+  }
+  // Qt's active popup may be the host's own menu: it is never this panel's to drive.
+  if (QWidget * popup = QApplication::activePopupWidget()) {
+    if (popup_belongs_to(panel_root, popup)) {
+      return popup;
+    }
+  }
+  for (auto it = g_kept_popups.rbegin(); it != g_kept_popups.rend(); ++it) {
+    QWidget * kept = it->data();
+    if (kept != nullptr && kept->windowType() == Qt::Popup && kept->isVisible() &&
+      is_offscreen_popup(kept) && popup_belongs_to(panel_root, kept))
+    {
+      return kept;
+    }
+  }
+  return nullptr;
+}
+
 bool
 is_offscreen_popup(const QWidget * widget)
 {

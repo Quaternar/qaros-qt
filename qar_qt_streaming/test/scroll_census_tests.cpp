@@ -774,6 +774,10 @@ options_no_pacing()
   PanelStreamOptions options;
   options.max_fps = 0;
   options.keepalive_seconds = 0.0;
+  // A size is adopted after half a second and without the limit of one swap per 10 s: these tests
+  // are about what a swap does, not when it happens.
+  options.resize_settle_seconds = 0.5;
+  options.resize_min_swap_interval_seconds = 0.0;
   return options;
 }
 

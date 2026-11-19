@@ -87,6 +87,10 @@ public:
   void set_supports_detach(bool supported) { supports_detach_ = supported; }
   /// @brief What reattached() reports: the factory found a panel of this name and took it over.
   void set_reattached(bool reattached) { reattached_ = reattached; }
+  /// @brief A log SHARED across every adapter one factory mints that, unlike the events, also
+  /// records the shows and hides ("show <name>" / "hide <name>", the name being the common name of
+  /// the panel), so a test can assert the order of attaches, shows and hides across senders.
+  void set_call_log(std::shared_ptr<std::vector<std::string>> calls) { calls_ = std::move(calls); }
 
   bool try_begin_frame(bool & out_ready) override
   {
@@ -149,6 +153,10 @@ public:
   {
     ++state_calls_;
     states_.push_back(state);
+    if (calls_) {
+      calls_->push_back(
+        std::string(state == seam::PanelState::Hidden ? "hide " : "show ") + desc_.common_name);
+    }
     if (!supports_state_) {
       last_error_ = "this recording adapter has no panel state";
       return false;
@@ -164,6 +172,9 @@ public:
   }
 
   bool supports_state() const override { return supports_state_; }
+
+  /// Counts the calls: the real adapter moves the key's AR input subscription to this panel.
+  void ensure_input() override { ++ensure_input_calls_; }
 
   /// Models the real adapter's three steps in the real adapter's order, and
   /// records them, so a manager-level test can say "the panel was closed, the
@@ -208,6 +219,9 @@ public:
     if (events_) {
       events_->push_back("close " + desc_.key);
     }
+    if (calls_) {
+      calls_->push_back("close " + desc_.common_name);
+    }
     return report;
   }
 
@@ -223,6 +237,9 @@ public:
     steps_.push_back("detach");
     if (events_) {
       events_->push_back("detach " + desc_.key);
+    }
+    if (calls_) {
+      calls_->push_back("detach " + desc_.common_name);
     }
   }
 
@@ -245,6 +262,8 @@ public:
   std::uint32_t placement_calls() const { return placement_calls_; }
   /// Every call to set_state(), refused ones included, and the states asked for in order.
   std::uint32_t state_calls() const { return state_calls_; }
+  /// How often ensure_input() was called.
+  std::uint32_t ensure_input_calls() const { return ensure_input_calls_; }
   const std::vector<seam::PanelState> & states() const { return states_; }
   /// The state of the panel as this adapter holds it: the last one set_state() accepted,
   /// VISIBLE before any.
@@ -273,6 +292,7 @@ public:
 private:
   seam::PanelDesc desc_;
   std::shared_ptr<std::vector<std::string>> events_;
+  std::shared_ptr<std::vector<std::string>> calls_;
   seam::PanelPlacement placement_{};
   std::vector<RecordedPanelFrame> frames_;
   std::vector<std::string> steps_;
@@ -300,6 +320,7 @@ private:
   std::uint32_t submit_calls_ = 0;
   std::uint32_t placement_calls_ = 0;
   std::uint32_t state_calls_ = 0;
+  std::uint32_t ensure_input_calls_ = 0;
   std::uint32_t close_calls_ = 0;
   std::uint32_t close_panel_calls_ = 0;
   std::uint32_t close_panel_skipped_ = 0;
@@ -343,6 +364,7 @@ public:
     }
     auto adapter = std::make_shared<MockQarPanelSenderAdapter>(desc, events_);
     adapter->set_supports_detach(senders_detach_);
+    adapter->set_call_log(calls_);
     if (!desc.common_name.empty()) {
       for (const auto & earlier : created_) {
         if (earlier->common_name() != desc.common_name) {
@@ -367,6 +389,7 @@ public:
     }
     created_.push_back(adapter);
     events_->push_back("create " + desc.key);
+    calls_->push_back("create " + desc.common_name);
     last_error_.clear();
     return adapter;
   }
@@ -376,6 +399,11 @@ public:
   /// @brief Every create and every completed close across every sender this
   /// factory minted, in the order they happened: "create <key>" / "close <key>".
   const std::vector<std::string> & events() const { return *events_; }
+
+  /// @brief Every create, detach, close, show and hide across every sender this factory minted, in
+  /// the order they happened, each with the common name of its panel: "create <name>",
+  /// "detach <name>", "close <name>", "show <name>", "hide <name>".
+  const std::vector<std::string> & calls() const { return *calls_; }
 
   std::uint32_t create_calls() const { return create_calls_; }
   /// @brief How often an adapter was made for a common name that another adapter of this factory
@@ -394,6 +422,8 @@ public:
 private:
   std::vector<std::shared_ptr<MockQarPanelSenderAdapter>> created_;
   std::shared_ptr<std::vector<std::string>> events_ =
+    std::make_shared<std::vector<std::string>>();
+  std::shared_ptr<std::vector<std::string>> calls_ =
     std::make_shared<std::vector<std::string>>();
   std::string last_error_;
   std::string failure_reason_ = "mock factory refuses";

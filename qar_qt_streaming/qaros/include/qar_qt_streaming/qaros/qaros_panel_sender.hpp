@@ -92,6 +92,7 @@ public:
   bool set_placement(const seam::PanelPlacement & placement) override;
   bool set_state(seam::PanelState state) override;
   bool supports_state() const override { return true; }
+  void ensure_input() override;
 
   using seam::IPanelSender::close;
   seam::PanelCloseReport close(bool panel_closed_in_ar) override;

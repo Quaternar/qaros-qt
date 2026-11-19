@@ -1052,6 +1052,127 @@ TEST_F(BackendTest, WhenTheApplicationLetsGoFirstTheLastReferenceGoesOnTheWorker
   EXPECT_EQ(fake.callback_threads().count(fake.session_destroy_thread()), 0u);
 }
 
+// ----- a panel that is shown again ------------------------------------------------------------
+
+namespace
+{
+
+qaros::GuiPanelId
+panel_id_of(const FakePanel & panel)
+{
+  qaros::GuiPanelId id;
+  for (std::size_t i = 0; i < id.Bytes.size(); ++i) {
+    id.Bytes[i] = panel.id.data[i];
+  }
+  return id;
+}
+
+}  // namespace
+
+TEST_F(BackendTest, APanelThatIsShownAgainIsSubscribedAgainForArInput)
+{
+  // A size change made a second panel for the same key; the key's subscription moved to it. A
+  // later size shows the first panel again: showing it must put the subscription back.
+  auto first = ready_sender(make_desc("a"));
+  ASSERT_TRUE(first != nullptr);
+  seam::PanelDesc other = make_desc("a");
+  other.common_name = "a-size2.test.host.qaros-ros";
+  other.buffer_width = 128;
+  auto second = ready_sender(other);
+  ASSERT_TRUE(second != nullptr);
+  const qaros::GuiPanelId first_id = panel_id_of(fake.panel(make_desc("a").common_name));
+  const qaros::GuiPanelId second_id = panel_id_of(fake.panel(other.common_name));
+  ASSERT_TRUE(first_id.Bytes != second_id.Bytes);
+  EXPECT_FALSE(input->is_subscribed_to("a", first_id)) << "the key follows the panel made last";
+  EXPECT_TRUE(input->is_subscribed_to("a", second_id));
+  ASSERT_EQ(fake.count("gui_panels_subscribe_all_gesture_events"), 2);
+
+  ASSERT_TRUE(second->set_state(seam::PanelState::Hidden));
+  ASSERT_TRUE(first->set_state(seam::PanelState::Visible));
+  ASSERT_TRUE(wait_until([&] {return input->is_subscribed_to("a", first_id);}));
+  EXPECT_EQ(fake.count("gui_panels_subscribe_all_gesture_events"), 3);
+  EXPECT_FALSE(input->is_subscribed_to("a", second_id));
+  EXPECT_EQ(input->subscription_count(), 1u) << "one live subscription per key";
+
+  // A gesture on the panel that is on show reaches the queue as the key's.
+  FakeGesture gesture;
+  gesture.x_pixels = 30;
+  gesture.y_pixels = 15;
+  ASSERT_TRUE(fake.emit_gesture(make_desc("a").common_name, gesture));
+  std::vector<seam::PanelPointerSample> samples;
+  input->drain(samples);
+  ASSERT_FALSE(samples.empty());
+  EXPECT_EQ(samples[0].panel_key, "a");
+  EXPECT_TRUE(sink.contains("re-subscribed for AR gestures"));
+
+  // Showing a panel that is subscribed already subscribes nothing.
+  ASSERT_TRUE(first->set_state(seam::PanelState::Visible));
+  flush_worker(first);
+  EXPECT_EQ(fake.count("gui_panels_subscribe_all_gesture_events"), 3);
+}
+
+TEST_F(BackendTest, APanelThatWasNeverHiddenIsSubscribedAgainByEnsureInput)
+{
+  // The hide of the first panel was refused, so it stays on show and no state task runs on it.
+  auto first = ready_sender(make_desc("a"));
+  ASSERT_TRUE(first != nullptr);
+  seam::PanelDesc other = make_desc("a");
+  other.common_name = "a-size2.test.host.qaros-ros";
+  other.buffer_width = 128;
+  auto second = ready_sender(other);
+  ASSERT_TRUE(second != nullptr);
+  const qaros::GuiPanelId first_id = panel_id_of(fake.panel(make_desc("a").common_name));
+  const qaros::GuiPanelId second_id = panel_id_of(fake.panel(other.common_name));
+  ASSERT_TRUE(first_id.Bytes != second_id.Bytes);
+  ASSERT_TRUE(input->is_subscribed_to("a", second_id));
+  const int states_before = fake.count("gui_panels_set_state");
+
+  first->ensure_input();
+  ASSERT_TRUE(wait_until([&] {return input->is_subscribed_to("a", first_id);}));
+  EXPECT_EQ(fake.count("gui_panels_subscribe_all_gesture_events"), 3);
+  EXPECT_FALSE(input->is_subscribed_to("a", second_id));
+  EXPECT_EQ(input->subscription_count(), 1u) << "one live subscription per key";
+  EXPECT_EQ(fake.count("gui_panels_set_state"), states_before) << "no state is asked for";
+
+  FakeGesture gesture;
+  gesture.x_pixels = 30;
+  gesture.y_pixels = 15;
+  ASSERT_TRUE(fake.emit_gesture(make_desc("a").common_name, gesture));
+  std::vector<seam::PanelPointerSample> samples;
+  input->drain(samples);
+  ASSERT_FALSE(samples.empty());
+  EXPECT_EQ(samples[0].panel_key, "a");
+
+  // A second call finds the key on this panel and subscribes nothing.
+  first->ensure_input();
+  flush_worker(first);
+  EXPECT_EQ(fake.count("gui_panels_subscribe_all_gesture_events"), 3);
+}
+
+TEST_F(BackendTest, TheTeardownOfAPanelThatDoesNotHoldTheKeyLeavesTheSubscriptionAlone)
+{
+  auto first = ready_sender(make_desc("a"));
+  ASSERT_TRUE(first != nullptr);
+  seam::PanelDesc other = make_desc("a");
+  other.common_name = "a-size2.test.host.qaros-ros";
+  other.buffer_width = 128;
+  auto second = ready_sender(other);
+  ASSERT_TRUE(second != nullptr);
+  const qaros::GuiPanelId second_id = panel_id_of(fake.panel(other.common_name));
+  ASSERT_TRUE(input->is_subscribed_to("a", second_id));
+
+  // The key is subscribed on the second panel: the detach of the first ends nothing of it.
+  first->detach();
+  flush_worker(second);  // queued behind the detach on the same worker
+  EXPECT_TRUE(input->is_subscribed_to("a", second_id)) << "the subscription of the second stays";
+  EXPECT_EQ(input->subscription_count(), 1u);
+
+  // The teardown of the panel that holds the key ends it.
+  second->detach();
+  ASSERT_TRUE(wait_until([&] {return input->subscription_count() == 0u;}));
+  EXPECT_FALSE(input->is_subscribed_to("a", second_id));
+}
+
 // ----- messages ------------------------------------------------------------------------------
 
 TEST_F(BackendTest, MessagesReachTheSinkOnTheQtThreadAndOnlyThere)
@@ -1258,6 +1379,50 @@ TEST_F(BackendTest, TheFactoryDoesNotWaitLongerThanItsBudgetForABusyWorker)
   ASSERT_TRUE(wait_until([this] {return fake.live_sessions() == 0 && fake.live_senders() == 0;}))
     << "the abandoned worker made the sender, ran the queued close and ended";
   EXPECT_EQ(fake.count("video_sender_handle_destroy"), 1);
+}
+
+TEST(QarosBackend, AnAbandonedWorkerIsCountedProcessWide)
+{
+  FakeCApi fake;
+  Gate gate;
+  std::atomic<bool> started{false};
+  const int before = qb::abandoned_workers();
+  {
+    qb::FactoryOptions options;
+    options.shutdown_budget = 50ms;
+    auto factory = std::make_unique<qb::QarosPanelSenderFactory>(
+      fake.make_session(), nullptr, options);
+    fake.set_call_hook("video_sender_create", [&] {
+        started = true;
+        gate.wait();
+      });
+    auto sender = factory->create_panel_sender(make_desc());
+    ASSERT_TRUE(sender != nullptr);
+    ASSERT_TRUE(wait_until([&started] {return started.load();}));
+    EXPECT_EQ(qb::abandoned_workers(), before) << "a busy worker is not abandoned before the end";
+    sender->close();
+    sender.reset();
+    factory.reset();
+    EXPECT_EQ(qb::abandoned_workers(), before + 1) << "the worker left running is counted";
+  }
+  gate.open();
+  ASSERT_TRUE(wait_until([&fake] {return fake.live_sessions() == 0;}))
+    << "the abandoned worker ends by itself";
+  EXPECT_EQ(qb::abandoned_workers(), before + 1) << "the count is process-wide, not per factory";
+}
+
+TEST(QarosBackend, AWorkerThatEndedInTimeIsNotCounted)
+{
+  FakeCApi fake;
+  const int before = qb::abandoned_workers();
+  {
+    qb::FactoryOptions options;
+    options.shutdown_budget = 5000ms;
+    auto factory = std::make_unique<qb::QarosPanelSenderFactory>(
+      fake.make_session(), nullptr, options);
+    factory.reset();
+  }
+  EXPECT_EQ(qb::abandoned_workers(), before);
 }
 
 TEST_F(BackendTest, AFactoryOnTheApplicationsExecutorPostsEveryTaskToIt)

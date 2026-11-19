@@ -410,15 +410,11 @@ int main(int argc, char ** argv)
   manager.reset();  // hides the panels that are still open and queues the release of their video
                     // senders
   seam::TimingLog::instance().shutdown();  // the library's writer thread ends first
-  const bool had_factory = static_cast<bool>(panel_factory);
-  const auto drain_start = std::chrono::steady_clock::now();
   panel_factory.reset();  // runs the queued calls and ends its worker within the bounded wait
-  // The factory is gone after the reset, and with it the answer of worker_abandoned(). A wait that
-  // ran the whole budget is the only way for the worker to be abandoned, so it counts as one: the
-  // worker may still be inside QAROS or about to release the session.
-  const bool worker_left_behind = had_factory &&
-    std::chrono::steady_clock::now() - drain_start + std::chrono::milliseconds(100) >=
-    kShutdownBudget;
+  // The factory is gone after the reset, and with it the answer of worker_abandoned(). The library
+  // counts the workers it left running for the whole process: the worker may still be inside QAROS
+  // or about to release the session.
+  const bool worker_left_behind = qqb::abandoned_workers() > 0;
   if (worker_left_behind) {
     // Releasing the session, the runtime and the library, or unloading the runtime library, under
     // that worker could crash the program at its end. The process ends at once instead; the

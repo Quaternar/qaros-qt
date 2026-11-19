@@ -188,6 +188,7 @@ QarosPanelInputSource::subscribe_panel(
   {
     const std::lock_guard<std::mutex> lock(mutex_);
     panels_[panel_key] = std::move(subscribed).Value();
+    panel_ids_[panel_key] = id;
     // A key that was closed in AR and is subscribed again (its slot was taken over by a new
     // widget) starts its close history afresh.
     closed_.erase(panel_key);
@@ -207,6 +208,7 @@ QarosPanelInputSource::unsubscribe_panel(const std::string & panel_key)
     }
     subscription = std::move(it->second);
     panels_.erase(it);
+    panel_ids_.erase(panel_key);
   }
   // Ended outside the lock: it waits for a callback that is running, and the callback takes the
   // lock.
@@ -243,6 +245,15 @@ QarosPanelInputSource::has_panel(const std::string & panel_key) const
 {
   const std::lock_guard<std::mutex> lock(mutex_);
   return panels_.find(panel_key) != panels_.end();
+}
+
+bool
+QarosPanelInputSource::is_subscribed_to(
+  const std::string & panel_key, const qaros::GuiPanelId & id) const
+{
+  const std::lock_guard<std::mutex> lock(mutex_);
+  const auto it = panel_ids_.find(panel_key);
+  return it != panel_ids_.end() && it->second.Bytes == id.Bytes;
 }
 
 void

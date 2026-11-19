@@ -48,6 +48,35 @@ hit_from_uv(float u, float v)
   return hit;
 }
 
+/// The room-X step between a panel and a dialog panel it owns. A panel that covers more metres
+/// per logical pixel than the default is wider in the room by the same factor, so its dialogs
+/// are stepped by that factor too and do not overlap it; a panel at the default or below keeps
+/// the step as it is. The dialog's own scale counts as well, because it is as wide in the room as
+/// it covers metres: the larger of the two factors decides.
+double
+dialog_offset_for(
+  const PanelStreamOptions & owner, const PanelStreamOptions & dialog, double base_offset_m)
+{
+  const double owner_factor = owner.meters_per_logical_px / kDefaultMetersPerLogicalPx;
+  const double dialog_factor = dialog.meters_per_logical_px / kDefaultMetersPerLogicalPx;
+  double factor = 1.0;
+  if (std::isfinite(owner_factor)) {
+    factor = std::max(factor, owner_factor);
+  }
+  if (std::isfinite(dialog_factor)) {
+    factor = std::max(factor, dialog_factor);
+  }
+  return factor > 1.0 ? base_offset_m * factor : base_offset_m;
+}
+
+/// True when @p scale is a scale QtPanelStream::set_scale takes (the same limits), so that an
+/// answer of a host that the stream would refuse is not used at all.
+bool
+usable_dialog_scale(const QtPanelStreamManager::DialogScale & scale)
+{
+  return scale_within_limits(scale.meters_per_logical_px, scale.render_scale);
+}
+
 /// One decimal, no locale, no iostreams: these strings end up in log lines that
 /// are grepped, and `std::to_string(double)` would print six decimals of noise.
 std::string
@@ -244,6 +273,7 @@ QtPanelStreamManager::add_panel(
   stream_options.ar_frame = config_.ar_frame;
   stream_options.name_scope = config_.name_scope;
   stream_options.resize_mode = config_.resize_mode;
+  stream_options.max_kept_panels = config_.max_replaced_panels;
   auto stream =
     std::make_unique<QtPanelStream>(key, widget, stream_options, config_.panel_sender_factory);
   // A size change of the widget needs a new QarOS panel. Whether the old one is closed or kept
@@ -1123,6 +1153,18 @@ QtPanelStreamManager::set_panel_pose(const std::string & key, const seam::Pose &
 }
 
 seam::Result
+QtPanelStreamManager::set_panel_scale(
+  const std::string & key, double meters_per_logical_px, double render_scale)
+{
+  const auto it = streams_.find(key);
+  if (it == streams_.end()) {
+    return seam::Result::error(seam::Status::NotFound, "no panel stream for key " + key);
+  }
+  it->second->set_scale(meters_per_logical_px, render_scale);
+  return seam::Result::success();
+}
+
+seam::Result
 QtPanelStreamManager::set_panel_region_source(
   const std::string & key, QWidget * region, std::shared_ptr<LatestVideoFrame> source)
 {
@@ -1249,23 +1291,56 @@ QtPanelStreamManager::tick()
         // the budget is a Warning too, and says that the next ones close. The other modes
         // close, as they always have.
         const std::string key_text = "'" + entry.first + "' changed size: ";
-        const std::uint32_t kept = replaced_panel_count();
+        // New-panel mode keeps a ring of panels for each stream (max_replaced_panels is the size
+        // of the ring); the other modes count the kept panels of the whole session.
+        const bool ring = config_.resize_mode == PanelResizeMode::NewPanel;
+        const std::uint32_t kept = ring ?
+          static_cast<std::uint32_t>(entry.second->replaced_panel_count()) :
+          replaced_panel_count();
         const bool last_slot =
           config_.max_replaced_panels > 0 && kept >= config_.max_replaced_panels;
-        const std::string next_close = !last_slot ? std::string() :
-          ". This session now keeps " + std::to_string(static_cast<unsigned long long>(kept)) +
+        const std::string kept_text = std::to_string(static_cast<unsigned long long>(kept));
+        const std::string next_close = !last_slot ? std::string() : ring ?
+          ". This stream keeps " + kept_text + " replaced QarOS panels, the limit "
+          "(max_replaced_panels): the next size changes reuse the oldest hidden one, no QarOS "
+          "panel is closed." :
+          ". This session now keeps " + kept_text +
           " replaced QarOS panels, the limit (max_replaced_panels): the next size changes close "
           "their old QarOS panel, and in park mode that close may crash the desktop Visualizer.";
-        if (rebuild.fate == ReplacedPanelFate::Swapped) {
+        if (rebuild.reused && rebuild.fate == ReplacedPanelFate::VisibleKept) {
+          emit_diagnostic(
+            seam::DiagnosticSeverity::Warning, "panel",
+            key_text + "its old QarOS panel could not be hidden (" +
+            (rebuild.hide_error.empty() ? std::string("no reason given") : rebuild.hide_error) +
+            "), so it stays visible and is kept until the session ends; the sender made for the "
+            "size joined the oldest kept (hidden) QarOS panel (no close)",
+            entry.first);
+        } else if (rebuild.reused) {
+          emit_diagnostic(
+            seam::DiagnosticSeverity::Info, "panel",
+            key_text + (rebuild.fate == ReplacedPanelFate::HiddenKept ?
+            std::string("its old QarOS panel is hidden and kept until the session ends; ") :
+            std::string()) +
+            "the sender made for the size joined the oldest kept (hidden) QarOS panel, so no "
+            "QarOS panel is added or closed (this stream keeps " + kept_text + ")",
+            entry.first);
+        } else if (rebuild.fate == ReplacedPanelFate::Swapped) {
           // The usual case with the real sender: the QarOS panel keeps its name and its place,
           // only its video sender is exchanged. Nothing is hidden, kept or closed.
           emit_diagnostic(
             seam::DiagnosticSeverity::Info, "panel",
             key_text + "its QarOS panel stays and gets a new video sender (no new panel, no close)",
             entry.first);
+        } else if (rebuild.fate == ReplacedPanelFate::Revived) {
+          emit_diagnostic(
+            seam::DiagnosticSeverity::Info, "panel",
+            key_text + "the kept QarOS panel of this size is shown again (no new panel, no "
+            "close); the panel it replaced is hidden and kept until the session ends (this "
+            "stream keeps " + kept_text + ")",
+            entry.first);
         } else if (rebuild.fate == ReplacedPanelFate::HiddenKept) {
           emit_diagnostic(
-            last_slot ? seam::DiagnosticSeverity::Warning :
+            last_slot && !ring ? seam::DiagnosticSeverity::Warning :
             seam::DiagnosticSeverity::Info,
             "panel",
             key_text + "its old QarOS panel is hidden and kept until the session ends, a new "
@@ -1276,8 +1351,10 @@ QtPanelStreamManager::tick()
             seam::DiagnosticSeverity::Warning, "panel",
             key_text + "its old QarOS panel could not be hidden (" +
             (rebuild.hide_error.empty() ? std::string("no reason given") : rebuild.hide_error) +
-            "), so it stays visible and is kept until the session ends; a new one is made "
-            "(no close)" + next_close,
+            "), so it stays visible and is kept until the session ends; " +
+            (rebuild.revived ?
+            std::string("the kept QarOS panel of this size is shown again (no new panel, no "
+            "close)") : std::string("a new one is made (no close)")) + next_close,
             entry.first);
         } else if (config_.close_mode == PanelCloseMode::Park) {
           emit_diagnostic(
@@ -1629,6 +1706,26 @@ QtPanelStreamManager::add_dialog_stream(
   // (PanelStreamOptions::dialog_panel); this holds for the height the pose adjuster is told below
   // as well as for the panel that is made.
   options.dialog_panel = true;
+  // The host may give the dialog a scale of its own instead of its owner's: the capture of the
+  // dialog and its place in the room change, the dialog on the desktop does not.
+  std::optional<DialogScale> wanted;
+  if (dialog_scale_provider_) {
+    const std::optional<DialogScale> scale = dialog_scale_provider_(owner_key, *dialog);
+    if (scale.has_value() && usable_dialog_scale(*scale)) {
+      wanted = scale;
+      options.meters_per_logical_px = scale->meters_per_logical_px;
+      options.render_scale = scale->render_scale;
+    }
+  }
+  // A slot that is shown again (parked or retired) has a stream already. The answer is given to
+  // it below; without an answer it keeps its own scale, which is then what the pose and the step
+  // are worked out with, not the scale of the owner.
+  const auto slot = streams_.find(key);
+  const bool revived = slot != streams_.end();
+  if (revived && !wanted.has_value()) {
+    options.meters_per_logical_px = slot->second->options().meters_per_logical_px;
+    options.render_scale = slot->second->options().render_scale;
+  }
 
   // Beside the owner, never on top of it: no call asks QarOS where the operator is
   // looking (the viewer's pose comes only with a render sender), so the best available
@@ -1641,7 +1738,8 @@ QtPanelStreamManager::add_dialog_stream(
   }
   options.placement = owner->second->placement();
   options.placement.pose.position.x += static_cast<float>(
-    config_.dialog_panel_offset_m * static_cast<double>(sibling_index + 1));
+    dialog_offset_for(owner->second->options(), options, config_.dialog_panel_offset_m) *
+    static_cast<double>(sibling_index + 1));
   if (dialog_pose_adjuster_) {
     // The host may move the pose (to keep the panel off the floor, say), and for that it needs
     // the physical height this library will give the panel: the height of the dialog's video,
@@ -1660,6 +1758,12 @@ QtPanelStreamManager::add_dialog_stream(
     return false;
   }
 
+  // The slot that was shown again takes the answer through the path of set_panel_scale(): the
+  // resize mode decides how the change reaches QarOS and nothing is closed.
+  if (revived && wanted.has_value()) {
+    set_panel_scale(key, wanted->meters_per_logical_px, wanted->render_scale);
+  }
+
   DialogPanel entry;
   entry.key = key;
   entry.owner_key = owner_key;
@@ -1668,6 +1772,15 @@ QtPanelStreamManager::add_dialog_stream(
   emit_diagnostic(
     seam::DiagnosticSeverity::Info, "panel",
     "dialog opened from '" + owner_key + "' is streaming as a panel of its own", key);
+  if (dialog_scale_reporter_) {
+    const auto made = streams_.find(key);
+    if (made != streams_.end()) {
+      DialogScale applied;
+      applied.meters_per_logical_px = made->second->options().meters_per_logical_px;
+      applied.render_scale = made->second->options().render_scale;
+      dialog_scale_reporter_(owner_key, *dialog, key, applied, revived);
+    }
+  }
   return true;
 }
 

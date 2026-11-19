@@ -9,6 +9,7 @@
 
 #include <gtest/gtest.h>
 
+#include "qar_qt_streaming/offscreen_popup_guard.hpp"
 #include "qar_qt_streaming/qt_panel_input_injector.hpp"
 #include "qar_qt_streaming/qt_widget_capture.hpp"
 #include "qar_qt_streaming/qt_compat.hpp"
@@ -24,6 +25,7 @@
 #include <QGroupBox>
 #include <QLineEdit>
 #include <QListView>
+#include <QMenu>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -359,6 +361,99 @@ TEST(InputInjector, APressOutsideAnOpenPopupClosesIt)
 
   EXPECT_EQ(QApplication::activePopupWidget(), nullptr);
   EXPECT_EQ(combo->currentIndex(), 0);
+  combo->hidePopup();
+}
+
+TEST(InputInjector, AHostPopupNeverTakesThePanelsInput)
+{
+  // A host popup (a menu of the application, not of the panel) opens over the point the
+  // panel's pointer hovers: the highlight of the menu must stay where it is.
+  Panel host;
+  Panel panel;
+  auto * area = new QWidget(panel.widget());
+  area->setGeometry(0, 0, 400, 300);
+  EventRecorder panel_events;
+  area->installEventFilter(&panel_events);
+  panel.show();
+  host.show();
+
+  auto * menu = new QMenu(host.widget());
+  QAction * first = menu->addAction("first");
+  QAction * second = menu->addAction("second");
+  EventRecorder menu_events;
+  menu->installEventFilter(&menu_events);
+  menu->popup(panel.widget()->mapToGlobal(QPoint(10, 10)));
+  QCoreApplication::processEvents();
+  ASSERT_EQ(QApplication::activePopupWidget(), menu) << "the host menu did not open";
+  menu->setActiveAction(first);
+  ASSERT_EQ(menu->activeAction(), first);
+  EXPECT_EQ(qar_qt_streaming::active_popup_for(panel.widget()), nullptr)
+    << "a host popup is not the panel's popup";
+
+  const QPoint over_second = menu->mapToGlobal(menu->actionGeometry(second).center());
+  const QPointF on_panel(panel.widget()->mapFromGlobal(over_second));
+  auto mouse_events = [&menu_events]() {
+      return menu_events.count(QEvent::MouseMove) + menu_events.count(QEvent::MouseButtonPress) +
+             menu_events.count(QEvent::MouseButtonRelease) + menu_events.count(QEvent::Leave);
+    };
+  const int before = mouse_events();
+
+  QtPanelInputInjector injector(panel.widget());
+  injector.deliver(panel.at(PointerActionKind::Enter, on_panel));
+  injector.deliver(panel.at(PointerActionKind::Move, on_panel));
+  injector.deliver(panel.at(PointerActionKind::Move, on_panel + QPointF(3.0, 1.0)));
+  injector.deliver(panel.at(PointerActionKind::Leave, on_panel));
+  QCoreApplication::processEvents();
+
+  EXPECT_EQ(menu->activeAction(), first) << "AR hover moved the host menu's highlight";
+  EXPECT_EQ(mouse_events() - before, 0) << "the host menu received AR mouse events";
+  EXPECT_GE(panel_events.count(QEvent::Enter), 1) << "the panel's own widget got no hover";
+
+  // An AR tap on the panel does not press outside the host menu and does not trigger it.
+  injector.deliver(panel.at(PointerActionKind::Press, on_panel));
+  injector.deliver(panel.at(PointerActionKind::Release, on_panel));
+  injector.deliver(panel.at(PointerActionKind::Click, on_panel));
+  QCoreApplication::processEvents();
+  EXPECT_TRUE(menu->isVisible()) << "an AR tap closed the host menu";
+  EXPECT_EQ(menu->activeAction(), first);
+  EXPECT_EQ(mouse_events() - before, 0);
+  menu->close();
+}
+
+TEST(InputInjector, APopupOfThePanelStillTakesItsInput)
+{
+  Panel panel;
+  Panel other;
+  auto * combo = new QComboBox(panel.widget());
+  combo->addItems({"zero", "one", "two"});
+  combo->setGeometry(20, 20, 200, 30);
+  panel.show();
+  other.show();
+
+  QtPanelInputInjector injector(panel.widget());
+  EXPECT_EQ(qar_qt_streaming::active_popup_for(panel.widget()), nullptr);
+  panel.click(injector, combo);
+  QCoreApplication::processEvents();
+  QWidget * list = QApplication::activePopupWidget();
+  ASSERT_NE(list, nullptr) << "the click did not open the list";
+  EXPECT_EQ(qar_qt_streaming::active_popup_for(panel.widget()), list);
+  EXPECT_EQ(qar_qt_streaming::active_popup_for(other.widget()), nullptr)
+    << "the list belongs to the panel that opened it only";
+  EXPECT_EQ(qar_qt_streaming::active_popup_for(nullptr), nullptr);
+  wait_ms(QApplication::doubleClickInterval() + 100);
+
+  QListView * view = qobject_cast<QListView *>(combo->view());
+  ASSERT_NE(view, nullptr);
+  const QRect item = view->visualRect(combo->model()->index(1, 0));
+  const QPointF on_panel(
+    panel.widget()->mapFromGlobal(view->viewport()->mapToGlobal(item.center())));
+  injector.deliver(panel.at(PointerActionKind::Move, on_panel));
+  injector.deliver(panel.at(PointerActionKind::Press, on_panel));
+  injector.deliver(panel.at(PointerActionKind::Release, on_panel));
+  QCoreApplication::processEvents();
+
+  EXPECT_EQ(combo->currentIndex(), 1);
+  EXPECT_EQ(QApplication::activePopupWidget(), nullptr);
   combo->hidePopup();
 }
 

@@ -50,6 +50,8 @@ add_library(qar_qt_streaming STATIC
   src/qt_panel_stream.cpp
   src/qt_panel_stream_manager.cpp
   src/ar_readability.cpp
+  src/enlarged_controls_style.cpp
+  src/widget_twin.cpp
   src/panel_pointer_state.cpp
   src/qt_panel_input_injector.cpp
 )
