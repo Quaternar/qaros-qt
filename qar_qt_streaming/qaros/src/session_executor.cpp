@@ -3,10 +3,19 @@
 
 #include "backend_detail.hpp"
 
+#include <atomic>
 #include <utility>
 
 namespace qar_qt_streaming::qaros_backend::detail
 {
+
+namespace
+{
+
+/// Workers left running at the end of an executor, in every executor of this process.
+std::atomic<int> g_abandoned_workers{0};
+
+}  // namespace
 
 SessionExecutor::SessionExecutor(
   qaros::Session session, Post post, std::chrono::milliseconds budget)
@@ -108,6 +117,7 @@ SessionExecutor::shutdown()
   } else {
     worker_.detach();
     abandoned_.store(true);
+    g_abandoned_workers.fetch_add(1);
   }
 }
 
@@ -115,6 +125,12 @@ bool
 SessionExecutor::abandoned() const
 {
   return abandoned_.load();
+}
+
+int
+SessionExecutor::abandoned_workers()
+{
+  return g_abandoned_workers.load();
 }
 
 }  // namespace qar_qt_streaming::qaros_backend::detail

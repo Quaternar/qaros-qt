@@ -244,7 +244,7 @@ QtPanelInputInjector::resolve(const QPointF & panel_pos) const
 {
   Resolved resolved;
   if (options_.route_to_popups) {
-    if (QWidget * popup = active_popup_widget()) {
+    if (QWidget * popup = active_popup_for(panel_.data())) {
       // Qt sends EVERY mouse event to the active popup while one is open. Inside
       // it the deepest child gets it; outside, the popup itself does — which is
       // how a combo box list closes on a press beside it.
@@ -705,7 +705,7 @@ QtPanelInputInjector::on_drag(std::uint32_t id, Pointer & p, const PointerAction
   if (p.route == Route::Mouse) {
     QWidget * target = grab;
     if (options_.route_to_popups) {
-      if (QWidget * popup = active_popup_widget()) {
+      if (QWidget * popup = active_popup_for(panel_.data())) {
         if (popup != grab && !popup->isAncestorOf(grab)) {
           target = resolve(p.panel_pos).target;  // Qt: popups take everything
         }
@@ -749,7 +749,7 @@ QtPanelInputInjector::on_release(
   if (route == Route::Mouse) {
     QWidget * target = grab;
     if (options_.route_to_popups) {
-      if (QWidget * popup = active_popup_widget()) {
+      if (QWidget * popup = active_popup_for(panel_.data())) {
         if (popup != grab && !popup->isAncestorOf(grab)) {
           target = resolve(p.panel_pos).target;
         }

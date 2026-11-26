@@ -92,6 +92,7 @@
 /// odd dimensions are widely rejected by such encoders. The few slack pixels are
 /// left as background; the widget is rendered top-left anchored.
 
+#include <cmath>
 #include <cstdint>
 #include <string>
 
@@ -110,6 +111,27 @@ namespace qar_qt_streaming
 /// host can decline per panel, or replace outright with ar_readability.hpp's
 /// derivation from an explicit viewing distance.
 constexpr double kDefaultMetersPerLogicalPx = 0.0012;
+
+/// @name The limits of a panel's scale
+/// The most metres one logical pixel may cover (a hundredth of a metre per pixel is a panel ten
+/// times wider than any room has space for) and the least and most supersampling of the capture
+/// (a ratio above 4 is a buffer no encoder takes). Both bounds only keep a wrong number out.
+/// QtPanelStream::set_scale and the scale a host gives a dialog's panel use the same ones.
+/// @{
+constexpr double kMaxMetersPerLogicalPx = 0.01;
+constexpr double kMinRenderScale = 1.0;
+constexpr double kMaxRenderScale = 4.0;
+/// @}
+
+/// True when the metres per logical pixel are finite, above 0 and at most
+/// @ref kMaxMetersPerLogicalPx, and the render scale is finite and within
+/// @ref kMinRenderScale .. @ref kMaxRenderScale.
+inline bool scale_within_limits(double meters_per_logical_px, double render_scale)
+{
+  return std::isfinite(meters_per_logical_px) && std::isfinite(render_scale) &&
+         meters_per_logical_px > 0.0 && meters_per_logical_px <= kMaxMetersPerLogicalPx &&
+         render_scale >= kMinRenderScale && render_scale <= kMaxRenderScale;
+}
 
 /// @name The default frame
 /// The insets, in metres, of the frame of the QarOS desktop Visualizer, measured on its stream

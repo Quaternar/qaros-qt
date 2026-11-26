@@ -39,13 +39,14 @@ $env:PATH = "$env:QAR_QT_ROOT\bin;$env:PATH"
 & .\build\vs2019-x64\examples\qt_panel_example\RelWithDebInfo\qar_qt_panel_example.exe --help
 ```
 ```text
-Usage: qar_qt_panel_example [--local] [--invite CONNECTION] [--connect-only] [--seconds N]
-  --local         join the QAROS Hub of this PC as a local app (the only mode, and the
+Usage: qar_qt_panel_example [--local] [--invite CONNECTION] [--connect-only] [--seconds N] | --version
+  --local        join the QAROS Hub of this PC as a local app (the only mode, and the
                   default). QAROS asks once to allow this program, and again after each
                   rebuild of it: click Allow in the QAROS window
   --invite CONN   ask QAROS to start the target app named by the connection string CONN
   --connect-only  join QAROS, print the session, and exit; no window, no panel
   --seconds N     otherwise: show two panels, stop after N s (default 60)
+  --version       print the qar_qt_streaming version and exit
 Ctrl+C in this console ends the program the orderly way, also while the join waits.
 ```
 
@@ -89,7 +90,7 @@ Joined join_qaros(const JoinPlan & plan, JoinControl & control)
   // a stored onboarding id and its erasure are deprecated by QAROS, so the example does not offer
   // them.
   qaros::OnboardBuilder builder;
-  builder.WithLocalApp().WithDisplayName(plan.display_name);
+  builder.WithLocalApp().WithDisplayName(plan.display_name).WithAppVersion(qar_qt_streaming::kLibraryVersion);
   qaros::Result<qaros::OnboardSession> joined = out.runtime.Onboard(builder, call);
   if (!joined.Ok()) { out.error = failure("local onboarding", joined.GetStatus()); return out; }
   out.session = std::move(joined).Value().Session;
@@ -429,6 +430,7 @@ The includes, the link line and the shutdown of the example are regions of its s
 #include "qar_qt_streaming/qt_panel_stream_manager.hpp"
 #include "qar_qt_streaming/seam/common_name.hpp"
 #include "qar_qt_streaming/seam/timing_log.hpp"
+#include "qar_qt_streaming/seam/version.hpp"
 
 #include <qar_streaming_cpp/Library.hpp>
 #include <qar_streaming_cpp/Runtime.hpp>
@@ -477,15 +479,11 @@ if (joining.valid()) {  // quit (Ctrl+C) while the Hub was still being waited fo
 manager.reset();  // hides the panels that are still open and queues the release of their video
                   // senders
 seam::TimingLog::instance().shutdown();  // the library's writer thread ends first
-const bool had_factory = static_cast<bool>(panel_factory);
-const auto drain_start = std::chrono::steady_clock::now();
 panel_factory.reset();  // runs the queued calls and ends its worker within the bounded wait
-// The factory is gone after the reset, and with it the answer of worker_abandoned(). A wait that
-// ran the whole budget is the only way for the worker to be abandoned, so it counts as one: the
-// worker may still be inside QAROS or about to release the session.
-const bool worker_left_behind = had_factory &&
-  std::chrono::steady_clock::now() - drain_start + std::chrono::milliseconds(100) >=
-  kShutdownBudget;
+// The factory is gone after the reset, and with it the answer of worker_abandoned(). The library
+// counts the workers it left running for the whole process: the worker may still be inside QAROS
+// or about to release the session.
+const bool worker_left_behind = qqb::abandoned_workers() > 0;
 if (worker_left_behind) {
   // Releasing the session, the runtime and the library, or unloading the runtime library, under
   // that worker could crash the program at its end. The process ends at once instead; the

@@ -59,6 +59,7 @@ decide_panel_attach(const PanelProbe & probe, unsigned retries_done)
   decision.change_size = probe.size_differs;
   decision.show = probe.state == PanelState::Hidden ||
     probe.state == PanelState::Minimized;
+  decision.hide_before_swap = decision.swap_content && probe.state == PanelState::Visible;
   return decision;
 }
 

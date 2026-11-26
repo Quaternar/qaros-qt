@@ -13,6 +13,8 @@
 /// never asked to wait. At the end of the program reset the panel manager first (it closes the
 /// panels), then the factory (it runs the queued closes and joins its worker within the budget),
 /// then release the application's copy of the session, never inside a callback of the SDK.
+/// Release order: stop posting, let the worker run what is queued within the budget, then join it -
+/// or leave it running, count it, and release no QAROS object it may still use.
 
 #include "qar_qt_streaming/qaros/qaros_panel_input_source.hpp"
 #include "qar_qt_streaming/qaros/sdk_config_check.hpp"
@@ -90,6 +92,10 @@ private:
   bool has_session_ = false;
   std::string last_error_;
 };
+
+/// @brief Workers of this library left running at a factory's end (process-wide). Above 0, release
+/// nothing of QAROS that a worker may still use.
+int abandoned_workers();
 
 }  // namespace qar_qt_streaming::qaros_backend
 

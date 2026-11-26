@@ -312,13 +312,13 @@ include\qar_streaming.h        True
 
 ### How the stack finds QAROS
 
-A program calls `qar_library_load` with no path. The C header documents the order in which that call looks for the library and takes the first hit: a library that is already loaded in the process; `qar-streaming-c.dll` beside the module that calls it; the folder that the environment variable `QAROS_RUNTIME_DIR` names; the install folder of the installed QAROS; a folder on `PATH`. A library found beside the program is loaded before the installed one, which is why a program must not ship its own copy. Each candidate is loaded with its dependencies taken from its own folder and from `System32` only.
+A program calls `qar_library_load` with no path. The C header documents the order in which that call looks for the library and takes the first hit: a library that is already loaded in the process; `qar-streaming-c.dll` beside the module that calls it; the runtime folder of the QAROS instance that the environment variable `QAR_INSTANCE` names, when it is set (`default` is the installed QAROS); the install folder of the installed QAROS; a folder on `PATH`. A library found beside the program is loaded before the installed one, which is why a program must not ship its own copy. Each candidate is loaded with its dependencies taken from its own folder and from `System32` only.
 
 The runtime initialisation leaves the field `runtime_binaries_folder_path` empty: the runtime then uses the folder that the loaded library came from, which is the `bin` folder of the installation and holds the launcher.
 
 Nothing in this repository links against QAROS. The library `qaros` is compiled against the headers of the QarOS C++ SDK, and a program that uses it loads `qar-streaming-c.dll` at run time. The configure step needs the headers only, not the DLL: it takes the C header and the C++ SDK headers from one revision of the public QarOS repository, the git submodule `external/qaros`, or from a folder that `QAR_STREAMING_CPP_INCLUDE_DIR` names. A build and the whole test suite therefore work without QAROS; only the programs that connect to QAROS need the installation at run time.
 
-How a program joins the QAROS Hub is described by QuaternAR: [Onboarding and sessions](https://docs.quaternar.com/docs/next/developer-guide/onboarding-and-sessions/) and [Source applications](https://docs.quaternar.com/docs/next/operator-guide/source-applications/). A program that runs on the PC of the Hub joins as a local source app, and the Hub asks its operator once to allow it. The example of this repository joins only that way: the pairing code for a Hub on another PC is deprecated by QAROS.
+How a program joins the QAROS Hub is described by QuaternAR: [Onboarding and sessions](https://docs.quaternar.com/docs/next/developer-guide/onboarding-and-sessions/) and [Source applications](https://docs.quaternar.com/docs/next/operator-guide/source-applications/). A program that runs on the PC of the Hub joins as a local source app, and the Hub asks its operator once to allow it. For a Hub on another PC, make the Hub of this PC a member of that Hub; the program still joins the Hub of its own PC.
 
 ## Python environment
 
@@ -332,6 +332,9 @@ git clone --recurse-submodules https://github.com/Quaternar/qaros-qt "$env:QAR_R
 ```text
 Cloning into 'C:\qar\src\qar_qt_streaming'...
 done.
+Submodule 'external/qaros' (https://github.com/Quaternar/qaros.git) registered for path 'external/qaros'
+Cloning into 'C:/qar/src/qar_qt_streaming/external/qaros'...
+Submodule path 'external/qaros': checked out '0f2cb2eb8dc89a2d52deb7148ce3ff52e595bd8e'
 ```
 
 Go to the folder of the clone; the next steps run there:
@@ -425,7 +428,7 @@ Preset CMake variables:
 -- Qt 5.15.2: C:/qar/deps/Qt/5.15.2/msvc2019_64/lib/cmake/Qt5
 -- QarOS SDK headers: QarOS repository C:/qar/src/qar_qt_streaming/external/qaros
 ...
--- Configuring done (12.5s)
+-- Configuring done (10.5s)
 -- Generating done (0.3s)
 -- Build files have been written to: C:/qar/src/qar_qt_streaming/build/vs2019-x64
 ```
@@ -440,8 +443,8 @@ cmake --build --preset vs2019-x64
 ...
   qar_qt_streaming_qaros.vcxproj -> C:\qar\src\qar_qt_streaming\build\vs2019-x64\qar_qt_streaming\qaros\RelWithDebInfo\qar_qt_streaming_qaros.lib
 ...
-  qar_qt_streaming_seam_tests.vcxproj -> C:\qar\src\qar_qt_streaming\build\vs2019-x64\qar_qt_streaming\seam\test\RelWithDebInfo\qar_qt_streaming_seam_tests.exe
   qar_qt_streaming_qaros_tests.vcxproj -> C:\qar\src\qar_qt_streaming\build\vs2019-x64\qar_qt_streaming\qaros\test\RelWithDebInfo\qar_qt_streaming_qaros_tests.exe
+  qar_qt_streaming_seam_tests.vcxproj -> C:\qar\src\qar_qt_streaming\build\vs2019-x64\qar_qt_streaming\seam\test\RelWithDebInfo\qar_qt_streaming_seam_tests.exe
 ...
   qar_qt_streaming.vcxproj -> C:\qar\src\qar_qt_streaming\build\vs2019-x64\qar_qt_streaming\RelWithDebInfo\qar_qt_streaming.lib
 ...
@@ -460,20 +463,21 @@ ctest --preset vs2019-x64
 ```text
 Test project C:/qar/src/qar_qt_streaming/build/vs2019-x64
         Start   1: check_layering_qar_qt_streaming
-  1/832 Test   #1: check_layering_qar_qt_streaming ................................................................   Passed    0.33 sec
+  1/958 Test   #1: check_layering_qar_qt_streaming ................................................................   Passed    0.35 sec
         Start   2: check_layering_examples
-  2/832 Test   #2: check_layering_examples ........................................................................   Passed    0.07 sec
+  2/958 Test   #2: check_layering_examples ........................................................................   Passed    0.06 sec
         Start   3: check_layering_selftest
-  3/832 Test   #3: check_layering_selftest ........................................................................   Passed    0.10 sec
+  3/958 Test   #3: check_layering_selftest ........................................................................   Passed    0.07 sec
         Start   4: CommonName.SanitizeKeepsLowerCaseLettersDigitsAndDashesAndMapsTheRestToDash
 ...
-100% tests passed, 0 tests failed out of 832
 
-Total Test time (real) =  73.75 sec
+100% tests passed, 0 tests failed out of 958
 
+Total Test time (real) =  81.17 sec
+...
 The following tests did not run:
-	626 - OffscreenPopupGuard.TheWindows11StyleComboListReachesThePanelImage (Skipped)
-	627 - OffscreenPopupGuard.TheWindows11StyleListOfAVisiblePanelReachesThePanelImage (Skipped)
+	659 - OffscreenPopupGuard.TheWindows11StyleComboListReachesThePanelImage (Skipped)
+	660 - OffscreenPopupGuard.TheWindows11StyleListOfAVisiblePanelReachesThePanelImage (Skipped)
 ```
 
 Install it into the prefix. The install puts the libraries `qar_qt_streaming_seam`, `qar_qt_streaming` and `qar_qt_streaming_qaros` below `$env:QAR_PREFIX`, together with their headers, the QarOS headers of the submodule `external/qaros` when the build used them, and the CMake package that your own project finds there.
@@ -485,7 +489,7 @@ cmake --install build\vs2019-x64 --config RelWithDebInfo --prefix $env:QAR_PREFI
 -- Installing: C:\qar\install/lib/qar_qt_streaming_seam.lib
 -- Installing: C:\qar\install/lib/qar_qt_streaming.lib
 -- Installing: C:\qar\install/lib/qar_qt_streaming_qaros.lib
--- Installing: C:\qar\install/include
+-- Up-to-date: C:\qar\install/include
 -- Installing: C:\qar\install/include/qar_qt_streaming
 -- Installing: C:\qar\install/include/qar_qt_streaming/seam
 ...
@@ -519,7 +523,7 @@ cmake -S docs\snippets\consumer -B build\consumer -G "Visual Studio 16 2019" -A 
 -- The CXX compiler identification is MSVC 19.29.30151.0
 ...
 -- Found Threads: TRUE
--- Configuring done (3.9s)
+-- Configuring done (3.7s)
 -- Generating done (0.0s)
 ```
 

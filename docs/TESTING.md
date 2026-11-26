@@ -23,20 +23,21 @@ ctest --preset vs2019-x64
 ```text
 Test project C:/qar/src/qar_qt_streaming/build/vs2019-x64
         Start   1: check_layering_qar_qt_streaming
-  1/832 Test   #1: check_layering_qar_qt_streaming ................................................................   Passed    0.36 sec
+  1/958 Test   #1: check_layering_qar_qt_streaming ................................................................   Passed    0.38 sec
         Start   2: check_layering_examples
-  2/832 Test   #2: check_layering_examples ........................................................................   Passed    0.08 sec
+  2/958 Test   #2: check_layering_examples ........................................................................   Passed    0.06 sec
         Start   3: check_layering_selftest
-  3/832 Test   #3: check_layering_selftest ........................................................................   Passed    0.14 sec
+  3/958 Test   #3: check_layering_selftest ........................................................................   Passed    0.21 sec
         Start   4: CommonName.SanitizeKeepsLowerCaseLettersDigitsAndDashesAndMapsTheRestToDash
 ...
-100% tests passed, 0 tests failed out of 832
 
-Total Test time (real) =  72.63 sec
+100% tests passed, 0 tests failed out of 958
 
+Total Test time (real) =  80.70 sec
+...
 The following tests did not run:
-	626 - OffscreenPopupGuard.TheWindows11StyleComboListReachesThePanelImage (Skipped)
-	627 - OffscreenPopupGuard.TheWindows11StyleListOfAVisiblePanelReachesThePanelImage (Skipped)
+	659 - OffscreenPopupGuard.TheWindows11StyleComboListReachesThePanelImage (Skipped)
+	660 - OffscreenPopupGuard.TheWindows11StyleListOfAVisiblePanelReachesThePanelImage (Skipped)
 ```
 
 The last lines are the summary: how many tests passed, and the names of those that failed. A test that is skipped is reported as skipped and does not count as a failure.
@@ -59,9 +60,9 @@ Test project C:/qar/src/qar_qt_streaming/build/vs2019-x64
   Test   #6: CommonName.SanitizeCutsToTheLimit
   Test   #7: CommonName.Fnv1aMatchesTheReferenceVectors
 ...
-  Test #832: qar_qt_streaming_fractional_dpr_1.5
+  Test #958: qar_qt_streaming_fractional_dpr_3.0
 
-Total Tests: 832
+Total Tests: 958
 ```
 
 ```powershell
@@ -70,18 +71,18 @@ ctest --preset vs2019-x64 -R check_layering_selftest
 ```text
 Test project C:/qar/src/qar_qt_streaming/build/vs2019-x64
     Start 3: check_layering_selftest
-1/1 Test #3: check_layering_selftest ..........   Passed    0.09 sec
+1/1 Test #3: check_layering_selftest ..........   Passed    0.07 sec
 
 100% tests passed, 0 tests failed out of 1
 
-Total Test time (real) =   0.12 sec
+Total Test time (real) =   0.10 sec
 ```
 
 Use `-R` with a part of a suite name to run one suite, and add `-j` followed by a number to run tests in parallel. When a test fails, its output is printed by the preset; add the option `--rerun-failed` to the command to run only the tests that failed in the last run.
 
 ## What the tests cover
 
-The unit tests are three GoogleTest executables, and the layering guard adds its own tests. The suite `FractionalDpr` of the Qt core is registered a second time as the two ctest entries `qar_qt_streaming_fractional_dpr_1.25` and `qar_qt_streaming_fractional_dpr_1.5`, which run it with the environment variable `QT_SCALE_FACTOR` at that ratio. `qar_qt_streaming_tests` tests the Qt core, `qar_qt_streaming_seam_tests` tests the seam, and `qar_qt_streaming_qaros_tests` tests the backend against a fake of the QarOS function tables; the last two use no Qt. The list command above prints every registered test by name, with the number of tests at the end. The tests of the Qt core drive the real Qt paint path, because the capture of a widget with `QWidget::render()` is what the library exists for.
+The unit tests are three GoogleTest executables, and the layering guard adds its own tests. The suite `FractionalDpr` of the Qt core is registered again as the four ctest entries `qar_qt_streaming_fractional_dpr_1.25`, `qar_qt_streaming_fractional_dpr_1.5`, `qar_qt_streaming_fractional_dpr_2.0` and `qar_qt_streaming_fractional_dpr_3.0`, which run it with the environment variable `QT_SCALE_FACTOR` at that ratio. `qar_qt_streaming_tests` tests the Qt core, `qar_qt_streaming_seam_tests` tests the seam, and `qar_qt_streaming_qaros_tests` tests the backend against a fake of the QarOS function tables; the last two use no Qt. The list command above prints every registered test by name, with the number of tests at the end. The tests of the Qt core drive the real Qt paint path, because the capture of a widget with `QWidget::render()` is what the library exists for.
 
 | Suites | What the tests assert |
 |---|---|
@@ -89,7 +90,7 @@ The unit tests are three GoogleTest executables, and the layering guard adds its
 | `HashPixels`, `WidgetCapture` | a capture has the requested size; an untouched widget reports no change and an edit makes the next capture dirty; padding at the end of a row is not hashed; a hidden widget still captures but is flagged |
 | `PopupOwnership`, `PopupCapture` | a popup of the panel is owned and the popup of another panel is not; an open popup lands where Qt placed it, honours the render scale, vanishes when it closes and is not sent again every tick; the list of a real combo box reaches the stream |
 | `Values`, `CommonName`, `PanelAttach`, `PanelStateDecision`, `PanelStatePoll`, `PanelGestureMapper`, `PointerGestureMapping`, `QueuedInputSource`, `TimingLog` (the seam) | the values have the layout of the structures of the QarOS C header; the common names are stable and carry the program, the instance and the host; the decision about a panel that QarOS holds walks the retry names; the guard decides from the state that QarOS reports whether to ask for the state again, and gives up after three asks; a gesture of QarOS becomes a pointer sample with the same pointer id for the same peer and hand, and the golden values of the pointer ids are fixed |
-| `BackendTest`, `SessionExecutor`, `Conversions` (the backend) | the create chain, the frame cycle with a pitch that differs from the width, the coalescing of placements, the close order, the found-again and the retry of a panel, the refusal when all names are taken, that no SDK call but the three frame calls runs on the Qt thread, that the session is never released on a callback thread, the bounded shutdown, and that the messages reach the sink only on the Qt thread |
+| `BackendTest`, `SessionExecutor`, `Conversions` (the backend) | the create chain, the frame cycle with a pitch that differs from the width, the coalescing of placements, the close order, the found-again and the retry of a panel, the refusal when all names are taken, that no SDK call but the three frame calls runs on the Qt thread, that the session is never released on a callback thread, the bounded shutdown, that the messages reach the sink only on the Qt thread, and that a panel which is shown again is subscribed again for AR input |
 | `DialogOwnership`, `DialogModality`, `DialogCapture`, `DialogAttribution` | an owned dialog is never drawn into its owner; a dialog that is parented to the shared window is attributed to the panel that took input last; only the attributed panel is blocked by its modal dialog |
 | `PanelStream` | the first tick creates the sender and submits; an unchanged widget is captured and not sent; the keepalive resends it; the frame-rate limit sheds ticks; a size change rebuilds the sender only when it is large and has settled, and a width that oscillates never does |
 | `PanelManager`, `QtPanelStreamManager` | construction without a factory is refused; adding a panel calls QarOS not at all before the first tick; duplicate keys and bad arguments are refused; a room point is routed to the pixel under it; a panel that holds a sender and serves no frame is warned about once; a popup is logged once when it opens and once when it closes |
@@ -102,7 +103,14 @@ The unit tests are three GoogleTest executables, and the layering guard adds its
 | `PanelGeometryFrame`, `PanelGeometryDialog`, `PanelStreamHeight`, `PanelManagerHeight` | the default frame is the one measured on the Visualizer; a panel is the video inside the frame plus the fit margin and keeps its width, and no frame makes it exactly as tall as its video; each inset has its own effect; a frame that leaves no width is not applied; the panel of a dialog keeps the height of its video, fits its width to the frame, is never under half of its nominal width, and a frame that is not below the height of the video is not applied; the sender is told the video inside the frame; the hit rectangle is the video inside the frame, centred under the title bar; the frame of the manager replaces the frame of the options |
 | `PanelResizeMode`, `PanelCommonName`, `PanelSwap`, `PanelNewPanel`, `PanelNameRule`, `PanelSessionEnd`, `PanelPaused`, `PanelAsync` | the parser of `QAR_PANEL_RESIZE` and its warning, the common name of a panel with and without the buffer size, a size change that swaps the sender of the same panel and one that makes a second panel, the rule that selects the name, what the end of a session does to each close mode, a stream that the receiver paused, and the results that the panel adapter reports through `drain_results` |
 | `PanelPark`, `PanelParkResize`, `PanelStreamReplacedPanels` | in the mode park a Qt-side close hides the panel and closes nothing, releases a pressed pointer without a click, and the parked stream is not pointed at; adding the key again revives it onto another window and pose, and a revival is allowed whatever the cap; parked panels and notices count together against the cap; a refused hide falls back to the notice and never to a close; a panel that the operator closed in AR is parked without a hide call; a size change hides and keeps the old panel, asks again for a refused hide three more times, and closes as before at the limit of kept panels; the end of the session closes every kept and parked panel once |
-| `FractionalDpr` | at a device pixel ratio of 1.25 and 1.5 the buffer of a panel is the logical size times the ratio, rounded and aligned; the diagnostics name the ratio; the capture paints the logical geometry across the larger buffer; the injector keeps the sub-pixel part of a position, so that a contact on a narrow target presses it and its neighbours stay unpressed |
+| `PanelNewPanelRing`, `PanelSwapDefer` | in the mode `new-panel` no QarOS panel is closed in any close mode and the old panel is hidden and kept; with the ring full the next size is made on the oldest hidden panel, in the right order, and a name that the shown panel still holds is never given to a second sender; a sender that cannot detach, or cannot be made on the joined panel, keeps every panel; a return to the size of a kept panel is reported as revived, and a revived panel whose hide was refused still asks for AR input; in the mode `defer` a visible panel keeps its sender and the new size is adopted while it is hidden |
+| `PanelStreamSwapGates`, `PanelStreamDefer` | a size is adopted after one and a half seconds and not before, a held mouse button delays the adoption until it is released, at most one swap happens in ten seconds and the newest size wins, both gates can be switched off, the held notes are limited to the first five and then one in a hundred, and in the mode `defer` a show that is asked for while a settled size pends adopts the size first |
+| `InputInjector` | also that a popup of the host application never takes the input of a panel and that a popup of the panel still does |
+| `QarosBackend` | also that a worker that does not end in time is counted for the whole process and one that ends in time is not |
+| `EnlargedControls` | the controls are the factor times the plain ones and the font and the labels keep their size; a click on the up rectangle of a spin box steps up and one just left of it does not; the edit field of a spin box ends where its buttons begin; nothing is drawn or hit outside the widget at a fractional factor; the expand arrow of a tree is a vector; the pointer on a spin button tints that button and keeps its arrow dark; the rows of a combo popup are as tall as the combo; the last column of a tree ends at the viewport; a window below a styled tree has the style and one below a plain tree has not |
+| `WidgetTwin` | a setting changed on the original shows on the twin and a second pass writes nothing; a click, a choice, a step, a chosen row or an edit on the twin reaches the original once and a disabled original refuses it; a Return in an editable combo box is forwarded once |
+| `PanelScale` | a change of the metres alone is adopted on the next tick without a rebuild and sends the placement once; a change of the ratio goes through the resize hysteresis and, in the mode `new-panel`, hides the old panel and keeps it; a contact lands on the same widget pixel at the factors 1, 1.5 and 2; a dialog opened from a scaled panel inherits its scale and the step of the dialogs grows with it; ten bad pairs of values are refused and the bounds are accepted; an unknown key is not found; a dialog scale provider gives the dialog its own scale and leaves the dialog alone, no answer or an unusable one leaves the scale of the owner, the step uses the larger of the two scales, a window with the style of a copy is answered by the window and a parked dialog that is shown again takes the new answer, and the limits are one shared pair |
+| `FractionalDpr` | at a device pixel ratio of 1.25, 1.5, 2 and 3 the buffer of a panel is the logical size times the ratio, rounded and aligned; the diagnostics name the ratio; the capture paints the logical geometry across the larger buffer; the injector keeps the sub-pixel part of a position, so that a contact on a narrow target presses it and its neighbours stay unpressed |
 | `QtPanelVisibility` | a hide applies on the next tick and pauses the capture; a show resumes with one frame; a hidden panel is not hit and drops its input; a refused request keeps the state and is counted; a notice is refused and an unknown key is not found |
 | `DialogFit`, `DialogPoseHook`, `DialogFrame`, `DialogHeightFactor`, `DialogCapRefusal` | the stream of a dialog is added once, at the size the fit ends with; a fit settles on the second equal look; a dialog that cannot fit the screen is clamped and says so; an area that scrolls by design never makes a dialog grow; a dialog that is hidden or destroyed meanwhile gets no panel; the pose hook sees every dialog pose; the fixed factor makes a dialog taller once and is not applied while an adjuster is installed; a refused dialog is tried once |
 | `ScrollCensus`, `StreamCensus`, `ManagerCensus` | the census measures per-item and per-pixel areas, hidden pages, areas that sit one above the other or side by side, and areas that scroll by design; a stream measures its first frame and again 1.5 s later; a bar that remains is a warning with its overflow, and one that scrolls by design is a note; a requested census is taken at the next frame; a panel that is hidden, parked or closed in AR waits |
@@ -161,7 +169,7 @@ CTest registers one guard test per module that this repository holds, named `che
 |---|---|
 | L1, include classes | A module includes only the foreign header families listed for it: the standard library, Qt, Ogre, ROS 2, RViz, platform headers, GoogleTest, stb. |
 | L2, project edges | A module includes only the project modules listed for it, and some edges only through named headers: no upward and no sideways edge. Every example folder has its own entry. |
-| L3, vendored header | Only the wrapper header of the core includes the vendored QarOS C header. |
+| L3, QarOS C header | Only the wrapper header of the core includes the QarOS C header (`qar_streaming.h` of the qaros submodule). |
 | L4, core calls no API | The core calls no QarOS C function; it uses the types of the C API only, so it never needs the SDK DLL. |
 | L5, adapter components | Every file of the adapter belongs to one component and includes only headers of its own component and of the components it may use. |
 | L6, loader | The dynamic-loading implementation macro of the C header appears exactly once, in the loader file of the adapter, and nothing defines the dynamic-loading switch except CMake. |
@@ -176,8 +184,8 @@ The first command checks all modules of this repository and prints one summary l
 & "$env:QAR_VENV\Scripts\python.exe" scripts\check_layering.py --all
 ```
 ```text
-check_layering examples: OK (3 files)
-check_layering qar_qt_streaming: OK (103 files)
+check_layering examples: OK (1 files)
+check_layering qar_qt_streaming: OK (111 files)
 ```
 
 ```powershell

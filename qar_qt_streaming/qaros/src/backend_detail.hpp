@@ -103,6 +103,9 @@ private:
 
 /// Runs tasks one after the other, in the order they were posted, off the Qt thread, each with the
 /// session. Either on a worker thread of its own, or on the application's executor.
+///
+/// Release order: stop posting, let the worker run what is queued within the budget, then join it -
+/// or leave it running, count it, and release no QAROS object it may still use.
 class SessionExecutor
 {
 public:
@@ -126,6 +129,9 @@ public:
   void shutdown();
 
   bool abandoned() const;
+
+  /// Workers left running at the end of an executor, in every executor of this process.
+  static int abandoned_workers();
 
 private:
   struct Item

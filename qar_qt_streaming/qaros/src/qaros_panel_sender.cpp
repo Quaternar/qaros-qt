@@ -533,6 +533,54 @@ struct QarosPanelSender::Core : std::enable_shared_from_this<Core>
     results.push_back(std::move(result));
   }
 
+  /// A panel that a size change replaced and that a later size shows again has no gesture
+  /// subscription of its own: the key follows the panel made last, and taps on the one on show
+  /// would be dropped. Showing it subscribes it again. Runs on the worker, the thread that owns
+  /// the session.
+  void subscribe_again_if_needed(
+    qaros::Session & session, const std::string & key, const qaros::GuiPanelId & id)
+  {
+    if (!context.input || context.input->is_subscribed_to(key, id)) {
+      return;
+    }
+    std::uint32_t content_w = 0;
+    std::uint32_t content_h = 0;
+    {
+      const std::lock_guard<std::mutex> lock(mutex);
+      content_w = desc.content_width != 0 ? desc.content_width : desc.buffer_width;
+      content_h = desc.content_height != 0 ? desc.content_height : desc.buffer_height;
+    }
+    std::string input_error;
+    if (!context.input->subscribe_panel(session.GuiPanels(), key, id, content_w, content_h,
+      input_error))
+    {
+      message(
+        seam::DiagnosticSeverity::Warning,
+        "panel '" + key + "' is shown again but takes no AR input: " + input_error);
+      return;
+    }
+    info(
+      "panel '" + key + "' re-subscribed for AR gestures: id='" + id_text(id) + "' content=" +
+      std::to_string(content_w) + "x" + std::to_string(content_h) + " px (revived)");
+  }
+
+  /// The input task of ensure_input(): subscribes the panel when its key is subscribed on another
+  /// one. Runs on the worker.
+  void run_input(qaros::Session & session)
+  {
+    qaros::GuiPanelId id;
+    std::string key;
+    {
+      const std::lock_guard<std::mutex> lock(mutex);
+      if (!has_panel || phase.load() == Phase::kFailed) {
+        return;  // the panel was never made, or its creation failed: nothing to subscribe
+      }
+      id = panel_id;
+      key = desc.key;
+    }
+    subscribe_again_if_needed(session, key, id);
+  }
+
   void run_state(qaros::Session & session, seam::PanelState state)
   {
     // Whatever this task finds to do, the guard learns that the request has been served.
@@ -566,6 +614,9 @@ struct QarosPanelSender::Core : std::enable_shared_from_this<Core>
       // The input source reads an update as an AR-side close for the state CLOSED only, so the
       // HIDDEN or VISIBLE set here is not taken for one.
       info("panel '" + key + "' state -> " + seam::panel_state_name(state));
+      if (state == seam::PanelState::Visible) {
+        subscribe_again_if_needed(session, key, id);
+      }
     }
     const std::lock_guard<std::mutex> lock(mutex);
     results.push_back(std::move(result));
@@ -603,10 +654,12 @@ struct QarosPanelSender::Core : std::enable_shared_from_this<Core>
     // callback for the panel runs, so that nothing can arrive naming a panel that is being
     // destroyed. Then the panel-updates subscription: it is what would take the CLOSED state the
     // runtime republishes for our own close for "the operator closed this panel in AR".
+    // Only the subscription that names this panel ends: the key keeps one subscription, on the
+    // panel made or shown last, and when that is another panel it is not ours to cancel.
     if (context.input && !key.empty()) {
-      const bool had_input = context.input->has_panel(key);
-      context.input->unsubscribe_panel(key);
+      const bool had_input = had_panel && context.input->is_subscribed_to(key, id);
       if (had_input) {
+        context.input->unsubscribe_panel(key);
         info("panel '" + key + "' step 1/3: AR gesture subscription ended");
       }
     }
@@ -1019,6 +1072,20 @@ QarosPanelSender::set_state(seam::PanelState state)
   }
   last_error_.clear();
   return true;
+}
+
+void
+QarosPanelSender::ensure_input()
+{
+  const Core::Phase phase = core_->phase.load(std::memory_order_acquire);
+  if (closed_ || !context_.executor ||
+    (phase != Core::Phase::kCreating && phase != Core::Phase::kReady))
+  {
+    return;
+  }
+  const std::shared_ptr<Core> core = core_;
+  context_.executor->post(
+    "panel-input:" + desc_.key, [core](qaros::Session & session) { core->run_input(session); });
 }
 
 seam::PanelCloseReport

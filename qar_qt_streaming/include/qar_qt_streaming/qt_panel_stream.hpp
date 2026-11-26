@@ -61,6 +61,13 @@ struct PanelStreamOptions
   /// QtPanelStreamingConfig::resize_mode for every panel it makes.
   PanelResizeMode resize_mode = PanelResizeMode::Swap;
 
+  /// How many hidden QarOS panels this stream keeps in PanelResizeMode::NewPanel (0 = no
+  /// limit). The kept panels form a ring: when it is full, a size change reuses the oldest hidden
+  /// one (its video sender is replaced while the panel is hidden) instead of making another
+  /// panel, so no QarOS panel is closed while the session runs. A QtPanelStreamManager sets it
+  /// from QtPanelStreamingConfig::max_replaced_panels for every panel it makes.
+  std::uint32_t max_kept_panels = 0;
+
   /// The panel is the panel of a dialog window (QtPanelStreamManager makes the panels of the
   /// dialogs that a streamed window opens): it keeps the height of its video and fits its width
   /// to the frame (see PanelGeometryInput::narrow_for_frame). The size line of the stream says
@@ -122,10 +129,14 @@ struct PanelStreamOptions
   /// So a size change is adopted only when it is both SIGNIFICANT (at least
   /// @ref resize_threshold_px in a dimension) and SETTLED (the same new size
   /// seen for at least @ref resize_settle_seconds AND across at least
-  /// @ref resize_settle_ticks consecutive ticks). Until then the panel keeps
-  /// streaming at the size its live sender was built for, so the captured buffer
-  /// always matches the sender's layout. Zeroing all three adopts (rebuilds on)
-  /// every change.
+  /// @ref resize_settle_ticks consecutive ticks), and then only when no mouse
+  /// button is held (@ref resize_wait_for_mouse_release), at most
+  /// @ref resize_min_swap_interval_seconds after the previous rebuild of the
+  /// sender, and, in PanelResizeMode::Defer, only while the panel is hidden in AR (a visible
+  /// panel is never swapped; a show asked for while a settled size is pending adopts it first).
+  /// Until then the panel keeps streaming at the size its live sender was built
+  /// for, so the captured buffer always matches the sender's layout. Zeroing the
+  /// three numbers and the two switches below adopts (rebuilds on) every change.
   /// @{
 
   /// Buffer-pixel delta below which a change is not worth a rebuild at all. A
@@ -135,13 +146,26 @@ struct PanelStreamOptions
   /// How long the new size must hold, in the same monotonic seconds @ref tick
   /// is given, before it is adopted. Long enough to outlast a self-resize loop
   /// (which cycles at the rate its status text is rewritten) and a dragged
-  /// splitter, short enough that a real resize snaps in while the hand is still
-  /// on the mouse.
-  double resize_settle_seconds = 0.5;
+  /// splitter that pauses.
+  double resize_settle_seconds = 1.5;
 
   /// ...and across at least this many consecutive ticks, so a panel that is
   /// ticked rarely still gets corroboration rather than a single sample.
   std::uint32_t resize_settle_ticks = 3;
+
+  /// A settled size is adopted only while no mouse button is held, so a drag that
+  /// pauses is not adopted before the hand lets go. False adopts without asking.
+  bool resize_wait_for_mouse_release = true;
+
+  /// Answers "is no mouse button held?" for @ref resize_wait_for_mouse_release. Empty,
+  /// the default, asks the Qt application for the mouse buttons it sees pressed; a test
+  /// supplies its own.
+  std::function<bool()> mouse_buttons_released;
+
+  /// The least time, in the seconds @ref tick is given, between two rebuilds of one panel's
+  /// sender because of a size change. A size that settles earlier waits for the end of the
+  /// window, and the newest size wins. 0 = no limit.
+  double resize_min_swap_interval_seconds = 10.0;
 
   /// @}
 };
@@ -164,6 +188,7 @@ enum class ReplacedPanelFate
   HiddenKept,   ///< hidden in AR and kept; closed with the stream
   VisibleKept,  ///< could not be hidden, so it is still shown; kept and closed with the stream
   Swapped,      ///< left in place: only its video sender went, the new sender joined the same panel
+  Revived,      ///< hidden and kept; a kept panel made for the new size was shown again (no new one)
 };
 
 /// @brief The record of one size rebuild; see QtPanelStream::take_size_rebuild.
@@ -172,6 +197,13 @@ struct SizeRebuildReport
   ReplacedPanelFate fate = ReplacedPanelFate::Closed;
   /// Why QarOS did not hide the old panel; set when @ref fate is VisibleKept.
   std::string hide_error;
+  /// The new sender joined the oldest kept (hidden) panel instead of a panel of its own
+  /// (PanelResizeMode::NewPanel with a full ring, see PanelStreamOptions::max_kept_panels).
+  bool reused = false;
+  /// A kept panel made for the new size is on show again; no panel was made. @ref fate then is
+  /// ReplacedPanelFate::Revived, or ReplacedPanelFate::VisibleKept when the hide of the old panel
+  /// was refused.
+  bool revived = false;
 };
 
 /// @brief What QtPanelStream::end_session did with the QarOS panels of a stream.
@@ -222,6 +254,25 @@ public:
   /// before anything else, so a pose that comes from a desktop click makes no QarOS call there.
   /// A sender made before that tick is built with the pose and needs no call.
   void set_pose_on_next_tick(const seam::Pose & pose);
+
+  /// @brief Change how large the panel is in the room and how sharp it is: the metres one logical
+  /// pixel covers and the supersampling on top of the display's pixel ratio
+  /// (PanelStreamOptions::meters_per_logical_px and render_scale). Only the two numbers are
+  /// stored; the next tick that refreshes the geometry takes them up and makes no QarOS call
+  /// here.
+  ///
+  /// A change of the metres alone leaves the buffer as it is: it is adopted at once, the stream
+  /// keeps its sender and the placement sent to QarOS carries the size the metres give. A change
+  /// that gives the buffer another size goes through the resize hysteresis like any resize of the
+  /// widget and then through the configured PanelResizeMode (PanelResizeMode::NewPanel keeps the
+  /// old panel hidden and shows a panel of the changed size). A contact lands on the same widget
+  /// pixel whatever the scale, because a contact is mapped through the pixels of the content,
+  /// not through metres.
+  ///
+  /// A value outside the range (not finite, @p meters_per_logical_px not in (0, 0.01] or
+  /// @p render_scale not in [1, 4]) is refused: nothing changes and the last error says "scale
+  /// out of range".
+  void set_scale(double meters_per_logical_px, double render_scale);
 
   /// @brief Close the QarOS panel and DESTROY the video sender. Idempotent. Also
   /// lets go of any pointer the injector still holds pressed.
@@ -396,6 +447,11 @@ public:
   /// visible: the input source keeps one subscription for each key, so the subscription that
   /// reports a close in AR goes with the panel when the new one is made. The operator closing
   /// that panel in AR is not seen, and @ref close closes it a second time.
+  ///
+  /// In PanelResizeMode::NewPanel the policy is not asked: the old panel is always hidden and
+  /// kept, and no QarOS panel is closed while the session runs. The number of kept panels is
+  /// bounded by PanelStreamOptions::max_kept_panels as a ring: when it is full, a size change
+  /// reuses the oldest hidden panel for its new sender.
   void set_replaced_panel_policy(std::function<bool()> may_keep);
 
   /// @brief Lets a size change swap the video sender on the QarOS panel instead of replacing the
@@ -604,6 +660,30 @@ private:
   /// yet) and for an unchanged size.
   bool adopt_geometry(const PanelGeometry & desired, double now_seconds);
 
+  /// PanelResizeMode::Defer, panel hidden in AR: adopts a settled size of the widget (refreshes
+  /// the geometry and swaps the sender) without capturing anything. A hide or show asked for
+  /// and not yet carried out is kept for the next tick. Returns true when the sender was
+  /// rebuilt. Does nothing in the other modes, for a panel that is shown, parked, closed in AR
+  /// or a notice, or while the sender is still being made.
+  bool adopt_size_while_hidden(double now_seconds);
+
+  /// A panel that is hidden in AR has lost its sender (the creation of the sender of a new size
+  /// failed): it counts as shown again with a hide asked for, so that the sender made next
+  /// carries the hide out. Does nothing when a show waits for a sender anyway.
+  void hide_again_on_next_sender();
+
+  /// The reason a settled size must still wait (a mouse button is held, the last rebuild of the
+  /// sender is too recent, or PanelResizeMode::Defer keeps the size of a panel that is not
+  /// hidden in AR), or a null pointer when it may be adopted now.
+  const char * resize_hold_reason(double now_seconds) const;
+
+  /// True when no mouse button is held (@ref PanelStreamOptions::mouse_buttons_released).
+  bool mouse_buttons_released() const;
+
+  /// Says (as a note) that the settled size @p width x @p height waits for @p reason: once for
+  /// each size and reason, the first 5 lines of the stream and then every 100th.
+  void note_resize_held(const char * reason, std::uint32_t width, std::uint32_t height);
+
   /// Forget the size currently being timed. Also clears the diagnostic.
   void clear_pending_resize();
 
@@ -613,7 +693,8 @@ private:
   bool ensure_adapter(double now_seconds);
 
   /// Takes the sender in @c adapter_ out of use because the size changed: closes it, or hides
-  /// and keeps it when the replaced-panel policy says so. Leaves @c adapter_ empty.
+  /// and keeps it when the replaced-panel policy says so (always, in PanelResizeMode::NewPanel,
+  /// whatever the policy answers). Leaves @c adapter_ empty.
   /// @param now_seconds Same instant @ref tick was given; the retries of a refused hide are
   ///        timed against it.
   void retire_adapter_for_rebuild(double now_seconds);
@@ -622,11 +703,44 @@ private:
   /// key, plus "@<w>x<h>" in PanelResizeMode::NewPanel.
   std::string common_name_for(std::uint32_t buffer_width, std::uint32_t buffer_height) const;
 
-  /// Takes the kept panel that has @p desc's common name and buffer size out of the kept list and
-  /// makes it the current one (shown again when it was hidden). A common name is one QarOS panel,
-  /// so a second sender for it is never made while a kept one holds it. Only in
-  /// PanelResizeMode::NewPanel; false when no kept panel matches.
+  /// Takes the kept panel that has @p desc's buffer size (the one that also has its common name
+  /// first) out of the kept list and makes it the current one (shown again when it was hidden). A
+  /// common name is one QarOS panel, so a second sender for it is never made while a kept one
+  /// holds it. Only in PanelResizeMode::NewPanel; false when no kept panel matches.
   bool revive_kept_panel(const seam::PanelDesc & desc);
+
+  /// The index of the kept panel that @p desc's buffer size has been kept for (the one
+  /// @ref revive_kept_panel takes), or @c replaced_adapters_.size() when there is none.
+  std::size_t find_revivable_kept_panel(const seam::PanelDesc & desc) const;
+
+  /// PanelResizeMode::NewPanel: the index of the kept panel whose QarOS panel the sender made for
+  /// @p desc joins, or @c replaced_adapters_.size() when it gets a panel of its own. That is, when
+  /// the ring of PanelStreamOptions::max_kept_panels is full, the oldest kept panel that is hidden
+  /// and whose sender can detach. Never a size that a kept panel can be revived for.
+  std::size_t find_kept_panel_to_join(const seam::PanelDesc & desc) const;
+
+  /// PanelResizeMode::NewPanel: makes the sender for @p desc on the kept panel at @p index, which
+  /// is hidden: its old sender is detached first, the sender made next finds the panel by its
+  /// name, then the panel is shown and, last, the panel of the current sender is hidden and kept.
+  /// No visible panel gets a new sender and nothing is closed. The current sender is left alone
+  /// when the new one cannot be made, except that it is taken out of use as a size rebuild does.
+  /// @return false when no sender was made (the reason is recorded).
+  bool rebuild_on_kept_panel(std::size_t index, seam::PanelDesc desc, double now_seconds);
+
+  /// The bookkeeping of a sender that was just made (or revived) as the current one: its name and
+  /// size, the diagnostics and the first capture. Does not carry out a waiting hide or show.
+  void adopt_new_adapter(const seam::PanelDesc & desc);
+
+  /// Hides @p adapter's QarOS panel (the hide may be refused) and keeps it, newest last. Fills
+  /// @p report with the fate of the panel.
+  void keep_replaced_panel(
+    std::shared_ptr<seam::IPanelSender> adapter, const std::string & common_name,
+    std::uint32_t buffer_width, std::uint32_t buffer_height, double now_seconds,
+    SizeRebuildReport & report);
+
+  /// @p name, or @p name with a suffix when the current sender or a kept panel holds it already
+  /// (two senders would point at one QarOS panel). Only in PanelResizeMode::NewPanel.
+  std::string unused_panel_name(const std::string & name) const;
 
   /// Asks again for the hide of every kept panel whose hide QarOS refused, when its time has
   /// come; says a late success, and the end of the attempts.
@@ -703,6 +817,9 @@ private:
   /// Guarded: a parked stream outlives its window.
   QPointer<QWidget> widget_;
   PanelStreamOptions options_;
+  /// set_scale changed the metres per logical pixel and no geometry has taken them up yet: the
+  /// geometry that does sends the placement to a sender whose buffer stays as it is.
+  bool metres_changed_ = false;
   std::shared_ptr<seam::IPanelSenderFactory> factory_;
   std::shared_ptr<seam::IPanelSender> adapter_;
   /// A sender (and QarOS panel) that a size rebuild replaced and kept. Idle: nothing is captured
@@ -768,6 +885,18 @@ private:
   std::uint32_t pending_buffer_height_ = 0;
   double pending_since_seconds_ = 0.0;
   std::uint32_t pending_ticks_ = 0;
+
+  /// When the sender was last rebuilt because of a size change (the clock tick() is given), for
+  /// PanelStreamOptions::resize_min_swap_interval_seconds. Only meaningful once @c has_swapped_.
+  bool has_swapped_ = false;
+  double last_swap_seconds_ = 0.0;
+
+  /// The size and reason of the last "resize held" note, so a wait is said once, and how many
+  /// such notes the stream has made (the rate limit).
+  const char * held_note_reason_ = nullptr;
+  std::uint32_t held_note_width_ = 0;
+  std::uint32_t held_note_height_ = 0;
+  std::uint64_t held_notes_made_ = 0;
 
   /// When the current sender's "has never submitted a frame" run began, on the
   /// clock tick() is given. Only meaningful while @c has_unserved_since_.

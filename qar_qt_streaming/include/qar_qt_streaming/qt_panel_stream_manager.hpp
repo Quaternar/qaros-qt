@@ -22,6 +22,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -231,7 +232,10 @@ struct QtPanelStreamingConfig
 
   /// @brief How many QarOS panels that size changes replaced this manager may keep hidden at
   /// once, over all streams. Only meaningful in @ref PanelCloseMode::Park (see
-  /// @ref QtPanelStreamManager, "A size change in Park mode").
+  /// @ref QtPanelStreamManager, "A size change in Park mode"). In @ref PanelResizeMode::NewPanel
+  /// it is the size of a ring that each stream has of its own: no QarOS panel is closed in any
+  /// close mode, and when a stream keeps this many, its next size change reuses the oldest hidden
+  /// kept panel (see PanelStreamOptions::max_kept_panels).
   ///
   /// A widget that changes size needs a new sender and a new QarOS panel. In Park mode the old
   /// panel is hidden and kept until the session ends instead of being closed, because closing a
@@ -366,6 +370,11 @@ struct QtPanelStreamingConfig
 /// @ref QtPanelStreamingConfig::max_tombstoned_panels; reviving one is always allowed. A stream
 /// that never created a sender has no QarOS panel to keep and is dropped. The mode can be
 /// switched while the manager runs (@ref set_close_mode); it applies to the closes that follow.
+///
+/// **A size change in PanelResizeMode::NewPanel.** The old panel is hidden and kept in every close
+/// mode and nothing is closed while the session runs. Each stream keeps at most
+/// QtPanelStreamingConfig::max_replaced_panels hidden panels as a ring; with the ring full the
+/// sender of the next size joins the oldest hidden panel instead of a panel of its own.
 ///
 /// **A size change in Park mode.** A widget that changes size gets a new sender and a new QarOS
 /// panel in every mode, because the layout of a sender is fixed at creation. In Destroy and
@@ -561,6 +570,51 @@ public:
     dialog_pose_adjuster_ = std::move(adjuster);
   }
 
+  /// The scale a dialog's panel is made at: the metres that one logical pixel of the dialog
+  /// covers and the supersampling of its capture (the two numbers of PanelStreamOptions, with
+  /// the limits QtPanelStream::set_scale applies).
+  struct DialogScale
+  {
+    double meters_per_logical_px = kDefaultMetersPerLogicalPx;
+    double render_scale = 1.0;
+  };
+
+  /// @brief What the host says about the scale of the panel of a dialog, given the key of the
+  /// panel that opened it and the dialog itself (already fitted, when a size adjuster is
+  /// installed). Called on the GUI thread from tick(), each time the sweep gives a dialog a panel,
+  /// before the pose adjuster and the panel; it must not block, make no QarOS call and not call
+  /// back into the manager except for the const query ar_panel_height_m(). An answer replaces the
+  /// scale that a new panel takes from its owner; no answer (an empty optional, or numbers
+  /// outside the limits of scale_within_limits()) leaves the owner's scale in place, which is
+  /// the default; a dialog whose slot is shown again (a parked or retired panel of the same key)
+  /// keeps the scale its stream has. An answer is also given to such a slot, through the same
+  /// path as set_panel_scale() (the resize mode decides how the change reaches QarOS, nothing is
+  /// closed), and the pose adjuster is told the height at the scale the panel really takes. The
+  /// dialog itself is never touched: its size and look on the desktop are the same whatever the
+  /// answer is. The sideways step between a dialog's panel and its owner uses the larger of the
+  /// two scales.
+  using DialogScaleProvider = std::function<std::optional<DialogScale>(
+    const std::string & owner_key, const QWidget & dialog)>;
+  void set_dialog_scale_provider(DialogScaleProvider provider)
+  {
+    dialog_scale_provider_ = std::move(provider);
+  }
+
+  /// @brief What a dialog's panel really got: called once a dialog's panel exists (new, or a
+  /// parked or retired slot shown again), on the GUI thread from tick(), with the key of the
+  /// panel that opened the dialog, the dialog, the key of its panel, the scale the stream has
+  /// (the provider's answer, or the owner's scale when the provider gave none) and whether the
+  /// slot was shown again. It is not called for a dialog whose panel was refused. It must not
+  /// block, make no QarOS call and not call back into the manager. A host logs from it, so that
+  /// a line says what a panel got and not what was wanted.
+  using DialogScaleReporter = std::function<void(
+    const std::string & owner_key, const QWidget & dialog, const std::string & key,
+    const DialogScale & applied, bool revived)>;
+  void set_dialog_scale_reporter(DialogScaleReporter reporter)
+  {
+    dialog_scale_reporter_ = std::move(reporter);
+  }
+
   /// @name Fitting a dialog to its content before its panel is made
   ///
   /// A dialog opened from a streamed panel gets a panel of its own, and a scroll bar inside it
@@ -676,6 +730,20 @@ public:
 
   /// @brief Move one panel in the room.
   seam::Result set_panel_pose(const std::string & key, const seam::Pose & pose);
+
+  /// @brief Change the size in the room and the sharpness of one panel: the metres one logical
+  /// pixel covers and the supersampling of the capture (QtPanelStream::set_scale, which says what
+  /// the stream does with them and which values it refuses).
+  ///
+  /// A dialog panel that the sweep makes after the call reads the scale of the panel that opened
+  /// it (unless a dialog scale provider says otherwise), and is placed beside it at a step that
+  /// grows with the metres (a panel that covers twice the metres per pixel has a dialog stepped
+  /// twice @ref QtPanelStreamingConfig::dialog_panel_offset_m away). A dialog panel that exists
+  /// keeps the scale it has.
+  /// @return Status::NotFound if @p key names no panel stream. A value out of range is refused by
+  /// the stream, not here: the result is a success and the stream's last error says so.
+  seam::Result set_panel_scale(
+    const std::string & key, double meters_per_logical_px, double render_scale);
 
   /// @brief Show @p source's live video in place of @p region's own captured
   /// pixels, for @p key's panel — see
@@ -983,6 +1051,10 @@ private:
   std::uint64_t parks_ = 0;
   std::uint64_t park_revivals_ = 0;
   DialogPoseAdjuster dialog_pose_adjuster_;
+  /// Empty: a dialog's panel takes the scale of its owner. See set_dialog_scale_provider.
+  DialogScaleProvider dialog_scale_provider_;
+  /// Empty: nobody is told what a dialog's panel got. See set_dialog_scale_reporter.
+  DialogScaleReporter dialog_scale_reporter_;
   /// Empty: the height factor sizes dialogs. See set_dialog_size_adjuster.
   DialogSizeAdjuster dialog_size_adjuster_;
   /// The dialog windows being fitted, oldest first; they have no stream yet.

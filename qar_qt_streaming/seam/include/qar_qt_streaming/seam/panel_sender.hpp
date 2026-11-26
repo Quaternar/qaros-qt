@@ -119,6 +119,13 @@ public:
   /// @brief True when @ref set_state can change the state of the panel. The default is false.
   virtual bool supports_state() const { return false; }
 
+  /// @brief Makes sure the panel takes AR input: when the key's gesture subscription names
+  /// another panel (this one was kept while a later size was made), the subscription moves to
+  /// this panel. Only queues the work for the thread that owns the session, and does nothing
+  /// when the key is subscribed on this panel already, so calling it twice leaves one
+  /// subscription. The default does nothing, for a sender without AR input.
+  virtual void ensure_input() {}
+
   /// @brief Tear the panel down: retire its input subscriptions, close the QarOS
   /// panel, destroy the video sender. Idempotent.
   ///

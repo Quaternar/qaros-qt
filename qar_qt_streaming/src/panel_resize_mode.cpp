@@ -52,6 +52,8 @@ to_string(PanelResizeMode mode)
       return "swap";
     case PanelResizeMode::NewPanel:
       return "new-panel";
+    case PanelResizeMode::Defer:
+      return "defer";
   }
   return "swap";
 }
@@ -77,8 +79,13 @@ parse_panel_resize_mode(const char * value)
     choice.explicitly_chosen = true;
     return choice;
   }
+  if (word == "defer") {
+    choice.mode = PanelResizeMode::Defer;
+    choice.explicitly_chosen = true;
+    return choice;
+  }
   choice.warning = std::string(kPanelResizeModeEnv) + "='" + std::string(value) +
-    "' is not a resize mode (expected 'swap' or 'new-panel'); using the default, '" +
+    "' is not a resize mode (expected 'swap', 'new-panel' or 'defer'); using the default, '" +
     to_string(choice.mode) + "'.";
   return choice;
 }

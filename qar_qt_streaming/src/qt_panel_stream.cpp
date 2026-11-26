@@ -8,11 +8,13 @@
 #include "qar_qt_streaming/scroll_census.hpp"
 #include "qar_qt_streaming/video_panel_widget.hpp"
 
+#include <QGuiApplication>
 #include <QWidget>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <iterator>
 #include <string>
 #include <utility>
@@ -657,6 +659,21 @@ QtPanelStream::set_pose_on_next_tick(const seam::Pose & pose)
 }
 
 void
+QtPanelStream::set_scale(double meters_per_logical_px, double render_scale)
+{
+  // The limits (scale_within_limits) only keep a wrong number out.
+  if (!scale_within_limits(meters_per_logical_px, render_scale)) {
+    record_error("scale out of range");
+    return;
+  }
+  if (meters_per_logical_px != options_.meters_per_logical_px) {
+    metres_changed_ = true;
+  }
+  options_.meters_per_logical_px = meters_per_logical_px;
+  options_.render_scale = render_scale;
+}
+
+void
 QtPanelStream::apply_pending_pose()
 {
   if (!pose_pending_ || !adapter_) {
@@ -703,6 +720,7 @@ QtPanelStream::drain_adapter_results(double now_seconds)
           state_asks_.clear();
           has_create_retry_ = true;
           create_retry_at_seconds_ = now_seconds + kCreateRetrySeconds;
+          hide_again_on_next_sender();
         }
         break;
       case seam::PanelOpResult::Op::Placement:
@@ -886,6 +904,55 @@ QtPanelStream::clear_pending_resize()
   diagnostics_.resize_pending = false;
   diagnostics_.pending_buffer_width = 0;
   diagnostics_.pending_buffer_height = 0;
+  held_note_reason_ = nullptr;
+}
+
+bool
+QtPanelStream::mouse_buttons_released() const
+{
+  if (options_.mouse_buttons_released) {
+    return options_.mouse_buttons_released();
+  }
+  return QGuiApplication::instance() == nullptr ||
+         QGuiApplication::mouseButtons() == Qt::NoButton;
+}
+
+const char *
+QtPanelStream::resize_hold_reason(double now_seconds) const
+{
+  if (options_.resize_mode == PanelResizeMode::Defer && !diagnostics_.ar_hidden) {
+    return "defer mode, panel visible";
+  }
+  if (options_.resize_wait_for_mouse_release && !mouse_buttons_released()) {
+    return "mouse button held";
+  }
+  if (has_swapped_ && options_.resize_min_swap_interval_seconds > 0.0 &&
+    now_seconds - last_swap_seconds_ < options_.resize_min_swap_interval_seconds)
+  {
+    return "swap rate limit";
+  }
+  return nullptr;
+}
+
+void
+QtPanelStream::note_resize_held(const char * reason, std::uint32_t width, std::uint32_t height)
+{
+  // Said once for each size and reason, not once per tick.
+  if (held_note_reason_ != nullptr && std::strcmp(held_note_reason_, reason) == 0 &&
+    held_note_width_ == width && held_note_height_ == height)
+  {
+    return;
+  }
+  held_note_reason_ = reason;
+  held_note_width_ = width;
+  held_note_height_ = height;
+  ++held_notes_made_;
+  if (held_notes_made_ > 5 && held_notes_made_ % 100 != 0) {
+    return;
+  }
+  say_note(
+    "'" + key_ + "' resize held: " + reason + " (" + std::to_string(width) + "x" +
+    std::to_string(height) + " waits)");
 }
 
 bool
@@ -957,8 +1024,53 @@ QtPanelStream::adopt_geometry(const PanelGeometry & desired, double now_seconds)
     return false;
   }
 
+  // Settled, but not yet allowed: the size stays pending and the newest one wins.
+  if (const char * reason = resize_hold_reason(now_seconds)) {
+    note_resize_held(reason, desired.buffer_width, desired.buffer_height);
+    return false;
+  }
+
   clear_pending_resize();
   return true;
+}
+
+void
+QtPanelStream::hide_again_on_next_sender()
+{
+  // A show that waits needs no help: the retry of the creation runs because of it (see tick()).
+  if (!diagnostics_.ar_hidden || visibility_requested_) {
+    return;
+  }
+  // The panel counts as shown again, with a hide asked for: the next ticks retry the creation
+  // like those of any panel without a sender, and the hide is carried out on the sender they
+  // make.
+  diagnostics_.ar_hidden = false;
+  visibility_requested_ = true;
+  requested_visible_ = false;
+}
+
+bool
+QtPanelStream::adopt_size_while_hidden(double now_seconds)
+{
+  if (options_.resize_mode != PanelResizeMode::Defer || !diagnostics_.ar_hidden ||
+    diagnostics_.ar_panel_closed || diagnostics_.parked || diagnostics_.tombstoned ||
+    !adapter_ || widget_.isNull() || adapter_->pending())
+  {
+    return false;
+  }
+  // A hide or show asked for waits for the next tick: ensure_adapter() would carry it out right
+  // after the swap, and a show must never come before the sender of the new size is attached.
+  const bool request_waiting = visibility_requested_;
+  visibility_requested_ = false;
+  const std::uint32_t rebuilds = diagnostics_.adapter_rebuilds;
+  if (refresh_geometry(now_seconds)) {
+    ensure_adapter(now_seconds);
+  }
+  visibility_requested_ = request_waiting;
+  if (!adapter_) {
+    hide_again_on_next_sender();
+  }
+  return diagnostics_.adapter_rebuilds != rebuilds;
 }
 
 bool
@@ -987,6 +1099,14 @@ QtPanelStream::refresh_geometry(double now_seconds)
     return geometry_.buffer_width > 0 && geometry_.buffer_height > 0;
   }
 
+  // The geometry that takes up a change of the metres. When the buffer stays as the sender has
+  // it, the sender is kept and QarOS is told the size; when it does not, the sender made for the
+  // buffer carries the placement.
+  const bool send_size = metres_changed_ && adapter_ &&
+    geometry.buffer_width == adapter_buffer_width_ &&
+    geometry.buffer_height == adapter_buffer_height_;
+  metres_changed_ = false;
+
   logical_width_ = input.logical_width;
   logical_height_ = input.logical_height;
   geometry_ = geometry;
@@ -999,6 +1119,9 @@ QtPanelStream::refresh_geometry(double now_seconds)
   placement_.size.width_meters = geometry.width_meters;
   placement_.size.height_meters = geometry.height_meters;
   placement_.size.content_scale = geometry.content_scale;
+  if (send_size && !adapter_->set_placement(placement_)) {
+    record_error(adapter_->last_error());
+  }
 
   diagnostics_.buffer_width = geometry.buffer_width;
   diagnostics_.buffer_height = geometry.buffer_height;
@@ -1097,19 +1220,38 @@ QtPanelStream::common_name_for(std::uint32_t buffer_width, std::uint32_t buffer_
   return name;
 }
 
+std::size_t
+QtPanelStream::find_revivable_kept_panel(const seam::PanelDesc & desc) const
+{
+  std::size_t by_size = replaced_adapters_.size();
+  for (std::size_t i = 0; i < replaced_adapters_.size(); ++i) {
+    const KeptPanel & panel = replaced_adapters_[i];
+    if (panel.buffer_width != desc.buffer_width || panel.buffer_height != desc.buffer_height) {
+      continue;
+    }
+    if (!panel.common_name.empty() && panel.common_name == desc.common_name) {
+      return i;
+    }
+    // A panel that a later size joined keeps the name it was made with, so the name alone does
+    // not tell what the panel shows. The size does, and every panel kept here is this stream's.
+    if (options_.resize_mode == PanelResizeMode::NewPanel && by_size == replaced_adapters_.size()) {
+      by_size = i;
+    }
+  }
+  return by_size;
+}
+
 bool
 QtPanelStream::revive_kept_panel(const seam::PanelDesc & desc)
 {
-  const auto kept = std::find_if(
-    replaced_adapters_.begin(), replaced_adapters_.end(), [&desc](const KeptPanel & panel) {
-      return !panel.common_name.empty() && panel.common_name == desc.common_name &&
-             panel.buffer_width == desc.buffer_width && panel.buffer_height == desc.buffer_height;
-    });
-  if (kept == replaced_adapters_.end()) {
+  const std::size_t index = find_revivable_kept_panel(desc);
+  if (index >= replaced_adapters_.size()) {
     return false;
   }
+  const auto kept = replaced_adapters_.begin() + static_cast<std::ptrdiff_t>(index);
   adapter_ = std::move(kept->adapter);
   const bool was_hidden = kept->hidden;
+  adapter_common_name_ = kept->common_name;
   replaced_adapters_.erase(kept);
   state_asks_.clear();  // the asks of this sender while it was kept are not ours to undo
   // The kept panel took the pose it had when it was replaced; the panel is shown where the
@@ -1117,6 +1259,9 @@ QtPanelStream::revive_kept_panel(const seam::PanelDesc & desc)
   if (!adapter_->set_placement(placement_)) {
     record_error(adapter_->last_error());
   }
+  // The panel takes AR input whether or not it was hidden: a panel whose hide was refused is
+  // on show and needs no state change, yet the key may be subscribed on the panel made after it.
+  adapter_->ensure_input();
   if (was_hidden && !diagnostics_.ar_hidden) {
     if (!adapter_->supports_state() || !adapter_->set_state(seam::PanelState::Visible)) {
       record_visibility_failure(
@@ -1126,6 +1271,110 @@ QtPanelStream::revive_kept_panel(const seam::PanelDesc & desc)
       note_state_ask(StateAsk{});
     }
   }
+  return true;
+}
+
+std::size_t
+QtPanelStream::find_kept_panel_to_join(const seam::PanelDesc & desc) const
+{
+  const std::size_t none = replaced_adapters_.size();
+  if (find_revivable_kept_panel(desc) != none) {
+    return none;  // the panel of this size is shown again, it needs no sender
+  }
+  if (options_.max_kept_panels == 0 || replaced_adapters_.size() < options_.max_kept_panels) {
+    return none;
+  }
+  // The ring is full: the oldest kept panel that is hidden takes the new sender. A panel that is
+  // on show is never given one, so a panel whose hide was refused is passed over.
+  for (std::size_t i = 0; i < none; ++i) {
+    const KeptPanel & panel = replaced_adapters_[i];
+    if (panel.hidden && panel.adapter && panel.adapter->supports_detach()) {
+      return i;
+    }
+  }
+  return none;
+}
+
+std::string
+QtPanelStream::unused_panel_name(const std::string & name) const
+{
+  const auto held = [this](const std::string & candidate) {
+      if (candidate == adapter_common_name_) {
+        return true;
+      }
+      return std::any_of(
+        replaced_adapters_.begin(), replaced_adapters_.end(),
+        [&candidate](const KeptPanel & panel) { return panel.common_name == candidate; });
+    };
+  if (!held(name)) {
+    return name;
+  }
+  for (unsigned number = 2;; ++number) {
+    const std::string suffix = "~" + std::to_string(number);
+    std::string candidate = name;
+    if (candidate.size() + suffix.size() > seam::kCommonNameMax) {
+      candidate.resize(seam::kCommonNameMax - suffix.size());
+    }
+    candidate += suffix;
+    if (!held(candidate)) {
+      return candidate;
+    }
+  }
+}
+
+bool
+QtPanelStream::rebuild_on_kept_panel(std::size_t index, seam::PanelDesc desc, double now_seconds)
+{
+  KeptPanel host = std::move(replaced_adapters_[index]);
+  replaced_adapters_.erase(replaced_adapters_.begin() + static_cast<std::ptrdiff_t>(index));
+  // The panel is hidden: its old sender goes first (the QarOS panel stays), so the sender made
+  // next finds the panel with nothing else attached to it. The panel keeps the name it was made
+  // with, which is how the factory finds it.
+  host.adapter->detach();
+  host.adapter.reset();
+  desc.common_name = host.common_name;
+  std::shared_ptr<seam::IPanelSender> made = factory_->create_panel_sender(desc);
+  if (!made) {
+    // As a creation that fails after the replaced panel was taken out of use: the current sender
+    // is hidden and kept, the stream has none until the next try.
+    if (adapter_) {
+      retire_adapter_for_rebuild(now_seconds);
+    }
+    record_error(factory_->last_error().empty() ? "panel sender creation failed"
+                                                : factory_->last_error());
+    diagnostics_.active = false;
+    // The panel that was to host the sender has lost its own: a try on every tick would take
+    // the next hidden panel the same way.
+    has_create_retry_ = true;
+    create_retry_at_seconds_ = now_seconds + kCreateRetrySeconds;
+    return false;
+  }
+  std::shared_ptr<seam::IPanelSender> leaving = std::move(adapter_);
+  const std::string leaving_name = adapter_common_name_;
+  const std::uint32_t leaving_width = adapter_buffer_width_;
+  const std::uint32_t leaving_height = adapter_buffer_height_;
+  adapter_ = std::move(made);
+  adopt_new_adapter(desc);
+  // The sender is attached while the panel is hidden. Then the panel is shown, and only then the
+  // panel it replaces is hidden, so there is no moment without a panel on show.
+  if (!diagnostics_.ar_hidden) {
+    if (!adapter_->supports_state() || !adapter_->set_state(seam::PanelState::Visible)) {
+      record_visibility_failure(
+        adapter_->last_error().empty() ? std::string("the kept panel could not be shown again") :
+        adapter_->last_error());
+    } else {
+      note_state_ask(StateAsk{});
+    }
+  }
+  SizeRebuildReport report;
+  if (leaving) {
+    keep_replaced_panel(
+      std::move(leaving), leaving_name, leaving_width, leaving_height, now_seconds, report);
+  }
+  report.reused = true;
+  size_rebuild_ = std::move(report);
+  size_rebuild_pending_ = true;
+  apply_visibility_request();
   return true;
 }
 
@@ -1190,10 +1439,46 @@ QtPanelStream::take_size_rebuild(SizeRebuildReport & report)
 }
 
 void
+QtPanelStream::keep_replaced_panel(
+  std::shared_ptr<seam::IPanelSender> adapter, const std::string & common_name,
+  std::uint32_t buffer_width, std::uint32_t buffer_height, double now_seconds,
+  SizeRebuildReport & report)
+{
+  // A refusal changes nothing about keeping it: the old panel then stays visible next to the new
+  // one, and the report says so. A refused hide is asked for again on later ticks
+  // (retry_kept_hides); a sender that cannot hide a panel at all is not, there is nothing to ask
+  // again.
+  KeptPanel kept;
+  std::string refusal;
+  bool refused_by_qaros = false;
+  if (!adapter->supports_state()) {
+    refusal = "the panel sender cannot change the state of a panel";
+  } else if (!adapter->set_state(seam::PanelState::Hidden)) {
+    refused_by_qaros = true;
+    refusal = adapter->last_error().empty() ? std::string("set_state was refused") :
+      adapter->last_error();
+  }
+  kept.hidden = refusal.empty();
+  kept.attempts = 1;
+  if (refused_by_qaros) {
+    kept.retries_left = kKeptHideRetries;
+    kept.next_retry_seconds = now_seconds + kKeptHideRetrySeconds;
+  }
+  report.fate = refusal.empty() ? ReplacedPanelFate::HiddenKept : ReplacedPanelFate::VisibleKept;
+  report.hide_error = std::move(refusal);
+  kept.common_name = common_name;
+  kept.buffer_width = buffer_width;
+  kept.buffer_height = buffer_height;
+  kept.adapter = std::move(adapter);
+  replaced_adapters_.push_back(std::move(kept));
+}
+
+void
 QtPanelStream::retire_adapter_for_rebuild(double now_seconds)
 {
   SizeRebuildReport report;
-  if (options_.resize_mode == PanelResizeMode::Swap && adapter_->supports_detach() &&
+  if ((options_.resize_mode == PanelResizeMode::Swap ||
+    options_.resize_mode == PanelResizeMode::Defer) && adapter_->supports_detach() &&
     (!swap_policy_ || swap_policy_()))
   {
     // The QarOS panel stays and keeps its common name. Detaching comes FIRST: it releases the old
@@ -1202,37 +1487,16 @@ QtPanelStream::retire_adapter_for_rebuild(double now_seconds)
     // would point at one QarOS panel).
     adapter_->detach();
     report.fate = ReplacedPanelFate::Swapped;
-  } else if (replaced_panel_policy_ && replaced_panel_policy_()) {
+  } else if (
+    options_.resize_mode == PanelResizeMode::NewPanel ||
+    (replaced_panel_policy_ && replaced_panel_policy_()))
+  {
     // Hidden and kept, never closed: a close of a QarOS panel while the session runs is what the
-    // policy exists to avoid. The hide is asked for here, on the tick that makes the new panel,
-    // like every other QarOS call. A refusal changes nothing about keeping it: the old panel
-    // then stays visible next to the new one, and the report says so. A refused hide is asked
-    // for again on later ticks (retry_kept_hides); a sender that cannot hide a panel at all is
-    // not, there is nothing to ask again.
-    KeptPanel kept;
-    std::string refusal;
-    bool refused_by_qaros = false;
-    if (!adapter_->supports_state()) {
-      refusal = "the panel sender cannot change the state of a panel";
-    } else if (!adapter_->set_state(seam::PanelState::Hidden)) {
-      refused_by_qaros = true;
-      refusal = adapter_->last_error().empty() ? std::string("set_state was refused") :
-        adapter_->last_error();
-    }
-    kept.hidden = refusal.empty();
-    kept.attempts = 1;
-    if (refused_by_qaros) {
-      kept.retries_left = kKeptHideRetries;
-      kept.next_retry_seconds = now_seconds + kKeptHideRetrySeconds;
-    }
-    report.fate =
-      refusal.empty() ? ReplacedPanelFate::HiddenKept : ReplacedPanelFate::VisibleKept;
-    report.hide_error = std::move(refusal);
-    kept.common_name = adapter_common_name_;
-    kept.buffer_width = adapter_buffer_width_;
-    kept.buffer_height = adapter_buffer_height_;
-    kept.adapter = std::move(adapter_);
-    replaced_adapters_.push_back(std::move(kept));
+    // policy exists to avoid, and PanelResizeMode::NewPanel never closes one. The hide is asked
+    // for here, on the tick that makes the new panel, like every other QarOS call.
+    keep_replaced_panel(
+      std::move(adapter_), adapter_common_name_, adapter_buffer_width_, adapter_buffer_height_,
+      now_seconds, report);
     state_asks_.clear();
   } else {
     // Fully CLOSED before the replacement is asked for, never overlapped: close() retires the
@@ -1275,51 +1539,9 @@ QtPanelStream::retry_kept_hides(double now_seconds)
   }
 }
 
-bool
-QtPanelStream::ensure_adapter(double now_seconds)
+void
+QtPanelStream::adopt_new_adapter(const seam::PanelDesc & desc)
 {
-  // Compare against the size the ADAPTER was built with, not the freshly
-  // recomputed geometry: refresh_geometry() has already updated diagnostics_.
-  if (adapter_ && adapter_buffer_width_ == geometry_.buffer_width &&
-    adapter_buffer_height_ == geometry_.buffer_height)
-  {
-    return true;
-  }
-
-  if (adapter_) {
-    // The sender's layout is fixed at creation and QarOS allocates the panel
-    // receiver from it, so a resized widget needs a whole new sender + panel.
-    retire_adapter_for_rebuild(now_seconds);
-  }
-  if (!factory_) {
-    record_error("no panel sender factory");
-    return false;
-  }
-  if (!adapter_ && has_create_retry_ && now_seconds < create_retry_at_seconds_) {
-    return false;  // the last creation failed; asked again once the time has come
-  }
-  has_create_retry_ = false;
-
-  seam::PanelDesc desc;
-  desc.key = key_;
-  desc.display_name = diagnostics_.display_name;
-  desc.buffer_width = geometry_.buffer_width;
-  desc.buffer_height = geometry_.buffer_height;
-  desc.content_width = geometry_.content_width;
-  desc.content_height = geometry_.content_height;
-  desc.placement = placement_;
-  desc.common_name = common_name_for(geometry_.buffer_width, geometry_.buffer_height);
-
-  // A kept panel with this name is this panel: it is shown again, not made a second time.
-  if (!revive_kept_panel(desc)) {
-    adapter_ = factory_->create_panel_sender(desc);
-  }
-  if (!adapter_) {
-    record_error(factory_->last_error().empty() ? "panel sender creation failed"
-                                                : factory_->last_error());
-    diagnostics_.active = false;
-    return false;
-  }
   adapter_common_name_ = desc.common_name;
   state_asks_.clear();
   adapter_buffer_width_ = geometry_.buffer_width;
@@ -1337,7 +1559,7 @@ QtPanelStream::ensure_adapter(double now_seconds)
   // Asked once, here, rather than on every tick: the id is fixed for the
   // sender's lifetime, and a rebuild mints a new sender and therefore a new id.
   diagnostics_.stream_id = adapter_->stream_id_text();
-  // A brand-new sender has served nothing, and the clock on that starts now —
+  // A brand-new sender has served nothing, and the clock on that starts now -
   // not at the panel's creation, so a resize rebuild is judged on its own.
   diagnostics_.unserved_seconds = 0.0;
   diagnostics_.unserved_reported = false;
@@ -1349,6 +1571,84 @@ QtPanelStream::ensure_adapter(double now_seconds)
   has_submitted_ = false;
   diagnostics_.active = true;
   diagnostics_.last_error.clear();
+}
+
+bool
+QtPanelStream::ensure_adapter(double now_seconds)
+{
+  // Compare against the size the ADAPTER was built with, not the freshly
+  // recomputed geometry: refresh_geometry() has already updated diagnostics_.
+  if (adapter_ && adapter_buffer_width_ == geometry_.buffer_width &&
+    adapter_buffer_height_ == geometry_.buffer_height)
+  {
+    return true;
+  }
+
+  seam::PanelDesc desc;
+  desc.key = key_;
+  desc.display_name = diagnostics_.display_name;
+  desc.buffer_width = geometry_.buffer_width;
+  desc.buffer_height = geometry_.buffer_height;
+  desc.content_width = geometry_.content_width;
+  desc.content_height = geometry_.content_height;
+  desc.placement = placement_;
+  desc.common_name = common_name_for(geometry_.buffer_width, geometry_.buffer_height);
+
+  // PanelResizeMode::NewPanel never gives a visible panel a new sender and never closes a panel:
+  // a size that a kept panel was made for shows that panel again; when the ring of kept panels
+  // is full, the new sender joins the oldest hidden one. Both only while the factory can answer.
+  if (options_.resize_mode == PanelResizeMode::NewPanel && factory_ &&
+    (adapter_ || !has_create_retry_ || now_seconds >= create_retry_at_seconds_))
+  {
+    const std::size_t host = find_kept_panel_to_join(desc);
+    if (host < replaced_adapters_.size()) {
+      if (adapter_) {
+        has_swapped_ = true;
+        last_swap_seconds_ = now_seconds;
+      }
+      has_create_retry_ = false;
+      return rebuild_on_kept_panel(host, std::move(desc), now_seconds);
+    }
+  }
+
+  if (adapter_) {
+    // The sender's layout is fixed at creation and QarOS allocates the panel
+    // receiver from it, so a resized widget needs a whole new sender + panel.
+    retire_adapter_for_rebuild(now_seconds);
+    has_swapped_ = true;
+    last_swap_seconds_ = now_seconds;
+  }
+  if (!factory_) {
+    record_error("no panel sender factory");
+    return false;
+  }
+  if (!adapter_ && has_create_retry_ && now_seconds < create_retry_at_seconds_) {
+    return false;  // the last creation failed; asked again once the time has come
+  }
+  has_create_retry_ = false;
+
+  // A kept panel with this name is this panel: it is shown again, not made a second time.
+  if (revive_kept_panel(desc)) {
+    desc.common_name = adapter_common_name_;  // the panel keeps the name it was made with
+    if (size_rebuild_pending_) {
+      size_rebuild_.revived = true;
+      if (size_rebuild_.fate == ReplacedPanelFate::HiddenKept) {
+        size_rebuild_.fate = ReplacedPanelFate::Revived;
+      }
+    }
+  } else {
+    if (options_.resize_mode == PanelResizeMode::NewPanel) {
+      desc.common_name = unused_panel_name(desc.common_name);
+    }
+    adapter_ = factory_->create_panel_sender(desc);
+  }
+  if (!adapter_) {
+    record_error(factory_->last_error().empty() ? "panel sender creation failed"
+                                                : factory_->last_error());
+    diagnostics_.active = false;
+    return false;
+  }
+  adopt_new_adapter(desc);
   // A hide or show asked for while there was no sender waited for this one.
   apply_visibility_request();
   return true;
@@ -1380,7 +1680,12 @@ QtPanelStream::tick(double now_seconds)
   // showing is also the way back from a close by the operator, which the next check would
   // otherwise end this tick on.
   apply_pending_pose();
-  apply_visibility_request();
+  // PanelResizeMode::Defer swaps the sender only while the panel is hidden in AR. A show asked
+  // for while a settled size is pending adopts it first and is carried out at the next tick, so
+  // the sender of the new size is attached before the panel appears.
+  if (!(visibility_requested_ && requested_visible_ && adopt_size_while_hidden(now_seconds))) {
+    apply_visibility_request();
+  }
 
   // The operator closed this panel in AR. Nothing is looking at the frames any
   // more, so stop paying for them — but the sender stays alive until session
@@ -1394,8 +1699,12 @@ QtPanelStream::tick(double now_seconds)
 
   // Hidden in AR: nothing is looking at the frames either, and every capture is a full repaint
   // of the widget. The sender, the QarOS panel and the subscriptions stay.
-  if (diagnostics_.ar_hidden) {
+  // PanelResizeMode::Defer adopts a settled size of the widget here, with nothing captured. A
+  // show that waits for a sender (the swap of the tick before could not make one) goes on below,
+  // where the sender is made again and carries the show out.
+  if (diagnostics_.ar_hidden && !(visibility_requested_ && !adapter_)) {
     ++diagnostics_.frames_skipped_hidden;
+    adopt_size_while_hidden(now_seconds);
     return false;
   }
 
